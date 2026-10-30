@@ -1,0 +1,96 @@
+
+ RUN  v4.0.18 /private/tmp/pixishelf-dedup-hot-batch-fallback/PixiShelf/packages/pixishelf-job-executors
+
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts (32 tests | 2 failed) 62933ms
+     ✓ reuses zero-version caches with absent artwork source rows without creating missing sources  1830ms
+     ✓ reuses zero-version caches with mixed artwork source rows without creating missing sources  1729ms
+     × rejects a newly inserted nonzero artwork source revision at the batch commit 1051ms
+     × rejects a newly inserted nonzero artwork source epoch at the batch commit 1009ms
+     ✓ v9 hot batch saves no media, cursor or count after cancel  726ms
+     ✓ v9 hot batch saves no media, cursor or count after lease  725ms
+     ✓ v9 hot batch saves no media, cursor or count after rollback  794ms
+     ✓ copies exact, contains and partial graphs with current order, without review authority or historical dependencies  1932ms
+     ✓ reuses completed visual evidence without feature decoding, original reads or candidate work  1624ms
+     ✓ reuses complete mixed-media coverage with declared exclusions  1534ms
+     ✓ reuses complete mixed-media coverage with decoded exclusions  1535ms
+     ✓ does not whole-run reuse after feature-cache changes  1627ms
+     ✓ does not whole-run reuse after identity changes  1667ms
+     ✓ does not whole-run reuse after feature-version changes  1627ms
+     ✓ does not whole-run reuse after search-version changes  1668ms
+     ✓ does not whole-run reuse after incomplete changes  1622ms
+     ✓ does not whole-run reuse after options changes  1469ms
+     ✓ uses the existing changed-input path for modify  1301ms
+     ✓ uses the existing changed-input path for insert  1314ms
+     ✓ uses the existing changed-input path for delete  1266ms
+     ✓ uses the existing changed-input path for missing  1306ms
+     ✓ uses the existing changed-input path for full  1453ms
+     ✓ commits a 500-original prefix and resumes in a new executor without recounting  3740ms
+     ✓ resumes a durable copy checkpoint, source loss=false  1507ms
+     ✓ resumes a durable copy checkpoint, source loss=true  1528ms
+     ✓ restarts bounded evidence copying when order changes after the first 1000 pages  16834ms
+     ✓ retries only projection when order changes immediately before publication  1769ms
+     ✓ revalidates media classification changed after the final copy  2175ms
+     ✓ rechecks final publication after source changes following result copy  1212ms
+     ✓ rechecks final publication after directory changes following result copy  1229ms
+     ✓ reuses a complete empty artist scope  648ms
+     ✓ reuses an unchanged complete negative result  1226ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > rejects a newly inserted nonzero artwork source revision at the batch commit
+AssertionError: expected { readBytes: +0, …(27) } to match object { hotBatches: +0, reusedArtworks: +0 }
+(26 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "hotBatches": 0,
+-   "reusedArtworks": 0,
++   "hotBatches": null,
++   "reusedArtworks": null,
+  }
+
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:170:111
+    168|     const run = await db!.artworkDedupRun.findUniqueOrThrow({ where: {…
+    169|     expect(changed).toBe(true)
+    170|     expect((run.performanceSummary as { counters: { hotBatches: number…
+       |                                                                                                               ^
+    171|     const events = await db!.systemJobEvent.findMany({ where: { jobId:…
+    172|     expect(events.some(event => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > rejects a newly inserted nonzero artwork source epoch at the batch commit
+AssertionError: expected { readBytes: 5, …(27) } to match object { hotBatches: +0, reusedArtworks: +0 }
+(26 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "hotBatches": 0,
+-   "reusedArtworks": 0,
++   "hotBatches": null,
++   "reusedArtworks": null,
+  }
+
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:170:111
+    168|     const run = await db!.artworkDedupRun.findUniqueOrThrow({ where: {…
+    169|     expect(changed).toBe(true)
+    170|     expect((run.performanceSummary as { counters: { hotBatches: number…
+       |                                                                                                               ^
+    171|     const events = await db!.systemJobEvent.findMany({ where: { jobId:…
+    172|     expect(events.some(event => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 30 passed (32)
+   Start at  23:32:48
+   Duration  63.83s (transform 509ms, setup 0ms, import 774ms, tests 62.93s, environment 0ms)
+
+undefined
+/private/tmp/pixishelf-dedup-hot-batch-fallback/PixiShelf/packages/pixishelf-job-executors:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run --config vitest.config.ts src/artwork-dedup/__tests__/hot-run.postgres.test.ts

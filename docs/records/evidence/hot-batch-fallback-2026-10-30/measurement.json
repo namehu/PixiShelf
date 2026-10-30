@@ -1,0 +1,81 @@
+{
+  "baseline": {
+    "wallMs": 8065.030790999999,
+    "contextTransactions": 468,
+    "mutationTransactions": 467,
+    "sqlBeginTransactions": 471,
+    "sqlStatements": 7724,
+    "apiCalls": 5588,
+    "sampledProcessPeakRssBytes": 156925952,
+    "schedulingWaitMs": 0,
+    "resultDigest": "9c8c620c96e92375cf1ed94477297d09527affbf2697bbf774d1c0be912a6bb0",
+    "groups": 25,
+    "metadataPeakBytes": 0,
+    "counters": {
+      "hotBatches": 0,
+      "reusedArtworks": 0,
+      "copiedRows": 2125,
+      "reusedRelations": 25,
+      "readBytes": 0,
+      "hashedOriginals": 0,
+      "decodedImages": 0,
+      "candidatePairs": 0,
+      "compareCalls": 0,
+      "indexRebuilds": 0,
+      "indexNodeVisits": 0,
+      "originalCacheHits": 2000
+    },
+    "runtimePersistedTransactions": 469,
+    "metadataPeakBytesMeaning": "Old runtime wrote zero despite no hot metadata sample; retained without backfill."
+  },
+  "after": {
+    "wallMs": 3090.9665,
+    "contextTransactions": 21,
+    "mutationTransactions": 20,
+    "sqlBeginTransactions": 24,
+    "sqlStatements": 704,
+    "apiCalls": 593,
+    "sampledProcessPeakRssBytes": 178290688,
+    "schedulingWaitMs": 0,
+    "resultDigest": "9c8c620c96e92375cf1ed94477297d09527affbf2697bbf774d1c0be912a6bb0",
+    "groups": 25,
+    "metadataPeakBytes": 6990976,
+    "counters": {
+      "hotBatches": 4,
+      "reusedArtworks": 50,
+      "copiedRows": 2125,
+      "reusedRelations": 25,
+      "readBytes": 0,
+      "hashedOriginals": 0,
+      "decodedImages": 0,
+      "candidatePairs": 0,
+      "compareCalls": 0,
+      "indexRebuilds": 0,
+      "indexNodeVisits": 0,
+      "originalCacheHits": 2000
+    },
+    "runtimePersistedTransactions": 22,
+    "metadataPeakBytesMeaning": "Estimated task metadata workset, not process RSS."
+  },
+  "reductionsPercent": {
+    "wallMs": 61.6744612624505,
+    "contextTransactions": 95.51282051282051,
+    "sqlBeginTransactions": 94.90445859872611,
+    "sqlStatements": 90.88555152770586,
+    "apiCalls": 89.38797423049391
+  },
+  "sameResultDigest": true,
+  "oneObservationPerRevision": true,
+  "notes": "Same original read-only 2000 files/50 artworks; both new clones restored from same preserved dump and received identical explicit source-version-zero fixture mapping. No original bytes/hash/decode/candidate work; no scheduling sleeps. Prebuilt after snapshot was unused; measured after-final snapshot is exact formatted final core.",
+  "evidenceGeneratedAt": "2026-10-30T15:40:11.470501+00:00",
+  "rawPrivateResults": {
+    "baseline": {
+      "file": "baseline.json",
+      "sha256": "b2a6388c75ab9db04658466bf6f8d237baaa80faa9942482c401aef40fa92d16"
+    },
+    "after": {
+      "file": "after.json",
+      "sha256": "704ce8114ea61a6d0238974259dcb9df8f24ac57174b5d86e9c8433ce3c982e5"
+    }
+  }
+}

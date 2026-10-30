@@ -1,0 +1,20 @@
+{
+  "before-after": {
+    "at": "2026-10-30T15:36:38.940Z",
+    "label": "before-after",
+    "files": 2000,
+    "artworks": 50,
+    "fileStateDigest": "8680a87f640a4e625c6443d49fa8582c6252b49759f6c5d7ffbdd82c0a92977a",
+    "dumpSha256": "27f56230021955550eae72292d8db06e02894177ced3008653e1a2fe46835b0a",
+    "unchanged": true
+  },
+  "after-comparison": {
+    "at": "2026-10-30T15:37:35.913Z",
+    "label": "after-comparison",
+    "files": 2000,
+    "artworks": 50,
+    "fileStateDigest": "8680a87f640a4e625c6443d49fa8582c6252b49759f6c5d7ffbdd82c0a92977a",
+    "dumpSha256": "27f56230021955550eae72292d8db06e02894177ced3008653e1a2fe46835b0a",
+    "unchanged": true
+  }
+}

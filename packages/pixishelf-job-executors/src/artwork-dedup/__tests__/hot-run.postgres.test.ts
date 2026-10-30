@@ -33,7 +33,7 @@ if (url) {
   if (
     target.hostname !== '127.0.0.1' ||
     target.port !== '55432' ||
-    target.pathname !== '/dedup_hot_reuse_core_20261030'
+    !/^\/dedup_hot_(reuse|fallback)_core_20261030$/.test(target.pathname)
   )
     throw new Error('Dedicated synthetic hot-run core DB required')
 }
@@ -116,6 +116,72 @@ afterAll(async () => {
 }, 60_000)
 
 suite('v9 task-local metadata and whole-run reuse', () => {
+  it.each(['absent', 'mixed'] as const)('reuses zero-version caches with %s artwork source rows without creating missing sources', async sourceRows => {
+    const artistId = await fixture([[2, 3], [2, 3]], { missingArtworkSources: true })
+    const cold = await start(artistId, 'FULL', false, 8)
+    await finish(cold.jobId)
+    const ids = (await db!.artwork.findMany({ where: { creators: { some: { artistId } } }, orderBy: { id: 'asc' } })).map(a => a.id)
+    const fingerprints = await db!.artworkContentFingerprint.findMany({ where: { artworkId: { in: ids } } })
+    expect(fingerprints).toHaveLength(2)
+    expect(fingerprints.every(f => f.sourceRevision === 0n && f.mediaEpoch === 0n)).toBe(true)
+    await db!.artworkContentSource.deleteMany({ where: { artworkId: { in: ids }, revision: 0n, mediaEpoch: 0n, writeToken: null } })
+    if (sourceRows === 'mixed') await db!.artworkContentSource.create({ data: { artworkId: ids[1]! } })
+    const beforeMembers = await db!.mediaContentFingerprint.findMany({ where: { image: { artworkId: { in: ids } } }, orderBy: { imageId: 'asc' } })
+    const hot = await start(artistId, 'INCREMENTAL', false, 9)
+    await finish(hot.jobId)
+    const run = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: hot.runId } })
+    expect(run).toMatchObject({ statMedia: 4, cacheHitMedia: 4, hashedMedia: 0, readBytes: 0n, groupCount: 1,
+      visualCheckpoint: { kind: 'hot-run-reuse', stage: 'done' } })
+    const summary = run.performanceSummary as { counters: { hotBatches: number; reusedArtworks: number } }
+    expect(summary.counters.hotBatches).toBeGreaterThan(0)
+    expect(summary.counters.reusedArtworks).toBe(2)
+    expect(await db!.artworkContentSource.count({ where: { artworkId: { in: ids } } })).toBe(sourceRows === 'mixed' ? 1 : 0)
+    expect(await db!.mediaContentFingerprint.findMany({ where: { image: { artworkId: { in: ids } } }, orderBy: { imageId: 'asc' } })).toEqual(beforeMembers)
+    expect(await db!.artworkDedupItem.findMany({ where: { runId: hot.runId }, select: { snapshotRevision: true, mediaEpoch: true } })).toEqual([
+      { snapshotRevision: 0n, mediaEpoch: 0n }, { snapshotRevision: 0n, mediaEpoch: 0n }
+    ])
+  }, 20_000)
+
+  it.each(['revision', 'epoch'] as const)('rejects a newly inserted nonzero artwork source %s at the batch commit', async changedField => {
+    const artistId = await fixture([[2, 3]], { missingArtworkSources: true })
+    const cold = await start(artistId, 'FULL', false, 8)
+    await finish(cold.jobId)
+    const artwork = await db!.artwork.findFirstOrThrow({ where: { creators: { some: { artistId } } } })
+    await db!.artworkContentSource.deleteMany({ where: { artworkId: artwork.id, revision: 0n, mediaEpoch: 0n } })
+    const hot = await start(artistId, 'INCREMENTAL', false, 9)
+    const supervisor = new DedupReaderSupervisor(readerOptions), create = supervisor.create.bind(supervisor)
+    let changed = false
+    supervisor.create = () => {
+      const reader = create(), inspect = reader.inspect.bind(reader)
+      reader.inspect = async input => {
+        const result = await inspect(input)
+        if (!changed) {
+          changed = true
+          await db!.artworkContentSource.create({ data: { artworkId: artwork.id,
+            ...(changedField === 'revision' ? { revision: 1n } : { mediaEpoch: 1n }) } })
+        }
+        return result
+      }
+      return reader
+    }
+    await executeArtworkDedup(context(await claim(hot.jobId)), dependencies({ supervisor }))
+    const run = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: hot.runId } })
+    expect(changed).toBe(true)
+    // A rejected first batch has no committed hot measurement; unknown counters remain null.
+    expect((run.performanceSummary as { counters: { hotBatches: number | null; reusedArtworks: number | null } }).counters).toMatchObject({ hotBatches: null, reusedArtworks: null })
+    const events = await db!.systemJobEvent.findMany({ where: { jobId: hot.jobId } })
+    expect(events.some(event => {
+      const data = event.data as { kind?: string; phase?: string; reason?: string; artworkId?: number } | null
+      return data?.kind === 'artwork-dedup.hot-fallback' && data.phase === 'COMMIT' && data.reason === 'ARTWORK_CHANGED' && data.artworkId === artwork.id
+    })).toBe(true)
+    const diagnosticQuery = (await fs.readFile(new URL('../../../../../docs/operations/queries/artwork-dedup-hot-fallback.sql', import.meta.url), 'utf8'))
+      .replace('replace-with-run-id', hot.runId)
+    expect(await db!.$queryRawUnsafe(diagnosticQuery)).toEqual([expect.objectContaining({
+      run_id: hot.runId, diagnostic_version: '1', phase: 'COMMIT', reason: 'ARTWORK_CHANGED', artwork_id: String(artwork.id)
+    })])
+    expect(await db!.artworkDedupMedia.count({ where: { runId: hot.runId } })).toBeLessThanOrEqual(2)
+  }, 20_000)
+
   it.each(['cancel', 'lease', 'rollback'] as const)(
     'v9 hot batch saves no media, cursor or count after %s',
     async (change) => {
@@ -650,7 +716,7 @@ suite('v9 task-local metadata and whole-run reuse', () => {
 
 async function fixture(
   works: number[][],
-  options: { source?: 'LOCAL_IMPORT' | 'URL_ARCHIVE'; mediaRoot?: string } = {}
+  options: { source?: 'LOCAL_IMPORT' | 'URL_ARCHIVE'; mediaRoot?: string; missingArtworkSources?: boolean } = {}
 ) {
   const artist = await db!.artist.create({ data: { name: `${prefix}-${artists.length}` } })
   artists.push(artist.id)
@@ -674,6 +740,7 @@ async function fixture(
       await fs.writeFile(path.join(options.mediaRoot ?? root, relative), Buffer.alloc(sizes[i]!, sizes[i]))
       mediaIds.push((await db!.image.create({ data: { artworkId: artwork.id, path: relative, sortOrder: i } })).id)
     }
+    if (options.missingArtworkSources) await db!.artworkContentSource.deleteMany({ where: { artworkId: artwork.id } })
   }
   return artist.id
 }

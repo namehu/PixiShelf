@@ -1,0 +1,46 @@
+{
+  "connection": "pixishelf_diagnostics",
+  "columns": [
+    "job_id",
+    "run_id",
+    "definitionVersion",
+    "startedAt",
+    "finishedAt",
+    "seconds",
+    "event_id",
+    "summary"
+  ],
+  "rows": [
+    {
+      "job_id": "93971593-f1d4-4de9-b485-58b7cce36fd8",
+      "run_id": "266d0295-65bf-4bc6-9d00-039d8e34c219",
+      "definitionVersion": "8",
+      "startedAt": "2026-10-30 01:13:45.193",
+      "finishedAt": "2026-10-30 01:17:54.32",
+      "seconds": "249.127000",
+      "event_id": "588869",
+      "summary": "{\"kind\": \"artwork-dedup-performance\", \"batch\": 206, \"jobId\": \"93971593-f1d4-4de9-b485-58b7cce36fd8\", \"phase\": \"COMPLETED\", \"runId\": \"266d0295-65bf-4bc6-9d00-039d8e34c219\", \"reason\": \"COMPLETED\", \"version\": 1, \"complete\": true, \"counters\": {\"readBytes\": 0, \"dbLoadCalls\": 889, \"compareCalls\": 0, \"dbWriteCalls\": 3727, \"transactions\": 1323, \"decodedImages\": 0, \"indexRebuilds\": 0, \"candidatePairs\": 0, \"ownFeatureHits\": 5948, \"indexNodeVisits\": 0, \"replayedQueries\": null, \"localChannelHits\": 0, \"wholeChannelHits\": 0, \"dbValidationCalls\": 11153, \"contentFeatureHits\": 0, \"relationReusedPairs\": 3, \"replayedComparisons\": null, \"relationInvalidatedPairs\": 0}, \"progress\": {\"originals\": 7905, \"queryTotal\": 5624, \"staticImages\": 5624, \"queryCompleted\": 5624, \"uncheckedMedia\": 2281}, \"updatedAt\": \"2026-10-30T01:17:54.307Z\", \"durationsMs\": {\"pair\": null, \"index\": null, \"pause\": null, \"query\": null, \"queue\": 4465, \"active\": 196656.6597380028, \"dbLoad\": 7047.014907984066, \"compare\": 0, \"dbWrite\": 15126.61889101, \"feature\": 16208.93214899117, \"cooldown\": 48184, \"dbValidation\": 39727.30472801258, \"transactionWall\": 170652.1696289941}, \"inputDigest\": \"e00b8167632920591e6ef7253a8426e38c087b11dee3d2097a11e00247a840c5\", \"searchVersion\": \"bktree-global12-region7of9-10-global28-v2\", \"memoryPeakBytes\": null, \"protocolVersion\": 8, \"cacheInvalidationReasons\": []}"
+    },
+    {
+      "job_id": "213d6610-4f27-4510-8dca-c1ae19699b90",
+      "run_id": "a1f2c870-608d-42ec-ba85-e283959269fa",
+      "definitionVersion": "8",
+      "startedAt": "2026-10-30 03:00:58.317",
+      "finishedAt": "2026-10-30 03:03:53.596",
+      "seconds": "175.279000",
+      "event_id": "589865",
+      "summary": "{\"kind\": \"artwork-dedup-performance\", \"batch\": 200, \"jobId\": \"213d6610-4f27-4510-8dca-c1ae19699b90\", \"phase\": \"COMPLETED\", \"runId\": \"a1f2c870-608d-42ec-ba85-e283959269fa\", \"reason\": \"COMPLETED\", \"version\": 1, \"complete\": true, \"counters\": {\"readBytes\": 0, \"dbLoadCalls\": 1054, \"compareCalls\": 0, \"dbWriteCalls\": 3165, \"transactions\": 1076, \"decodedImages\": 0, \"indexRebuilds\": 0, \"candidatePairs\": 0, \"ownFeatureHits\": 5948, \"indexNodeVisits\": 0, \"replayedQueries\": null, \"localChannelHits\": 0, \"wholeChannelHits\": 0, \"dbValidationCalls\": 8599, \"contentFeatureHits\": 0, \"relationReusedPairs\": 3, \"replayedComparisons\": null, \"relationInvalidatedPairs\": 0}, \"progress\": {\"originals\": 7905, \"queryTotal\": 5624, \"staticImages\": 5624, \"queryCompleted\": 5624, \"uncheckedMedia\": 2281}, \"updatedAt\": \"2026-10-30T03:03:53.587Z\", \"durationsMs\": {\"pair\": null, \"index\": null, \"pause\": null, \"query\": null, \"queue\": 3837, \"active\": 172318.639432, \"dbLoad\": 10156.48542499959, \"compare\": 0, \"dbWrite\": 13639.29768700071, \"feature\": 16030.02159599981, \"cooldown\": 160, \"dbValidation\": 30127.52847699992, \"transactionWall\": 143770.4668150008}, \"inputDigest\": \"e00b8167632920591e6ef7253a8426e38c087b11dee3d2097a11e00247a840c5\", \"searchVersion\": \"bktree-global12-region7of9-10-global28-v2\", \"memoryPeakBytes\": null, \"protocolVersion\": 8, \"cacheInvalidationReasons\": []}"
+    },
+    {
+      "job_id": "342fad27-4d31-4e1a-8e4e-ae8509effe8a",
+      "run_id": "face2cc2-35b7-4d68-9859-394ea453acbe",
+      "definitionVersion": "9",
+      "startedAt": "2026-10-30 15:10:42.351",
+      "finishedAt": "2026-10-30 15:13:08.23",
+      "seconds": "145.879000",
+      "event_id": "596680",
+      "summary": "{\"kind\": \"artwork-dedup-performance\", \"batch\": 39, \"jobId\": \"342fad27-4d31-4e1a-8e4e-ae8509effe8a\", \"phase\": \"COMPLETED\", \"runId\": \"face2cc2-35b7-4d68-9859-394ea453acbe\", \"reason\": \"COMPLETED\", \"version\": 1, \"complete\": true, \"counters\": {\"readBytes\": 0, \"copiedRows\": 8604, \"hotBatches\": 0, \"dbLoadCalls\": 324, \"compareCalls\": 0, \"dbFenceCalls\": 2476, \"dbWriteCalls\": 1121, \"transactions\": 643, \"decodedImages\": 0, \"indexRebuilds\": 0, \"candidatePairs\": 0, \"ownFeatureHits\": 0, \"reusedArtworks\": 0, \"hashedOriginals\": 0, \"indexNodeVisits\": 0, \"replayedQueries\": 0, \"reusedRelations\": 5, \"localChannelHits\": 0, \"wholeChannelHits\": 0, \"dbValidationCalls\": 4007, \"discardedCopyRows\": 0, \"metadataFallbacks\": null, \"originalCacheHits\": 7905, \"contentFeatureHits\": 0, \"relationReusedPairs\": null, \"replayedComparisons\": 0, \"discardedReusedRelations\": 0, \"relationInvalidatedPairs\": null}, \"progress\": {\"originals\": 7905, \"queryTotal\": null, \"staticImages\": null, \"queryCompleted\": null, \"uncheckedMedia\": 2281}, \"updatedAt\": \"2026-10-30T15:13:08.216Z\", \"durationsMs\": {\"pair\": 0, \"index\": 0, \"pause\": null, \"query\": 0, \"queue\": 2314, \"active\": 143766.2333299964, \"dbLoad\": 30796.26786302402, \"compare\": 0, \"dbWrite\": 10560.86012399195, \"feature\": 0, \"cooldown\": 245, \"resultCopy\": 11313.75931499898, \"dbValidation\": 27427.90362191948, \"relationReuse\": 1944.316349998117, \"transactionBody\": 38131.05143704637, \"transactionWall\": 91400.70938197522, \"fingerprintReuse\": 0, \"propertyInspection\": 0, \"transactionPreFence\": 1927.725561991333, \"transactionPostFence\": 1404.770848982036, \"transactionAcquisition\": 708.3887379802762, \"transactionCommitFinalization\": 48270.84541701524}, \"inputDigest\": \"d4341dcf5e66c798f5d1b0052d32d843bccaea6aa882a59259a0b711246544ce\", \"searchVersion\": \"bktree-global12-region7of9-10-global28-v2\", \"memoryPeakBytes\": 190599168, \"protocolVersion\": 9, \"metadataPeakBytes\": 0, \"transactionTiming\": {\"cutoff\": \"2026-10-30T15:13:07.597Z\", \"complete\": false, \"sampledTransactions\": 619}, \"cacheInvalidationReasons\": []}"
+    }
+  ],
+  "row_count": 3
+}

@@ -1,0 +1,4 @@
+
+> @pixishelf/job-executors@0.1.0 typecheck /private/tmp/pixishelf-dedup-hot-batch-fallback/PixiShelf/packages/pixishelf-job-executors
+> tsc -p tsconfig.json --noEmit
+

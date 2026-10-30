@@ -38,7 +38,10 @@ import type { ExecutionContext, ExecutorDefinition, EnqueuedChildJob, QueueSqlEx
 import { MediaContentFileError, resolveMediaContentRoots } from '../media-content/roots.ts'
 import { throwIfAborted } from '../scan/bounded.ts'
 import { ARTWORK_DEDUP_LIMITS as limits } from './limits.ts'
-import { DedupItemError, hashArtwork, statArtwork, type DedupTransaction } from './pipeline.ts'
+import {
+  DedupItemError, hashArtwork, statArtwork,
+  type ArtworkDedupHotFallback, type DedupTransaction
+} from './pipeline.ts'
 import {
   ControlledDedupReader,
   DedupReaderError,
@@ -107,7 +110,19 @@ export async function executeArtworkDedup(
   let savedActiveMs = 0
   let transactionTimingCutoff: string | null = null
   let schedulingAccounted = false
-  type PendingTelemetry = { summary: ArtworkDedupPerformanceSummary; measurement: typeof measured; progress: ArtworkDedupProgressData; activeMs: number }
+  type HotCommittedProgress = { statMedia: number; originals: number; processedArtworks: number; observedAt: string }
+  let lastCommittedHotProgress: HotCommittedProgress | null = null
+  const seenHotFallbacks = new Set<string>()
+  const pendingHotFallbacks: (ArtworkDedupHotFallback & { committedProgress: HotCommittedProgress | null })[] = []
+  let hotMetadataPeakBytes: number | undefined
+  type PendingTelemetry = {
+    summary: ArtworkDedupPerformanceSummary
+    measurement: typeof measured
+    progress: ArtworkDedupProgressData
+    activeMs: number
+    hotFallbackCount: number
+    committedProgress: HotCommittedProgress
+  }
   let pendingTelemetry: PendingTelemetry | undefined
   let latestProgress = context.job.progressData?.kind === 'artwork-dedup' ? context.job.progressData : null
   let finalLogReason: ArtworkDedupPerformanceLogReason = 'CHECKPOINT'
@@ -156,6 +171,11 @@ export async function executeArtworkDedup(
     }
     const summary = advanceArtworkDedupPerformance(base, {
       ...delta, updatedAt, phase, complete: options.reason === 'COMPLETED',
+      ...(hotMetadataPeakBytes === undefined
+        ? {}
+        : {
+            metadataPeakBytes: Math.max(hotMetadataPeakBytes, delta?.metadataPeakBytes ?? 0)
+          }),
       progress: { originals: run.hashedMedia + run.cacheHitMedia, ...delta?.progress },
       counters: {
         ...delta?.counters,
@@ -208,7 +228,36 @@ export async function executeArtworkDedup(
     await tx.artworkDedupRun.update({ where: { id: run.id }, data: { performanceSummary: summary as unknown as Prisma.InputJsonValue } })
     await tx.systemJob.update({ where: { id: execution.jobId }, data: { progressData: progress as unknown as Prisma.InputJsonValue, stage: run.stage } })
     await writePerformanceEvent(tx, summary, options.reason)
-    pendingTelemetry = { summary, measurement: { ...measured }, progress, activeMs }
+    const hotFallbackCount = pendingHotFallbacks.length
+    if (hotFallbackCount)
+      await tx.systemJobEvent.createMany({
+        data: pendingHotFallbacks.map((details) => ({
+          jobId: execution.jobId,
+          type: 'job.progress',
+          level: 'INFO',
+          attempt: context.job.attempt,
+          workerId: context.job.workerId,
+          stage: 'STAT',
+          progress: null,
+          message: '热检查批量核对回退',
+          data: {
+            kind: 'artwork-dedup.hot-fallback',
+            diagnosticVersion: 1,
+            runId: execution.runId,
+            ...details
+          } as unknown as Prisma.InputJsonValue
+        }))
+      })
+    pendingTelemetry = {
+      summary, measurement: { ...measured }, progress, activeMs,
+      hotFallbackCount,
+      committedProgress: {
+        statMedia: run.statMedia,
+        originals: run.hashedMedia + run.cacheHitMedia,
+        processedArtworks: run.processedArtworks,
+        observedAt: updatedAt
+      }
+    }
     if (options.reason) finalLogReason = options.reason
   }
   let transactions = 0
@@ -233,6 +282,8 @@ export async function executeArtworkDedup(
         pendingReads = emptyDedupDatabaseMeasurement()
         const committed = pendingTelemetry as PendingTelemetry | undefined
         if (committed) {
+          lastCommittedHotProgress = committed.committedProgress
+          pendingHotFallbacks.splice(0, committed.hotFallbackCount)
           savedMeasurement = committed.measurement
           savedActiveMs = committed.activeMs
           schedulingAccounted = true
@@ -362,6 +413,21 @@ export async function executeArtworkDedup(
         return result
       },
       onPerformance: v2 ? emitPerformance : undefined,
+      onHotRunFallback: (details: ArtworkDedupHotFallback) => {
+        if (details.metadataBytes !== undefined)
+          hotMetadataPeakBytes = Math.max(hotMetadataPeakBytes ?? 0, details.metadataBytes)
+        const key = `${details.phase}:${details.reason}`
+        if (seenHotFallbacks.has(key)) return
+        seenHotFallbacks.add(key)
+        const observed = { ...details, committedProgress: lastCommittedHotProgress }
+        pendingHotFallbacks.push(observed)
+        context.logger.info('artwork-dedup.hot-fallback', {
+          diagnosticVersion: 1,
+          runId: execution.runId,
+          jobId: execution.jobId,
+          ...observed
+        })
+      },
       onPerformanceSnapshot: v2 ? writePerformanceEvent : undefined,
       onFeatureBatch: v2 ? async (tx: Prisma.TransactionClient, delta: {
         decodedImages: number; ownFeatureHits: number; contentFeatureHits: number; readBytes: number;
@@ -378,7 +444,7 @@ export async function executeArtworkDedup(
       onHotRunBatch: context.job.definitionVersion >= 9 ? async (tx: Prisma.TransactionClient, delta: {
         statMs: number; fingerprintReuseMs: number; relationReuseMs: number; resultCopyMs: number;
         hotBatches: number; reusedArtworks: number; reusedRelations: number; copiedRows: number;
-        metadataBytes: number; rssBytes: number
+        metadataBytes?: number; rssBytes: number
         metadataFallbacks?: number; wholeRunReused?: boolean; uncheckedMedia?: number
     discardedCopyRows?: number; discardedReusedRelations?: number
       }) => {
@@ -406,7 +472,7 @@ export async function executeArtworkDedup(
               relationReuse: delta.relationReuseMs, resultCopy: delta.resultCopyMs,
               ...(delta.wholeRunReused ? { feature: 0, index: 0, query: 0, compare: 0, pair: 0 } : {})
             },
-            metadataPeakBytes: delta.metadataBytes,
+            ...(delta.metadataBytes === undefined ? {} : { metadataPeakBytes: delta.metadataBytes }),
             memoryPeakBytes: delta.rssBytes
           }
         })

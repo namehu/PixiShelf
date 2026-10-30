@@ -1,0 +1,26 @@
+{
+  "connection": "pixishelf_diagnostics",
+  "columns": [
+    "jobId",
+    "scheduling_yields",
+    "scheduled_cooldown_seconds"
+  ],
+  "rows": [
+    {
+      "jobId": "213d6610-4f27-4510-8dca-c1ae19699b90",
+      "scheduling_yields": 15,
+      "scheduled_cooldown_seconds": "0.000000"
+    },
+    {
+      "jobId": "342fad27-4d31-4e1a-8e4e-ae8509effe8a",
+      "scheduling_yields": 11,
+      "scheduled_cooldown_seconds": "0.000000"
+    },
+    {
+      "jobId": "93971593-f1d4-4de9-b485-58b7cce36fd8",
+      "scheduling_yields": 18,
+      "scheduled_cooldown_seconds": "48.000000"
+    }
+  ],
+  "row_count": 3
+}

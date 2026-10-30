@@ -1,0 +1,47 @@
+{
+  "at": "2026-10-30T15:40:11.492279+00:00",
+  "coverage": {
+    "hotRunUnit": 14,
+    "lifecycleTelemetryUnit": 14,
+    "postgresDistinctCases": 32,
+    "distinctTotal": 60
+  },
+  "postgresExecution": "First complete 32-case compiled-reader run passed 30 and failed only two new assertions expecting zero where an uncommitted first batch correctly retains null. Final targeted two cases passed after the assertion correction, with the read-only SQL template verified against real events. This is not a single all-green 32-case run.",
+  "typechecks": {
+    "db": "passed",
+    "job-executors": "passed after final source formatting and test changes"
+  },
+  "logs": {
+    "unit-telemetry.log": {
+      "privateSource": "final-unit-telemetry.log",
+      "sha256": "b55a2099faf5d26568e2a9bb9375ba91b1604941f2e83b724e40f30997dbd025"
+    },
+    "postgres-initial.log": {
+      "privateSource": "core-hot-run-tests.log",
+      "sha256": "569be402f0ab9d4178978e842863fd22a7fd5895536d7277b5fa6671fa9af96b"
+    },
+    "postgres-full-coverage.log": {
+      "privateSource": "core-hot-run-tests-compiled-reader.log",
+      "sha256": "1fe4b981106151c7324b24bc87ad5228c7ab44edf1ea644226d6375dfd6602dd"
+    },
+    "postgres-final-targeted.log": {
+      "privateSource": "core-hot-run-tests-diagnostic-query.log",
+      "sha256": "ad3029cc060ebe23c0392ae4722790dbb46eac9b206854fcd3b1e5933799ec22"
+    },
+    "executor-typecheck.log": {
+      "privateSource": "final-executors-typecheck.log",
+      "sha256": "a2ec2efe1481d4773af5448b43676da40f8ebe90a9c63d280c99306415bdeb01"
+    },
+    "db-typecheck.log": {
+      "privateSource": "db-typecheck.log",
+      "sha256": "8e380912788d7c594619ba707f64a3e2e87e6898fa71b1f2bdd6eea3f2fb60e5"
+    }
+  },
+  "noFullAppLintTestBuild": true,
+  "benchmarkRuns": {
+    "baseline": 1,
+    "after": 1
+  },
+  "noBaselineRerun": true,
+  "noDestructiveAction": true
+}

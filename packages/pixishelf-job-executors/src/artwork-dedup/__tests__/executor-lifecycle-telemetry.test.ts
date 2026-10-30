@@ -48,9 +48,16 @@ function fixture(options: { rollbackFeature?: number; rollbackHot?: number; prot
   let featureCommits = 0
   let hotCommits = 0
   let mutationCount = 0
+  const persistedHotEvents: unknown[] = []
   const tx = {
     $transaction: async (body: (transaction: unknown) => Promise<unknown>) => body(tx),
-    systemJobEvent: { create: vi.fn(async () => ({})) },
+    systemJobEvent: {
+      create: vi.fn(async () => ({})),
+      createMany: vi.fn(async ({ data }: { data: unknown[] }) => {
+        persistedHotEvents.push(...structuredClone(data))
+        return { count: data.length }
+      })
+    },
     pixivMetadataInventoryState: { findUnique: vi.fn(async () => null) },
     artworkDedupRun: {
       findUniqueOrThrow: vi.fn(async () => structuredClone(run)),
@@ -75,6 +82,7 @@ function fixture(options: { rollbackFeature?: number; rollbackHot?: number; prot
     mutateInTransaction: async (body: (transaction: typeof tx) => Promise<unknown>, observeTiming?: FencedMutationTransactionObserver) => {
       mutationCount++
       const before = structuredClone(run), beforeProgress = progressData
+      const beforeEvents = persistedHotEvents.length
       clock += 1_000
       try {
         const result = await body(tx)
@@ -89,7 +97,7 @@ function fixture(options: { rollbackFeature?: number; rollbackHot?: number; prot
         }
         observeTiming?.({ acquisitionMs: 2, preFenceMs: 3, bodyMs: 5, postFenceMs: 7, commitFinalizationMs: 11, wallMs: 28, fenceReadCalls: 4 })
         return result
-      } catch (error) { run = before; progressData = beforeProgress; throw error }
+      } catch (error) { run = before; progressData = beforeProgress; persistedHotEvents.splice(beforeEvents); throw error }
     },
     finalizeInTransaction: async (body: (value: typeof scope) => Promise<void>) => {
       if (options.rejectFinalizer) throw new Error('execution lease lost')
@@ -99,13 +107,66 @@ function fixture(options: { rollbackFeature?: number; rollbackHot?: number; prot
   } as unknown as ExecutionContext<{ runId: string; executionVersion: number }, EnqueuedChildJob>
   const reader = { metrics: { inspections: 0, reads: 0, bytesRead: 0n, statLatencyMs: 0, parentPeakRss: 0, childPeakRss: 0, ipcMessages: 0 }, start: async () => ({}), resolveRoots: async () => ({}), close: vi.fn() }
   const dependencies = { database: tx as never, sourceRoot: '/fixture', archiveRoot: '/fixture', readerOptions: { entrypoint: '/fixture/reader.cjs' }, supervisor: { create: () => reader } as never, now: () => clock, sliceMs: 60_000, searchCache: { runId: 'run', built: true, worker: { close: vi.fn() } as never } }
-  return { context, dependencies, scope, logger, tx, reader, events: tx.systemJobEvent.create, getRun: () => run, getProgress: () => progressData, elapsed: () => clock, mutations: () => mutationCount }
+  return { context, dependencies, scope, logger, tx, reader, events: tx.systemJobEvent.create, getRun: () => run, getProgress: () => progressData, getHotEvents: () => persistedHotEvents, elapsed: () => clock, mutations: () => mutationCount }
 }
 
 beforeEach(() => vi.clearAllMocks())
 afterEach(() => vi.restoreAllMocks())
 
 describe('committed artwork detection lifecycle telemetry', () => {
+  it('captures fallback progress at observation, deduplicates reasons and keeps later copy samples from resetting metadata', async () => {
+    const f = fixture({ protocolVersion: 9 })
+    mocks.scan.mockImplementation(async (pipeline: DedupPipelineContext) => {
+      await pipeline.transaction(async tx => {
+        await tx.artworkDedupRun.update({ where: { id: 'run' }, data: { statMedia: 4, cacheHitMedia: 4, processedArtworks: 1 } })
+        await pipeline.onHotRunBatch!(tx, { statMs: 2, fingerprintReuseMs: 3, relationReuseMs: 0, resultCopyMs: 0,
+          hotBatches: 1, reusedArtworks: 1, reusedRelations: 0, copiedRows: 0, metadataBytes: 400, rssBytes: 600 })
+      })
+      pipeline.onHotRunFallback!({ phase: 'ARTWORK', reason: 'ARTWORK_SOURCE_CHANGED', artworkId: 2, metadataBytes: 450 })
+      pipeline.onHotRunFallback!({ phase: 'ARTWORK', reason: 'ARTWORK_SOURCE_CHANGED', artworkId: 3, metadataBytes: 450 })
+      await pipeline.transaction(async tx => {
+        await tx.artworkDedupRun.update({ where: { id: 'run' }, data: { statMedia: 9, cacheHitMedia: 9, processedArtworks: 2, stage: 'DONE' } })
+        await pipeline.onHotRunBatch!(tx, { statMs: 0, fingerprintReuseMs: 0, relationReuseMs: 1, resultCopyMs: 1,
+          hotBatches: 0, reusedArtworks: 0, reusedRelations: 1, copiedRows: 2, rssBytes: 600 })
+      })
+      return true
+    })
+    await executeArtworkDedup(f.context, f.dependencies)
+    const logs = f.logger.info.mock.calls.filter(call => call[0] === 'artwork-dedup.hot-fallback')
+    expect(logs).toHaveLength(1)
+    const details = logs[0]![1]
+    expect(details).toEqual({ diagnosticVersion: 1, runId: 'run', jobId: 'job', phase: 'ARTWORK',
+      reason: 'ARTWORK_SOURCE_CHANGED', artworkId: 2, metadataBytes: 450,
+      committedProgress: { statMedia: 4, originals: 4, processedArtworks: 1, observedAt: expect.any(String) } })
+    const { jobId: _jobId, ...eventDetails } = details
+    expect(f.getHotEvents()).toEqual([expect.objectContaining({ jobId: 'job', type: 'job.progress', data: {
+      kind: 'artwork-dedup.hot-fallback', ...eventDetails
+    } })])
+    expect((f.getRun().performanceSummary as unknown as ArtworkDedupPerformanceSummary).metadataPeakBytes).toBe(450)
+    expect(f.getRun()).toMatchObject({ statMedia: 9, cacheHitMedia: 9, processedArtworks: 2 })
+  })
+
+  it('retains the last committed prefix and fallback event when a later hot telemetry transaction rolls back', async () => {
+    const f = fixture({ protocolVersion: 9, rollbackHot: 2 })
+    mocks.scan.mockImplementation(async (pipeline: DedupPipelineContext) => {
+      for (const count of [4, 8]) await pipeline.transaction(async tx => {
+        await tx.artworkDedupRun.update({ where: { id: 'run' }, data: { statMedia: count, cacheHitMedia: count, processedArtworks: count / 4 } })
+        if (count === 8) pipeline.onHotRunFallback!({ phase: 'COMMIT', reason: 'ARTWORK_CHANGED', artworkId: 2 })
+        await pipeline.onHotRunBatch!(tx, { statMs: 1, fingerprintReuseMs: 1, relationReuseMs: 0, resultCopyMs: 0,
+          hotBatches: 1, reusedArtworks: 1, reusedRelations: 0, copiedRows: 0, rssBytes: 600 })
+      })
+      return true
+    })
+    await executeArtworkDedup(f.context, f.dependencies)
+    expect(f.getHotEvents()).toEqual([expect.objectContaining({ type: 'job.progress', data: expect.objectContaining({
+      kind: 'artwork-dedup.hot-fallback', phase: 'COMMIT', reason: 'ARTWORK_CHANGED',
+      committedProgress: { statMedia: 4, originals: 4, processedArtworks: 1, observedAt: expect.any(String) }
+    }) })])
+    expect(f.getRun()).toMatchObject({ statMedia: 4, cacheHitMedia: 4, processedArtworks: 1 })
+    expect((f.getRun().performanceSummary as unknown as ArtworkDedupPerformanceSummary).metadataPeakBytes).toBeNull()
+    expect(f.scope.fail).toHaveBeenCalledOnce()
+  })
+
   it('persists hot-run aggregates with measured fence timing and an explicit incomplete commit cutoff', async () => {
     const f = fixture({ protocolVersion: 9 })
     ;(f.getRun().performanceSummary as unknown as ArtworkDedupPerformanceSummary).searchVersion = null

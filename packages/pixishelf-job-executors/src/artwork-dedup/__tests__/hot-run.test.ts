@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DedupPipelineContext } from '../pipeline.ts'
 import {
   HOT_RUN_MEMORY_BUDGET,
@@ -55,6 +55,7 @@ function context() {
   const transaction = vi.fn(async (operation: (tx: never) => Promise<unknown>) => operation({} as never))
   const inspect = vi.fn(async () => ({ canonicalPath: 'work/1.png', state }))
   const onHotRunBatch = vi.fn(async () => {})
+  const onHotRunFallback = vi.fn()
   const value = {
     execution: { runId: 'run', jobId: 'job' },
     transaction,
@@ -64,17 +65,19 @@ function context() {
     signal: new AbortController().signal,
     forceRead: false,
     shouldYield: () => false,
-    onHotRunBatch
+    onHotRunBatch,
+    onHotRunFallback
   }
-  return { value: value as unknown as DedupPipelineContext, transaction, inspect, onHotRunBatch }
+  return { value: value as unknown as DedupPipelineContext, transaction, inspect, onHotRunBatch, onHotRunFallback }
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
   db.readArtworkDedupHotInventoryPage.mockImplementation(async (_tx, _run, after) => (after === 0 ? [inventory] : []))
   db.readArtworkDedupHotMembersPage.mockImplementation(async (_tx, _ids, after) => (after === 0 ? [member] : []))
-  db.saveArtworkDedupHotRunBatch.mockResolvedValue(true)
+  db.saveArtworkDedupHotRunBatch.mockResolvedValue({ status: 'SAVED' })
 })
+afterEach(() => vi.restoreAllMocks())
 
 describe('task-scoped hot metadata budget and lifetime', () => {
   it('leaves headroom between the preload cutoff and extra-workset budget', () => {
@@ -136,5 +139,99 @@ describe('task-scoped hot metadata budget and lifetime', () => {
     const second = context()
     expect(await statArtworkDedupHotRun(second.value)).toBe('DONE')
     expect(second.inspect).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('hot metadata eligibility and commit diagnostics', () => {
+  it('accepts an absent artwork source as revision and epoch zero', async () => {
+    const test = context()
+    const zero = { ...inventory, artwork: { ...inventory.artwork, contentSource: null,
+      contentFingerprint: { ...inventory.artwork.contentFingerprint, sourceRevision: 0n, mediaEpoch: 0n } } }
+    db.readArtworkDedupHotInventoryPage.mockImplementation(async (_tx, _run, after) => after === 0 ? [zero] : [])
+    db.readArtworkDedupHotMembersPage.mockImplementation(async (_tx, _ids, after) => after === 0 ? [
+      { ...member, fingerprint: { ...member.fingerprint, artworkMediaEpoch: 0n } }
+    ] : [])
+    expect(await statArtworkDedupHotRun(test.value)).toBe('DONE')
+    expect(db.saveArtworkDedupHotRunBatch).toHaveBeenCalledWith(expect.anything(), test.value.execution,
+      [expect.objectContaining({ inventory: zero, complete: true })])
+    expect(test.onHotRunFallback).not.toHaveBeenCalled()
+    expect(test.onHotRunBatch).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ hotBatches: 1, reusedArtworks: 1 }))
+  })
+
+  it.each([
+    ['source revision', null, { sourceRevision: 1n, mediaEpoch: 0n }, 'ARTWORK_SOURCE_CHANGED'],
+    ['media epoch', null, { sourceRevision: 0n, mediaEpoch: 1n }, 'ARTWORK_EPOCH_CHANGED'],
+    ['active writer', { revision: 1n, mediaEpoch: 1n, writeToken: 'writer' }, {}, 'ARTWORK_WRITING']
+  ] as const)('rejects %s mismatches before inspecting or committing files', async (_label, source, fingerprint, reason) => {
+    const test = context()
+    const changed = { ...inventory, artwork: { ...inventory.artwork, contentSource: source,
+      contentFingerprint: { ...inventory.artwork.contentFingerprint, ...fingerprint } } }
+    db.readArtworkDedupHotInventoryPage.mockImplementation(async (_tx, _run, after) => after === 0 ? [changed] : [])
+    expect(await statArtworkDedupHotRun(test.value)).toBe('FALLBACK')
+    expect(test.inspect).not.toHaveBeenCalled()
+    expect(db.saveArtworkDedupHotRunBatch).not.toHaveBeenCalled()
+    expect(test.onHotRunFallback).toHaveBeenCalledExactlyOnceWith({ phase: 'ARTWORK', reason, artworkId: 1, metadataBytes: expect.any(Number) })
+  })
+
+  it('batches mixed absent-zero and explicit nonzero artwork sources together', async () => {
+    const test = context()
+    const zero = { ...inventory, artwork: { ...inventory.artwork, contentSource: null,
+      contentFingerprint: { ...inventory.artwork.contentFingerprint, sourceRevision: 0n, mediaEpoch: 0n } } }
+    const explicit = { ...inventory, item: { artworkId: 2, afterImageId: 0 } }
+    const rows = [{ ...member, fingerprint: { ...member.fingerprint, artworkMediaEpoch: 0n } },
+      { ...member, imageId: 2, artworkId: 2 }]
+    db.readArtworkDedupHotInventoryPage.mockImplementation(async (_tx, _run, after) => after === 0 ? [zero, explicit] : [])
+    db.readArtworkDedupHotMembersPage.mockImplementation(async (_tx, _ids, after) => after === 0 ? rows : [])
+    expect(await statArtworkDedupHotRun(test.value)).toBe('DONE')
+    expect(db.saveArtworkDedupHotRunBatch).toHaveBeenCalledOnce()
+    expect(db.saveArtworkDedupHotRunBatch.mock.calls[0]![2]).toHaveLength(2)
+    expect(test.onHotRunBatch).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ reusedArtworks: 2 }))
+  })
+
+  it('reports a fenced commit rejection without counting a saved hot batch', async () => {
+    const test = context()
+    db.saveArtworkDedupHotRunBatch.mockResolvedValue({ status: 'FALLBACK', reason: 'ARTWORK_CHANGED', artworkId: 1 })
+    expect(await statArtworkDedupHotRun(test.value)).toBe('FALLBACK')
+    expect(test.onHotRunBatch).not.toHaveBeenCalled()
+    expect(test.onHotRunFallback).toHaveBeenCalledExactlyOnceWith({
+      phase: 'COMMIT', reason: 'ARTWORK_CHANGED', artworkId: 1, metadataBytes: expect.any(Number), statMs: expect.any(Number)
+    })
+  })
+
+  it.each(['count', 'latency', 'yield'] as const)('keeps a 502-member artwork snapshot correct across %s boundaries', async boundary => {
+    const test = context()
+    let elapsed = 0, shouldYield = false
+    vi.spyOn(performance, 'now').mockImplementation(() => elapsed)
+    const large = { ...inventory, artwork: { ...inventory.artwork,
+      contentFingerprint: { ...inventory.artwork.contentFingerprint, fileCount: 502n } } }
+    const rows = Array.from({ length: 502 }, (_, index) => ({ ...member, imageId: index + 1 }))
+    db.readArtworkDedupHotInventoryPage.mockImplementation(async (_tx, _run, after) => after === 0 ? [large] : [])
+    db.readArtworkDedupHotMembersPage.mockImplementation(async (_tx, _ids, after) => rows.filter(row => row.imageId > after).slice(0, 500))
+    test.inspect.mockImplementation(async () => {
+      if (test.inspect.mock.calls.length === 4) {
+        if (boundary === 'latency') elapsed = 1100
+        if (boundary === 'yield') shouldYield = true
+      }
+      return { canonicalPath: 'work/1.png', state }
+    })
+    test.value.shouldYield = () => shouldYield
+    expect(await statArtworkDedupHotRun(test.value)).toBe(boundary === 'yield' ? 'YIELD' : 'DONE')
+    const firstCount = boundary === 'count' ? 500 : 4
+    expect(db.saveArtworkDedupHotRunBatch.mock.calls[0]![2]).toEqual([
+      expect.objectContaining({ entries: expect.any(Array), complete: false, inventory: large })
+    ])
+    expect(db.saveArtworkDedupHotRunBatch.mock.calls[0]![2][0].entries).toHaveLength(firstCount)
+    if (boundary === 'yield') {
+      shouldYield = false
+      const resumed = { ...large, item: { ...large.item, status: 'STATTING', afterImageId: firstCount,
+        snapshotRevision: 1n, mediaEpoch: 1n, memberCount: 502n } }
+      db.readArtworkDedupHotInventoryPage.mockImplementation(async (_tx, _run, after) => after === 0 ? [resumed] : [])
+      expect(await statArtworkDedupHotRun(test.value)).toBe('DONE')
+    }
+    const final = db.saveArtworkDedupHotRunBatch.mock.calls.at(-1)![2][0]
+    expect(final).toMatchObject({ complete: true, inventory: { item: { status: 'STATTING', afterImageId: firstCount,
+      snapshotRevision: 1n, mediaEpoch: 1n, memberCount: 502n } } })
+    expect(final.entries).toHaveLength(502 - firstCount)
+    expect(db.saveArtworkDedupHotRunBatch).toHaveBeenCalledTimes(2)
   })
 })

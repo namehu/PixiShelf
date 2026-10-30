@@ -1,0 +1,77 @@
+{
+  "at": "2026-10-30T15:26:11.299Z",
+  "dumpSha256": "27f56230021955550eae72292d8db06e02894177ced3008653e1a2fe46835b0a",
+  "files": 2000,
+  "artworks": 50,
+  "originalMediaReadOnly": true,
+  "clones": [
+    {
+      "database": "dedup_hot_fallback_baseline_20261030",
+      "counts": {
+        "artworks": 50,
+        "images": 2000,
+        "mediaFingerprints": 2000,
+        "artworkFingerprints": 50
+      },
+      "mapping": {
+        "artworkFingerprintRevision": "1 -> 0",
+        "historicalItemSnapshotRevision": "1 -> 0",
+        "mappedFingerprints": 50,
+        "mappedHistoricalItems": 50,
+        "removedSourceRows": 50,
+        "hashesSignaturesHistoricalLogsChanged": false,
+        "remainingDomainDigestsUnchanged": true
+      },
+      "domainTableCount": 114,
+      "domainDigestsSha256": "f7502f90946bf1c27c38a9e11c0539a6dc5350e97f6d38ace79d516492ffd65d",
+      "sourceRowsBefore": 50,
+      "sourceRowsAfter": 0
+    },
+    {
+      "database": "dedup_hot_fallback_after_20261030",
+      "counts": {
+        "artworks": 50,
+        "images": 2000,
+        "mediaFingerprints": 2000,
+        "artworkFingerprints": 50
+      },
+      "mapping": {
+        "artworkFingerprintRevision": "1 -> 0",
+        "historicalItemSnapshotRevision": "1 -> 0",
+        "mappedFingerprints": 50,
+        "mappedHistoricalItems": 50,
+        "removedSourceRows": 50,
+        "hashesSignaturesHistoricalLogsChanged": false,
+        "remainingDomainDigestsUnchanged": true
+      },
+      "domainTableCount": 114,
+      "domainDigestsSha256": "f7502f90946bf1c27c38a9e11c0539a6dc5350e97f6d38ace79d516492ffd65d",
+      "sourceRowsBefore": 50,
+      "sourceRowsAfter": 0
+    },
+    {
+      "database": "dedup_hot_fallback_core_20261030",
+      "counts": {
+        "artworks": 0,
+        "images": 0,
+        "mediaFingerprints": 0,
+        "artworkFingerprints": 0
+      }
+    }
+  ],
+  "exactTransformation": [
+    "ArtworkContentFingerprint.sourceRevision: 1 -> 0 on 50 rows",
+    "ArtworkDedupItem.snapshotRevision: 1 -> 0 on 50 historical completed rows",
+    "Delete 50 ArtworkContentSource rows whose revision=1, mediaEpoch=0 and writeToken is null; absent row now represents revision=epoch=0"
+  ],
+  "unchanged": [
+    "All Image-level Source, Fingerprint, Directory, Visual Fingerprint rows",
+    "All artwork contentSha256 and membersSignature values",
+    "All historical visual signatures, digests, performance summaries and log fields",
+    "ArtworkDedupSourceIdentity / delete authorization snapshots",
+    "Original checkpoint dump and every physical input file"
+  ],
+  "digestMethod": "Every public domain table except ArtworkContentSource and _prisma_migrations: count plus MD5 of all canonical JSON rows in canonical order; omit only ArtworkContentFingerprint.sourceRevision and ArtworkDedupItem.snapshotRevision. Compare before/after transformation and A/B clones. The domainDigestsSha256 summarizes the full private table digest object.",
+  "compatibilityCheck": "The original v8 checkpoint has no hot-run-reuse visualCheckpoint. Visual relation signatures use image identity, content hashes/views and parameters; they do not encode artwork source revision. Whole-run compatible checks historical and current item snapshotRevision, explicitly mapped equally. The new inputDigest is computed by the runtime; no digest/signature was edited.",
+  "privatePreparationEvidenceSha256": "f19656581fa4427f1bc04d5af104321a8a3ad094356254d7bf05d33a6348782d"
+}

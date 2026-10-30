@@ -1,0 +1,12 @@
+
+ RUN  v4.0.18 /private/tmp/pixishelf-dedup-hot-batch-fallback/PixiShelf/packages/pixishelf-job-executors
+
+ ✓ src/artwork-dedup/__tests__/hot-run.postgres.test.ts (32 tests | 30 skipped) 2505ms
+     ✓ rejects a newly inserted nonzero artwork source revision at the batch commit  1346ms
+     ✓ rejects a newly inserted nonzero artwork source epoch at the batch commit  1127ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed | 30 skipped (32)
+   Start at  23:35:20
+   Duration  3.38s (transform 514ms, setup 0ms, import 771ms, tests 2.50s, environment 0ms)
+

@@ -10,7 +10,7 @@ import {
   type MediaContentMember,
   type ArtworkDedupMediaEntry
 } from '@pixishelf/db'
-import type { DedupPipelineContext } from './pipeline.ts'
+import type { ArtworkDedupHotFallback, DedupPipelineContext } from './pipeline.ts'
 import { MEDIA_CONTENT_ALGORITHM_VERSION } from '../media-content/fingerprint.ts'
 import { canonicalMediaContentPath } from '../media-content/roots.ts'
 import { sameContentFileState } from '../media-content/file-reader.ts'
@@ -24,7 +24,7 @@ export function hotRunMetadataBytes(value: unknown) {
   // Include UTF-16 strings, objects and Map/array overhead, not just wire JSON size.
   return Buffer.byteLength(JSON.stringify(value, (_, v) => (typeof v === 'bigint' ? v.toString() : v))) * 4 + 512
 }
-const metrics = (metadataBytes = 0) => ({
+const metrics = (metadataBytes?: number) => ({
   statMs: 0,
   fingerprintReuseMs: 0,
   relationReuseMs: 0,
@@ -33,7 +33,7 @@ const metrics = (metadataBytes = 0) => ({
   reusedArtworks: 0,
   reusedRelations: 0,
   copiedRows: 0,
-  metadataBytes,
+  ...(metadataBytes === undefined ? {} : { metadataBytes }),
   rssBytes: process.memoryUsage().rss
 })
 
@@ -42,7 +42,12 @@ export async function statArtworkDedupHotRun(
   context: DedupPipelineContext,
   preloadLimit = HOT_RUN_PRELOAD_LIMIT
 ): Promise<'DONE' | 'YIELD' | 'FALLBACK'> {
-  if (context.forceRead || !context.read) return 'FALLBACK'
+  const fallback = (details: ArtworkDedupHotFallback) => {
+    context.onHotRunFallback?.(details)
+    return 'FALLBACK' as const
+  }
+  if (context.forceRead) return fallback({ phase: 'MODE', reason: 'FULL_CHECK' })
+  if (!context.read) return fallback({ phase: 'MODE', reason: 'READ_UNAVAILABLE' })
   const inventory: ArtworkDedupHotInventory[] = [],
     members = new Map<number, MediaContentMember[]>()
   let after = 0,
@@ -51,7 +56,7 @@ export async function statArtworkDedupHotRun(
     await context.transaction(async (tx) => {
       await context.onHotRunBatch?.(tx, { ...metrics(metadataBytes), metadataFallbacks: 1 })
     })
-    return 'FALLBACK' as const
+    return fallback({ phase: 'PRELOAD', reason: 'METADATA_LIMIT', metadataBytes })
   }
   for (;;) {
     throwIfAborted(context.signal)
@@ -94,38 +99,67 @@ export async function statArtworkDedupHotRun(
     delta.reusedArtworks = commits.filter((b) => b.complete).length
     const saved = await context.transaction(async (tx) => {
       const start = performance.now()
-      if (!(await saveArtworkDedupHotRunBatch(tx, context.execution, commits))) return false
+      const result = await saveArtworkDedupHotRunBatch(tx, context.execution, commits)
+      if (result.status === 'FALLBACK') return result
       delta.fingerprintReuseMs = performance.now() - start
       await context.onHotRunBatch?.(tx, delta)
-      return true
+      return result
     })
+    if (saved.status === 'FALLBACK')
+      fallback({
+        phase: 'COMMIT',
+        reason: saved.reason,
+        ...('artworkId' in saved ? { artworkId: saved.artworkId } : {}),
+        ...('imageId' in saved ? { imageId: saved.imageId } : {}),
+        ...('batchFirstArtworkId' in saved ? { batchFirstArtworkId: saved.batchFirstArtworkId } : {}),
+        ...('batchArtworkCount' in saved ? { batchArtworkCount: saved.batchArtworkCount } : {}),
+        metadataBytes,
+        statMs
+      })
     commits = []
     count = 0
     statMs = 0
     batchStart = performance.now()
-    return saved
+    return saved.status === 'SAVED'
   }
   for (const entry of inventory) {
     const art = entry.artwork,
       fingerprint = art?.contentFingerprint,
       allMembers = members.get(entry.item.artworkId) ?? []
-    const reusable =
-      art &&
-      fingerprint &&
-      !art.contentSource?.writeToken &&
-      fingerprint.algorithmVersion === MEDIA_CONTENT_ALGORITHM_VERSION &&
-      fingerprint.sourceRevision === art.contentSource?.revision &&
-      fingerprint.mediaEpoch === art.contentSource.mediaEpoch &&
-      fingerprint.fileCount > 0n &&
-      fingerprint.fileCount === BigInt(allMembers.length)
-    if (!reusable) {
+    if (!art || !fingerprint) {
       if (!(await flush())) return 'FALLBACK'
-      return 'FALLBACK'
+      return fallback({
+        phase: 'ARTWORK',
+        reason: !art ? 'ARTWORK_MISSING' : 'ARTWORK_FINGERPRINT_MISSING',
+        artworkId: entry.item.artworkId,
+        metadataBytes
+      })
+    }
+    // Missing ArtworkContentSource is the established revision/epoch zero snapshot.
+    const reason: ArtworkDedupHotFallback['reason'] | undefined = art.contentSource?.writeToken
+      ? 'ARTWORK_WRITING'
+      : fingerprint.algorithmVersion !== MEDIA_CONTENT_ALGORITHM_VERSION
+        ? 'ARTWORK_ALGORITHM_CHANGED'
+        : fingerprint.sourceRevision !== (art.contentSource?.revision ?? 0n)
+          ? 'ARTWORK_SOURCE_CHANGED'
+          : fingerprint.mediaEpoch !== (art.contentSource?.mediaEpoch ?? 0n)
+            ? 'ARTWORK_EPOCH_CHANGED'
+            : fingerprint.fileCount <= 0n || fingerprint.fileCount !== BigInt(allMembers.length)
+              ? 'ARTWORK_MEMBERS_CHANGED'
+              : undefined
+    if (reason) {
+      if (!(await flush())) return 'FALLBACK'
+      return fallback({ phase: 'ARTWORK', reason, artworkId: entry.item.artworkId, metadataBytes })
     }
     const pending = allMembers.filter((m) => m.imageId > entry.item.afterImageId)
     if (!pending.length) {
       if (!(await flush())) return 'FALLBACK'
-      return 'FALLBACK'
+      return fallback({
+        phase: 'ARTWORK',
+        reason: 'NO_PENDING_MEMBERS',
+        artworkId: entry.item.artworkId,
+        metadataBytes
+      })
     }
     let current: ArtworkDedupHotCommit = { inventory: entry, entries: [], complete: false }
     for (let start = 0; start < pending.length; ) {
@@ -168,24 +202,38 @@ export async function statArtworkDedupHotRun(
           relativeDirectory = parent === '.' ? '' : parent
         return { member, root, relativePath, relativeDirectory }
       })
-      if (
-        targets.some(
-          ({ member: m, root, relativeDirectory }) =>
-            !m.directory ||
-            m.writeToken ||
-            !m.fingerprint ||
-            m.directory.logicalRoot !== root.logicalRoot ||
-            m.directory.rootIdentity !== root.rootIdentity ||
-            m.directory.relativeDirectory !== relativeDirectory ||
-            m.fingerprint.algorithmVersion !== MEDIA_CONTENT_ALGORITHM_VERSION ||
-            m.fingerprint.sourceRevision !== m.sourceRevision ||
-            m.fingerprint.artworkMediaEpoch !== fingerprint.mediaEpoch ||
-            m.fingerprint.sourcePath !== m.sourcePath ||
-            m.fingerprint.rootIdentity !== root.rootIdentity
-        )
-      ) {
-        if (!(await flush())) return 'FALLBACK'
-        return 'FALLBACK'
+      for (const { member: m, root, relativeDirectory } of targets) {
+        const reason: ArtworkDedupHotFallback['reason'] | undefined = !m.directory
+          ? 'DIRECTORY_MISSING'
+          : m.writeToken
+            ? 'MEMBER_WRITING'
+            : !m.fingerprint
+              ? 'MEMBER_FINGERPRINT_MISSING'
+              : m.directory.logicalRoot !== root.logicalRoot || m.directory.rootIdentity !== root.rootIdentity
+                ? 'DIRECTORY_ROOT_CHANGED'
+                : m.directory.relativeDirectory !== relativeDirectory
+                  ? 'DIRECTORY_PATH_CHANGED'
+                  : m.fingerprint.algorithmVersion !== MEDIA_CONTENT_ALGORITHM_VERSION
+                    ? 'MEMBER_ALGORITHM_CHANGED'
+                    : m.fingerprint.sourceRevision !== m.sourceRevision
+                      ? 'MEMBER_SOURCE_CHANGED'
+                      : m.fingerprint.artworkMediaEpoch !== fingerprint.mediaEpoch
+                        ? 'MEMBER_EPOCH_CHANGED'
+                        : m.fingerprint.sourcePath !== m.sourcePath
+                          ? 'MEMBER_PATH_CHANGED'
+                          : m.fingerprint.rootIdentity !== root.rootIdentity
+                            ? 'MEMBER_ROOT_CHANGED'
+                            : undefined
+        if (reason) {
+          if (!(await flush())) return 'FALLBACK'
+          return fallback({
+            phase: 'MEMBER',
+            reason,
+            artworkId: entry.item.artworkId,
+            imageId: m.imageId,
+            metadataBytes
+          })
+        }
       }
       const began = performance.now()
       const inspected = await Promise.allSettled(
@@ -196,9 +244,16 @@ export async function statArtworkDedupHotRun(
       statMs += performance.now() - began
       throwIfAborted(context.signal)
       // A local file error goes through the existing per-artwork classification path.
-      if (inspected.some((r) => r.status === 'rejected')) {
+      const failedIndex = inspected.findIndex((r) => r.status === 'rejected')
+      if (failedIndex !== -1) {
         if (!(await flush())) return 'FALLBACK'
-        return 'FALLBACK'
+        return fallback({
+          phase: 'FILE',
+          reason: 'FILE_INSPECTION_FAILED',
+          artworkId: entry.item.artworkId,
+          imageId: targets[failedIndex]!.member.imageId,
+          metadataBytes
+        })
       }
       const entries: ArtworkDedupMediaEntry[] = []
       for (let index = 0; index < targets.length; index++) {
@@ -209,7 +264,13 @@ export async function statArtworkDedupHotRun(
           cached = t.member.fingerprint!
         if (file.canonicalPath !== cached.canonicalPath || !sameContentFileState(file.state, cached)) {
           if (!(await flush())) return 'FALLBACK'
-          return 'FALLBACK'
+          return fallback({
+            phase: 'FILE',
+            reason: file.canonicalPath !== cached.canonicalPath ? 'FILE_PATH_CHANGED' : 'FILE_STATE_CHANGED',
+            artworkId: entry.item.artworkId,
+            imageId: t.member.imageId,
+            metadataBytes
+          })
         }
         entries.push({
           imageId: t.member.imageId,

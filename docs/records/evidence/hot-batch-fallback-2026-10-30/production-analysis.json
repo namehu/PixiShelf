@@ -1,0 +1,87 @@
+{
+  "status": "completed-with-unchecked-media; performance partially improved, original hot batch path not committed",
+  "run_id": "face2cc2-35b7-4d68-9859-394ea453acbe",
+  "baseline_run_id": "a1f2c870-608d-42ec-ba85-e283959269fa",
+  "timezone": "Asia/Shanghai",
+  "local_started_at": "2026-10-30T23:10:42.351+08:00",
+  "local_finished_at": "2026-10-30T23:13:08.230+08:00",
+  "snapshot": "2026-10-30T15:16:16.412918+00:00",
+  "observed": {
+    "artworks": 53,
+    "originals": 7905,
+    "groups": 5,
+    "failed": 0,
+    "changed": 0,
+    "unchecked_media": 2281,
+    "protocol": 9,
+    "worker_reported_version": "latest",
+    "hot_batches": 0,
+    "reused_artwork_fingerprints": 0,
+    "copied_rows": 8604,
+    "reused_relations": 5,
+    "read_bytes": 0,
+    "hashed_originals": 0,
+    "decoded_images": 0,
+    "candidate_pairs": 0,
+    "compare_calls": 0,
+    "fixed_scheduled_cooldown_seconds": 0,
+    "normal_queue_seconds": 2.314,
+    "rss_peak_mib": 181.77,
+    "db_fence_calls_new_instrumentation": 2476
+  },
+  "comparison": {
+    "elapsed_seconds": {
+      "baseline": 175.279,
+      "current": 145.879,
+      "reduction_percent": 16.77
+    },
+    "transactions": {
+      "baseline": 1076,
+      "current": 643,
+      "reduction_percent": 40.24
+    },
+    "comparable_instrumented_api_calls": {
+      "baseline": 12818,
+      "current": 5452,
+      "reduction_percent": 57.47
+    },
+    "transaction_wall_seconds": {
+      "baseline": 143.77046681500082,
+      "current": 91.40070938197522,
+      "reduction_percent": 36.43
+    }
+  },
+  "timings_current_seconds": {
+    "dbLoad": 30.796,
+    "dbValidation": 27.428,
+    "dbWrite": 10.561,
+    "transactionWall": 91.401,
+    "transactionAcquisition": 0.708,
+    "transactionPreFence": 1.928,
+    "transactionBody": 38.131,
+    "transactionPostFence": 1.405,
+    "transactionCommitFinalization": 48.271,
+    "relationReuse": 1.944,
+    "resultCopy": 11.314,
+    "active": 143.766
+  },
+  "limitations": [
+    "ArtworkDedupRun and related dedup/cache tables are not granted to this diagnostics role. No alternative credentials or client used. Task/events have permitted column-level SELECT grants.",
+    "Final persisted task events supply counters; direct cache row and precise fallback reason are unverified.",
+    "Legacy fallback exits do not emit their reason. Zero hot counters do not identify which condition failed and do not mean zero filesystem stats or zero metadata load.",
+    "Metadata peak 0 was emitted from copy metrics; it is not evidence that task consumed zero metadata memory.",
+    "v9 whole-run reuse input digest differs in semantics from older visual input digest. Same artist, counts and result summary do not prove an identical frozen input/cache snapshot or hardware load.",
+    "DB API calls are not actual SQL counts. Comparable call subtotal excludes newly separately reported dbFenceCalls; current including fences is 7928, old fence calls unknown.",
+    "transactionTiming samples619transactions and complete=false: final commit/cleanup timing is incomplete. Transaction durations include wait/roundtrips; commit finalization not proven disk-only.",
+    "Durations overlap across categories; do not add loading, validation, copy and transaction totals.",
+    "Actual image/result content equivalence was not independently reverified; observed result summaries match.",
+    "No production changes, new scans, benchmarks, tests, deployments or GitHub queries performed."
+  ],
+  "next_step": "Identify the first hot-originals fallback condition with narrowly scoped cache diagnostics/logging; fix hot batch applicability and validate against the actual production data pattern before further algorithm changes.",
+  "code_references": [
+    "packages/pixishelf-job-executors/src/artwork-dedup/hot-run.ts:43",
+    "packages/pixishelf-job-executors/src/artwork-dedup/hot-run.ts:125",
+    "packages/pixishelf-job-executors/src/artwork-dedup/executor.ts:422",
+    "packages/pixishelf-db/src/artwork-dedup-hot-run.ts:9"
+  ]
+}

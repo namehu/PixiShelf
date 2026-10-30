@@ -19,6 +19,7 @@ import {
   type ArtworkContentSnapshot,
   type ArtworkDedupExecution,
   type ArtworkDedupMediaEntry,
+  type ArtworkDedupHotCommitResult,
   type MediaContentDirectorySnapshot,
   type MediaContentReadEvidence,
   type MediaContentMember,
@@ -40,6 +41,41 @@ import type { DedupRoots } from './reader-protocol.ts'
 
 type ArtworkDedupItem = Awaited<ReturnType<typeof readArtworkDedupItemsPage>>[number]
 export type DedupTransaction = <T>(operation: (tx: Prisma.TransactionClient) => Promise<T>) => Promise<T>
+export interface ArtworkDedupHotFallback {
+  phase: 'MODE' | 'PRELOAD' | 'ARTWORK' | 'MEMBER' | 'FILE' | 'COMMIT'
+  reason:
+    | 'FULL_CHECK'
+    | 'READ_UNAVAILABLE'
+    | 'METADATA_LIMIT'
+    | 'ARTWORK_MISSING'
+    | 'ARTWORK_FINGERPRINT_MISSING'
+    | 'ARTWORK_WRITING'
+    | 'ARTWORK_ALGORITHM_CHANGED'
+    | 'ARTWORK_SOURCE_CHANGED'
+    | 'ARTWORK_EPOCH_CHANGED'
+    | 'ARTWORK_MEMBERS_CHANGED'
+    | 'NO_PENDING_MEMBERS'
+    | 'DIRECTORY_MISSING'
+    | 'MEMBER_WRITING'
+    | 'MEMBER_FINGERPRINT_MISSING'
+    | 'DIRECTORY_ROOT_CHANGED'
+    | 'DIRECTORY_PATH_CHANGED'
+    | 'MEMBER_ALGORITHM_CHANGED'
+    | 'MEMBER_SOURCE_CHANGED'
+    | 'MEMBER_EPOCH_CHANGED'
+    | 'MEMBER_PATH_CHANGED'
+    | 'MEMBER_ROOT_CHANGED'
+    | 'FILE_INSPECTION_FAILED'
+    | 'FILE_PATH_CHANGED'
+    | 'FILE_STATE_CHANGED'
+    | Extract<ArtworkDedupHotCommitResult, { status: 'FALLBACK' }>['reason']
+  artworkId?: number
+  imageId?: number
+  batchFirstArtworkId?: number
+  batchArtworkCount?: number
+  metadataBytes?: number
+  statMs?: number
+}
 export class DedupItemError extends Error {
   constructor(readonly code: string) {
     super(code)
@@ -52,9 +88,10 @@ export interface DedupPipelineContext {
   visualSearchV2?: boolean
   searchWorker?: import('./visual-search-worker.ts').VisualSearchWorker | undefined
   searchCache?: { built?: boolean }
+  onHotRunFallback?: ((details: ArtworkDedupHotFallback) => void) | undefined
   onHotRunBatch?: ((tx: Prisma.TransactionClient, delta: {
     statMs: number; fingerprintReuseMs: number; relationReuseMs: number; resultCopyMs: number
-    hotBatches: number; reusedArtworks: number; reusedRelations: number; copiedRows: number; metadataBytes: number; rssBytes: number
+    hotBatches: number; reusedArtworks: number; reusedRelations: number; copiedRows: number; metadataBytes?: number; rssBytes: number
     metadataFallbacks?: number; wholeRunReused?: boolean; uncheckedMedia?: number
     discardedCopyRows?: number; discardedReusedRelations?: number
   }) => Promise<void>) | undefined

@@ -1,0 +1,10 @@
+docs:diagrams:check: PASS
+Command: WEBP_BROWSER_CHANNEL=chrome pnpm docs:diagrams:check
+Result: Checked 34 diagram sources; parsed 23 embedded Mermaid blocks.
+Environment: linked three existing locked dependencies in the isolated worktree. Bundled Chromium was absent; installed Chrome was used with elevated launch permission after sandbox launch failed. No diagram sources or generated SVGs changed.
+Main application lowercase path check: PASS (rg returned no uppercase paths).
+docs:check before desktop evidence: PASS; 354 Markdown files checked for local links, anchors, path case and code fences.
+Final docs:check: PASS; 355 Markdown files checked after desktop evidence was added.
+Final implementation source hashes: all 4 files match accepted A/B after snapshot.
+Final staged source/docs whitespace check: PASS, excluding the six byte-preserved captured .log files. The original test output contains trailing spaces/blank EOF lines; logs were not rewritten because validation.json preserves their original hashes.
+Main worktree remained clean on main at f2b7e20f65bce707e0df3c8cf1341a07f5c89380.

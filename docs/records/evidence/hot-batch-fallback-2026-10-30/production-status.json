@@ -1,0 +1,70 @@
+{
+  "connection": "pixishelf_diagnostics",
+  "columns": [
+    "captured_at",
+    "id",
+    "run_id",
+    "status",
+    "definitionVersion",
+    "createdAt",
+    "startedAt",
+    "finishedAt",
+    "attempt",
+    "stage",
+    "message",
+    "progressData",
+    "result",
+    "errorCode"
+  ],
+  "rows": [
+    {
+      "captured_at": "2026-10-30T15:16:16.412918+00:00",
+      "id": "93971593-f1d4-4de9-b485-58b7cce36fd8",
+      "run_id": "266d0295-65bf-4bc6-9d00-039d8e34c219",
+      "status": "COMPLETED",
+      "definitionVersion": "8",
+      "createdAt": "2026-10-30 01:13:44.989",
+      "startedAt": "2026-10-30 01:13:45.193",
+      "finishedAt": "2026-10-30 01:17:54.32",
+      "attempt": "1",
+      "stage": "DONE",
+      "message": "原件检查完成，疑似版本检查未完成",
+      "progressData": "{\"kind\": \"artwork-dedup\", \"unit\": \"artworks\", \"phase\": \"COMPLETED\", \"total\": null, \"version\": 1, \"completed\": null, \"updatedAt\": \"2026-10-30T01:17:54.307Z\", \"waitReason\": null, \"uncheckedMedia\": 2281}",
+      "result": "{\"runId\": \"266d0295-65bf-4bc6-9d00-039d8e34c219\", \"failed\": 0, \"groups\": 5, \"changed\": 0, \"checked\": 53, \"skipped\": 0, \"processed\": 53}",
+      "errorCode": null
+    },
+    {
+      "captured_at": "2026-10-30T15:16:16.412918+00:00",
+      "id": "213d6610-4f27-4510-8dca-c1ae19699b90",
+      "run_id": "a1f2c870-608d-42ec-ba85-e283959269fa",
+      "status": "COMPLETED",
+      "definitionVersion": "8",
+      "createdAt": "2026-10-30 03:00:57.271",
+      "startedAt": "2026-10-30 03:00:58.317",
+      "finishedAt": "2026-10-30 03:03:53.596",
+      "attempt": "1",
+      "stage": "DONE",
+      "message": "原件检查完成，疑似版本检查未完成",
+      "progressData": "{\"kind\": \"artwork-dedup\", \"unit\": \"artworks\", \"phase\": \"COMPLETED\", \"total\": null, \"version\": 1, \"completed\": null, \"updatedAt\": \"2026-10-30T03:03:53.587Z\", \"waitReason\": null, \"uncheckedMedia\": 2281}",
+      "result": "{\"runId\": \"a1f2c870-608d-42ec-ba85-e283959269fa\", \"failed\": 0, \"groups\": 5, \"changed\": 0, \"checked\": 53, \"skipped\": 0, \"processed\": 53}",
+      "errorCode": null
+    },
+    {
+      "captured_at": "2026-10-30T15:16:16.412918+00:00",
+      "id": "342fad27-4d31-4e1a-8e4e-ae8509effe8a",
+      "run_id": "face2cc2-35b7-4d68-9859-394ea453acbe",
+      "status": "COMPLETED",
+      "definitionVersion": "9",
+      "createdAt": "2026-10-30 15:10:41.914",
+      "startedAt": "2026-10-30 15:10:42.351",
+      "finishedAt": "2026-10-30 15:13:08.23",
+      "attempt": "1",
+      "stage": "DONE",
+      "message": "原件检查完成，疑似版本检查未完成",
+      "progressData": "{\"kind\": \"artwork-dedup\", \"unit\": \"artworks\", \"phase\": \"COMPLETED\", \"total\": null, \"version\": 1, \"completed\": null, \"updatedAt\": \"2026-10-30T15:13:08.216Z\", \"waitReason\": null, \"uncheckedMedia\": 2281}",
+      "result": "{\"runId\": \"face2cc2-35b7-4d68-9859-394ea453acbe\", \"failed\": 0, \"groups\": 5, \"changed\": 0, \"checked\": 53, \"skipped\": 0, \"processed\": 53}",
+      "errorCode": null
+    }
+  ],
+  "row_count": 3
+}

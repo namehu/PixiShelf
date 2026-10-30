@@ -1,0 +1,4 @@
+
+> @pixishelf/db@0.1.0 typecheck /private/tmp/pixishelf-dedup-hot-batch-fallback/PixiShelf/packages/pixishelf-db
+> tsc --noEmit
+

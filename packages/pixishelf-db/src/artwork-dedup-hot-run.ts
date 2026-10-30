@@ -59,13 +59,23 @@ export interface ArtworkDedupHotCommit {
   entries: ArtworkDedupMediaEntry[]
   complete: boolean
 }
+export type ArtworkDedupHotCommitResult =
+  | { status: 'SAVED' }
+  | {
+      status: 'FALLBACK'
+      reason: 'DIRECTORY_CHANGED_OR_WRITING' | 'ARTWORK_CHANGED' | 'MEMBER_CHANGED' | 'MEDIA_COUNT_MISMATCH'
+      artworkId?: number
+      imageId?: number
+      batchFirstArtworkId?: number
+      batchArtworkCount?: number
+    }
 
 /** v9 only: one batch fence, then media, completed fingerprints, cursors and counters commit together. */
 export async function saveArtworkDedupHotRunBatch(
   tx: Prisma.TransactionClient,
   execution: ArtworkDedupExecution,
   batches: ArtworkDedupHotCommit[]
-) {
+): Promise<ArtworkDedupHotCommitResult> {
   const entries = batches.flatMap((b) =>
     b.entries.map((entry) => ({ ...entry, artworkId: b.inventory.item.artworkId }))
   )
@@ -89,7 +99,13 @@ export async function saveArtworkDedupHotRunBatch(
         ])
     ).values()
   ]
-  if (!(await assertArtworkDedupVisualDirectories(tx, directories))) return false
+  if (!(await assertArtworkDedupVisualDirectories(tx, directories)))
+    return {
+      status: 'FALLBACK',
+      reason: 'DIRECTORY_CHANGED_OR_WRITING',
+      batchFirstArtworkId: batches[0]!.inventory.item.artworkId,
+      batchArtworkCount: batches.length
+    }
   const ids = batches.map((b) => b.inventory.item.artworkId)
   await lockContentArtworks(tx, ids)
   const [items, artworks] = await Promise.all([
@@ -123,13 +139,12 @@ export async function saveArtworkDedupHotRunBatch(
       !art ||
       !cached ||
       !current ||
-      !source ||
-      source.writeToken ||
+      source?.writeToken ||
       item.status !== expected.item.status ||
       item.afterImageId !== expected.item.afterImageId ||
       art.mediaRevision !== item.frozenMediaRevision ||
-      source.revision !== cached.sourceRevision ||
-      source.mediaEpoch !== cached.mediaEpoch ||
+      (source?.revision ?? 0n) !== cached.sourceRevision ||
+      (source?.mediaEpoch ?? 0n) !== cached.mediaEpoch ||
       current.algorithmVersion !== run.algorithmVersion ||
       current.sourceRevision !== cached.sourceRevision ||
       current.mediaEpoch !== cached.mediaEpoch ||
@@ -142,7 +157,7 @@ export async function saveArtworkDedupHotRunBatch(
           item.mediaEpoch !== cached.mediaEpoch ||
           item.memberCount !== cached.fileCount))
     )
-      return false
+      return { status: 'FALLBACK', reason: 'ARTWORK_CHANGED', artworkId: expected.item.artworkId }
   }
   await lockContentImages(
     tx,
@@ -168,7 +183,7 @@ export async function saveArtworkDedupHotRunBatch(
       source.directoryStateId !== entry.directoryId ||
       cached.algorithmVersion !== run.algorithmVersion ||
       cached.sourceRevision !== source.revision ||
-      cached.artworkMediaEpoch !== artworkMap.get(entry.artworkId)!.contentSource!.mediaEpoch ||
+      cached.artworkMediaEpoch !== (artworkMap.get(entry.artworkId)!.contentSource?.mediaEpoch ?? 0n) ||
       cached.sourcePath !== entry.sourcePath ||
       cached.rootIdentity !== entry.rootIdentity ||
       cached.canonicalPath !== entry.canonicalPath ||
@@ -179,7 +194,7 @@ export async function saveArtworkDedupHotRunBatch(
       cached.deviceId !== entry.deviceId ||
       cached.inode !== entry.inode
     )
-      return false
+      return { status: 'FALLBACK', reason: 'MEMBER_CHANGED', artworkId: entry.artworkId, imageId: entry.imageId }
   }
   const completed = batches.filter((b) => b.complete)
   if (completed.length) {
@@ -193,14 +208,13 @@ export async function saveArtworkDedupHotRunBatch(
       _count: true
     })
     const previousCounts = new Map(counts.map((c) => [c.artworkId, c._count]))
-    if (
-      completed.some(
-        (b) =>
-          BigInt((previousCounts.get(b.inventory.item.artworkId) ?? 0) + b.entries.length) !==
-          b.inventory.artwork!.contentFingerprint!.fileCount
-      )
+    const incomplete = completed.find(
+      (b) =>
+        BigInt((previousCounts.get(b.inventory.item.artworkId) ?? 0) + b.entries.length) !==
+        b.inventory.artwork!.contentFingerprint!.fileCount
     )
-      return false
+    if (incomplete)
+      return { status: 'FALLBACK', reason: 'MEDIA_COUNT_MISMATCH', artworkId: incomplete.inventory.item.artworkId }
   }
   await tx.artworkDedupMedia.createMany({ data: entries.map((e) => ({ ...e, runId: run.id })) })
   await tx.$executeRaw(Prisma.sql`
@@ -226,5 +240,5 @@ export async function saveArtworkDedupHotRunBatch(
       completeArtworks: { increment: completed.length }
     }
   })
-  return true
+  return { status: 'SAVED' }
 }

@@ -1,0 +1,86 @@
+{
+  "connection": "pixishelf_diagnostics",
+  "columns": [
+    "createdAt",
+    "id",
+    "stage",
+    "phase",
+    "reason",
+    "progress",
+    "counters",
+    "durations_ms"
+  ],
+  "rows": [
+    {
+      "createdAt": "2026-10-30 15:10:42.598",
+      "id": "596641",
+      "stage": "ORIGINALS",
+      "phase": "ORIGINALS",
+      "reason": "CHECKPOINT",
+      "progress": "{\"originals\": 0, \"queryTotal\": null, \"staticImages\": null, \"queryCompleted\": null, \"uncheckedMedia\": null}",
+      "counters": "{\"readBytes\": 0, \"copiedRows\": null, \"hotBatches\": null, \"dbLoadCalls\": 0, \"compareCalls\": null, \"dbFenceCalls\": null, \"dbWriteCalls\": 0, \"transactions\": 0, \"decodedImages\": null, \"indexRebuilds\": null, \"candidatePairs\": null, \"ownFeatureHits\": null, \"reusedArtworks\": null, \"hashedOriginals\": 0, \"indexNodeVisits\": null, \"replayedQueries\": null, \"reusedRelations\": null, \"localChannelHits\": null, \"wholeChannelHits\": null, \"dbValidationCalls\": 0, \"discardedCopyRows\": null, \"metadataFallbacks\": null, \"originalCacheHits\": 0, \"contentFeatureHits\": null, \"relationReusedPairs\": null, \"replayedComparisons\": null, \"discardedReusedRelations\": null, \"relationInvalidatedPairs\": null}",
+      "durations_ms": "{\"pair\": null, \"index\": null, \"pause\": null, \"query\": null, \"queue\": 630, \"active\": 25.48122100159526, \"dbLoad\": 0, \"compare\": null, \"dbWrite\": 0, \"feature\": null, \"cooldown\": null, \"resultCopy\": null, \"dbValidation\": 0, \"relationReuse\": null, \"transactionBody\": null, \"transactionWall\": 0, \"fingerprintReuse\": null, \"propertyInspection\": null, \"transactionPreFence\": null, \"transactionPostFence\": null, \"transactionAcquisition\": null, \"transactionCommitFinalization\": null}"
+    },
+    {
+      "createdAt": "2026-10-30 15:11:16.829",
+      "id": "596646",
+      "stage": "ORIGINALS",
+      "phase": "ORIGINALS",
+      "reason": "CHECKPOINT",
+      "progress": "{\"originals\": 747, \"queryTotal\": null, \"staticImages\": null, \"queryCompleted\": null, \"uncheckedMedia\": null}",
+      "counters": "{\"readBytes\": 0, \"copiedRows\": null, \"hotBatches\": null, \"dbLoadCalls\": 60, \"compareCalls\": null, \"dbFenceCalls\": 316, \"dbWriteCalls\": 116, \"transactions\": 83, \"decodedImages\": null, \"indexRebuilds\": null, \"candidatePairs\": null, \"ownFeatureHits\": null, \"reusedArtworks\": null, \"hashedOriginals\": 0, \"indexNodeVisits\": null, \"replayedQueries\": null, \"reusedRelations\": null, \"localChannelHits\": null, \"wholeChannelHits\": null, \"dbValidationCalls\": 464, \"discardedCopyRows\": null, \"metadataFallbacks\": null, \"originalCacheHits\": 747, \"contentFeatureHits\": null, \"relationReusedPairs\": null, \"replayedComparisons\": null, \"discardedReusedRelations\": null, \"relationInvalidatedPairs\": null}",
+      "durations_ms": "{\"pair\": null, \"index\": null, \"pause\": null, \"query\": null, \"queue\": 804, \"active\": 34036.76661200449, \"dbLoad\": 22563.52506098151, \"compare\": null, \"dbWrite\": 1205.42959997803, \"feature\": null, \"cooldown\": 81, \"resultCopy\": null, \"dbValidation\": 2187.393623951823, \"relationReuse\": null, \"transactionBody\": 3460.440298002213, \"transactionWall\": 8820.87825801596, \"fingerprintReuse\": null, \"propertyInspection\": null, \"transactionPreFence\": 307.3194060027599, \"transactionPostFence\": 193.310855999589, \"transactionAcquisition\": 90.64966499060392, \"transactionCommitFinalization\": 4633.134165015072}"
+    },
+    {
+      "createdAt": "2026-10-30 15:11:50.45",
+      "id": "596656",
+      "stage": "ORIGINALS",
+      "phase": "ORIGINALS",
+      "reason": "CHECKPOINT",
+      "progress": "{\"originals\": 2547, \"queryTotal\": null, \"staticImages\": null, \"queryCompleted\": null, \"uncheckedMedia\": null}",
+      "counters": "{\"readBytes\": 0, \"copiedRows\": null, \"hotBatches\": null, \"dbLoadCalls\": 157, \"compareCalls\": null, \"dbFenceCalls\": 972, \"dbWriteCalls\": 372, \"transactions\": 253, \"decodedImages\": null, \"indexRebuilds\": null, \"candidatePairs\": null, \"ownFeatureHits\": null, \"reusedArtworks\": null, \"hashedOriginals\": 0, \"indexNodeVisits\": null, \"replayedQueries\": null, \"reusedRelations\": null, \"localChannelHits\": null, \"wholeChannelHits\": null, \"dbValidationCalls\": 1449, \"discardedCopyRows\": null, \"metadataFallbacks\": null, \"originalCacheHits\": 2547, \"contentFeatureHits\": null, \"relationReusedPairs\": null, \"replayedComparisons\": null, \"discardedReusedRelations\": null, \"relationInvalidatedPairs\": null}",
+      "durations_ms": "{\"pair\": null, \"index\": null, \"pause\": null, \"query\": null, \"queue\": 1230, \"active\": 67183.32809600607, \"dbLoad\": 26341.53414499387, \"compare\": null, \"dbWrite\": 6736.567972950637, \"feature\": null, \"cooldown\": 116, \"resultCopy\": null, \"dbValidation\": 6133.62885990739, \"relationReuse\": null, \"transactionBody\": 13093.53923200443, \"transactionWall\": 33354.19539901613, \"fingerprintReuse\": null, \"propertyInspection\": null, \"transactionPreFence\": 777.8623960129916, \"transactionPostFence\": 600.1255480013788, \"transactionAcquisition\": 288.349550973624, \"transactionCommitFinalization\": 18241.60808401555}"
+    },
+    {
+      "createdAt": "2026-10-30 15:12:25.903",
+      "id": "596666",
+      "stage": "ORIGINALS",
+      "phase": "ORIGINALS",
+      "reason": "CHECKPOINT",
+      "progress": "{\"originals\": 5319, \"queryTotal\": null, \"staticImages\": null, \"queryCompleted\": null, \"uncheckedMedia\": null}",
+      "counters": "{\"readBytes\": 0, \"copiedRows\": null, \"hotBatches\": null, \"dbLoadCalls\": 255, \"compareCalls\": null, \"dbFenceCalls\": 1716, \"dbWriteCalls\": 695, \"transactions\": 445, \"decodedImages\": null, \"indexRebuilds\": null, \"candidatePairs\": null, \"ownFeatureHits\": null, \"reusedArtworks\": null, \"hashedOriginals\": 0, \"indexNodeVisits\": null, \"replayedQueries\": null, \"reusedRelations\": null, \"localChannelHits\": null, \"wholeChannelHits\": null, \"dbValidationCalls\": 2603, \"discardedCopyRows\": null, \"metadataFallbacks\": null, \"originalCacheHits\": 5319, \"contentFeatureHits\": null, \"relationReusedPairs\": null, \"replayedComparisons\": null, \"discardedReusedRelations\": null, \"relationInvalidatedPairs\": null}",
+      "durations_ms": "{\"pair\": null, \"index\": null, \"pause\": null, \"query\": null, \"queue\": 1768, \"active\": 102026.5379129983, \"dbLoad\": 29394.40450401231, \"compare\": null, \"dbWrite\": 8443.968985006213, \"feature\": null, \"cooldown\": 205, \"resultCopy\": null, \"dbValidation\": 10574.91290489957, \"relationReuse\": null, \"transactionBody\": 19409.834763024, \"transactionWall\": 56988.60657402127, \"fingerprintReuse\": null, \"propertyInspection\": null, \"transactionPreFence\": 1379.905157998204, \"transactionPostFence\": 1018.43209400028, \"transactionAcquisition\": 501.0368399582802, \"transactionCommitFinalization\": 34055.45871800929}"
+    },
+    {
+      "createdAt": "2026-10-30 15:12:55.925",
+      "id": "596675",
+      "stage": "ORIGINALS",
+      "phase": "ORIGINALS",
+      "reason": "CHECKPOINT",
+      "progress": "{\"originals\": 7905, \"queryTotal\": null, \"staticImages\": null, \"queryCompleted\": null, \"uncheckedMedia\": null}",
+      "counters": "{\"readBytes\": 0, \"copiedRows\": 2053, \"hotBatches\": 0, \"dbLoadCalls\": 324, \"compareCalls\": null, \"dbFenceCalls\": 2404, \"dbWriteCalls\": 995, \"transactions\": 621, \"decodedImages\": null, \"indexRebuilds\": null, \"candidatePairs\": null, \"ownFeatureHits\": null, \"reusedArtworks\": 0, \"hashedOriginals\": 0, \"indexNodeVisits\": null, \"replayedQueries\": null, \"reusedRelations\": 0, \"localChannelHits\": null, \"wholeChannelHits\": null, \"dbValidationCalls\": 3684, \"discardedCopyRows\": 0, \"metadataFallbacks\": null, \"originalCacheHits\": 7905, \"contentFeatureHits\": null, \"relationReusedPairs\": null, \"replayedComparisons\": null, \"discardedReusedRelations\": 0, \"relationInvalidatedPairs\": null}",
+      "durations_ms": "{\"pair\": null, \"index\": null, \"pause\": null, \"query\": null, \"queue\": 2182, \"active\": 131605.2544129975, \"dbLoad\": 30796.26786302402, \"compare\": null, \"dbWrite\": 9978.565833970904, \"feature\": null, \"cooldown\": 238, \"resultCopy\": 1841.036035005003, \"dbValidation\": 17218.50570493565, \"relationReuse\": 1937.187378998846, \"transactionBody\": 27793.40886704994, \"transactionWall\": 79519.31269397585, \"fingerprintReuse\": 0, \"propertyInspection\": 0, \"transactionPreFence\": 1894.41230199486, \"transactionPostFence\": 1374.977793987841, \"transactionAcquisition\": 692.0032199732958, \"transactionCommitFinalization\": 46979.52102401852}"
+    },
+    {
+      "createdAt": "2026-10-30 15:13:07.537",
+      "id": "596679",
+      "stage": "PUBLISH",
+      "phase": "PUBLISH",
+      "reason": "CHECKPOINT",
+      "progress": "{\"originals\": 7905, \"queryTotal\": null, \"staticImages\": null, \"queryCompleted\": null, \"uncheckedMedia\": 2281}",
+      "counters": "{\"readBytes\": 0, \"copiedRows\": 8604, \"hotBatches\": 0, \"dbLoadCalls\": 324, \"compareCalls\": 0, \"dbFenceCalls\": 2472, \"dbWriteCalls\": 1101, \"transactions\": 640, \"decodedImages\": 0, \"indexRebuilds\": 0, \"candidatePairs\": 0, \"ownFeatureHits\": 0, \"reusedArtworks\": 0, \"hashedOriginals\": 0, \"indexNodeVisits\": 0, \"replayedQueries\": 0, \"reusedRelations\": 5, \"localChannelHits\": 0, \"wholeChannelHits\": 0, \"dbValidationCalls\": 3958, \"discardedCopyRows\": 0, \"metadataFallbacks\": null, \"originalCacheHits\": 7905, \"contentFeatureHits\": 0, \"relationReusedPairs\": null, \"replayedComparisons\": 0, \"discardedReusedRelations\": 0, \"relationInvalidatedPairs\": null}",
+      "durations_ms": "{\"pair\": 0, \"index\": 0, \"pause\": null, \"query\": 0, \"queue\": 2314, \"active\": 143068.4533019959, \"dbLoad\": 30796.26786302402, \"compare\": 0, \"dbWrite\": 10440.73106497897, \"feature\": 0, \"cooldown\": 245, \"resultCopy\": 11313.75931499898, \"dbValidation\": 23495.11127491298, \"relationReuse\": 1944.316349998117, \"transactionBody\": 34567.38590304553, \"transactionWall\": 87675.27695596962, \"fingerprintReuse\": 0, \"propertyInspection\": 0, \"transactionPreFence\": 1924.342833992093, \"transactionPostFence\": 1402.348952982575, \"transactionAcquisition\": 706.7793089821934, \"transactionCommitFinalization\": 48216.53265101461}"
+    },
+    {
+      "createdAt": "2026-10-30 15:13:08.228",
+      "id": "596680",
+      "stage": "COMPLETED",
+      "phase": "COMPLETED",
+      "reason": "COMPLETED",
+      "progress": "{\"originals\": 7905, \"queryTotal\": null, \"staticImages\": null, \"queryCompleted\": null, \"uncheckedMedia\": 2281}",
+      "counters": "{\"readBytes\": 0, \"copiedRows\": 8604, \"hotBatches\": 0, \"dbLoadCalls\": 324, \"compareCalls\": 0, \"dbFenceCalls\": 2476, \"dbWriteCalls\": 1121, \"transactions\": 643, \"decodedImages\": 0, \"indexRebuilds\": 0, \"candidatePairs\": 0, \"ownFeatureHits\": 0, \"reusedArtworks\": 0, \"hashedOriginals\": 0, \"indexNodeVisits\": 0, \"replayedQueries\": 0, \"reusedRelations\": 5, \"localChannelHits\": 0, \"wholeChannelHits\": 0, \"dbValidationCalls\": 4007, \"discardedCopyRows\": 0, \"metadataFallbacks\": null, \"originalCacheHits\": 7905, \"contentFeatureHits\": 0, \"relationReusedPairs\": null, \"replayedComparisons\": 0, \"discardedReusedRelations\": 0, \"relationInvalidatedPairs\": null}",
+      "durations_ms": "{\"pair\": 0, \"index\": 0, \"pause\": null, \"query\": 0, \"queue\": 2314, \"active\": 143766.2333299964, \"dbLoad\": 30796.26786302402, \"compare\": 0, \"dbWrite\": 10560.86012399195, \"feature\": 0, \"cooldown\": 245, \"resultCopy\": 11313.75931499898, \"dbValidation\": 27427.90362191948, \"relationReuse\": 1944.316349998117, \"transactionBody\": 38131.05143704637, \"transactionWall\": 91400.70938197522, \"fingerprintReuse\": 0, \"propertyInspection\": 0, \"transactionPreFence\": 1927.725561991333, \"transactionPostFence\": 1404.770848982036, \"transactionAcquisition\": 708.3887379802762, \"transactionCommitFinalization\": 48270.84541701524}"
+    }
+  ],
+  "row_count": 7
+}

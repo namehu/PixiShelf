@@ -1,0 +1,29 @@
+{
+  "at": "2026-10-30T15:44:58.660Z",
+  "owned": [
+    {
+      "kind": "app",
+      "pid": 2959,
+      "processGroup": 2959,
+      "alive": false,
+      "processGroupAlive": false,
+      "startedAt": "2026-10-30T15:42:46.076Z",
+      "stoppedAt": "2026-10-30T15:44:58.551Z"
+    },
+    {
+      "kind": "worker",
+      "pid": 2960,
+      "processGroup": 2960,
+      "alive": false,
+      "processGroupAlive": false,
+      "startedAt": "2026-10-30T15:42:46.078Z",
+      "stoppedAt": "2026-10-30T15:44:58.553Z"
+    }
+  ],
+  "ports": [
+    5504,
+    55844
+  ],
+  "listeners": "",
+  "lsofExit": 1
+}

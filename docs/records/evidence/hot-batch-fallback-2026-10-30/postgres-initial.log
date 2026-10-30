@@ -1,0 +1,578 @@
+
+ RUN  v4.0.18 /private/tmp/pixishelf-dedup-hot-batch-fallback/PixiShelf/packages/pixishelf-job-executors
+
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts (32 tests | 28 failed) 47815ms
+     × reuses zero-version caches with absent artwork source rows without creating missing sources 1534ms
+     × reuses zero-version caches with mixed artwork source rows without creating missing sources 917ms
+     × rejects a newly inserted nonzero artwork source revision at the batch commit 1534ms
+     × rejects a newly inserted nonzero artwork source epoch at the batch commit 1567ms
+     ✓ v9 hot batch saves no media, cursor or count after cancel  1120ms
+     ✓ v9 hot batch saves no media, cursor or count after lease  1074ms
+     ✓ v9 hot batch saves no media, cursor or count after rollback  1190ms
+     ✓ copies exact, contains and partial graphs with current order, without review authority or historical dependencies  2582ms
+     × reuses completed visual evidence without feature decoding, original reads or candidate work 30020ms
+     × reuses complete mixed-media coverage with declared exclusions 175ms
+     × reuses complete mixed-media coverage with decoded exclusions 85ms
+     × does not whole-run reuse after feature-cache changes 65ms
+     × does not whole-run reuse after identity changes 73ms
+     × does not whole-run reuse after feature-version changes 66ms
+     × does not whole-run reuse after search-version changes 61ms
+     × does not whole-run reuse after incomplete changes 65ms
+     × does not whole-run reuse after options changes 61ms
+     × uses the existing changed-input path for modify 32ms
+     × uses the existing changed-input path for insert 43ms
+     × uses the existing changed-input path for delete 35ms
+     × uses the existing changed-input path for missing 36ms
+     × uses the existing changed-input path for full 39ms
+     × commits a 500-original prefix and resumes in a new executor without recounting 913ms
+     × resumes a durable copy checkpoint, source loss=false 37ms
+     × resumes a durable copy checkpoint, source loss=true 33ms
+     × restarts bounded evidence copying when order changes after the first 1000 pages 3959ms
+     × retries only projection when order changes immediately before publication 48ms
+     × revalidates media classification changed after the final copy 108ms
+     × rechecks final publication after source changes following result copy 33ms
+     × rechecks final publication after directory changes following result copy 32ms
+     × reuses a complete empty artist scope 16ms
+     × reuses an unchanged complete negative result 25ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 28 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > reuses zero-version caches with absent artwork source rows without creating missing sources
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > reuses zero-version caches with mixed artwork source rows without creating missing sources
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:126:85
+    124|     const fingerprints = await db!.artworkContentFingerprint.findMany(…
+    125|     expect(fingerprints).toHaveLength(2)
+    126|     expect(fingerprints.every(f => f.sourceRevision === 0n && f.mediaE…
+       |                                                                                     ^
+    127|     await db!.artworkContentSource.deleteMany({ where: { artworkId: { …
+    128|     if (sourceRows === 'mixed') await db!.artworkContentSource.create(…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > rejects a newly inserted nonzero artwork source revision at the batch commit
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > rejects a newly inserted nonzero artwork source epoch at the batch commit
+TypeError: Cannot read properties of null (reading 'kind')
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:174:19
+    172|     expect(events.some(event => {
+    173|       const data = event.data as { kind?: string; phase?: string; reas…
+    174|       return data.kind === 'artwork-dedup.hot-fallback' && data.phase …
+       |                   ^
+    175|     })).toBe(true)
+    176|     expect(await db!.artworkDedupMedia.count({ where: { runId: hot.run…
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:172:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > reuses completed visual evidence without feature decoding, original reads or candidate work
+Error: Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:289:3
+    287|   }, 30_000)
+    288| 
+    289|   it('reuses completed visual evidence without feature decoding, origi…
+       |   ^
+    290|     const artistId = await visualFixture(3)
+    291|     const cold = await start(artistId, 'INCREMENTAL', true, 8)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > reuses complete mixed-media coverage with declared exclusions
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-15"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:333:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > reuses complete mixed-media coverage with decoded exclusions
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-16"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:333:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > does not whole-run reuse after feature-cache changes
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-17"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:353:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > does not whole-run reuse after identity changes
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-18"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:353:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > does not whole-run reuse after feature-version changes
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-19"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:353:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > does not whole-run reuse after search-version changes
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-20"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:353:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > does not whole-run reuse after incomplete changes
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-21"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:353:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > does not whole-run reuse after options changes
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-22"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:353:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > uses the existing changed-input path for modify
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-23"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:390:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > uses the existing changed-input path for insert
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-24"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:390:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > uses the existing changed-input path for delete
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-25"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:390:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > uses the existing changed-input path for missing
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-26"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:390:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > uses the existing changed-input path for full
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-27"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:390:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > commits a 500-original prefix and resumes in a new executor without recounting
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-28"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:419:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > resumes a durable copy checkpoint, source loss=false
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-29"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:458:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > resumes a durable copy checkpoint, source loss=true
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-30"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:458:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > restarts bounded evidence copying when order changes after the first 1000 pages
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-31"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:496:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > retries only projection when order changes immediately before publication
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-32"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:546:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > revalidates media classification changed after the final copy
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-33"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:587:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > rechecks final publication after source changes following result copy
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-34"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:628:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > rechecks final publication after directory changes following result copy
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-35"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:628:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > reuses a complete empty artist scope
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-36"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:688:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/28]⎯
+
+ FAIL  src/artwork-dedup/__tests__/hot-run.postgres.test.ts > v9 task-local metadata and whole-run reuse > reuses an unchanged complete negative result
+AssertionError: expected undefined to be 'dedup-executor-3b391102-e57a-43f7-b11…' // Object.is equality
+
+- Expected: 
+"dedup-executor-3b391102-e57a-43f7-b11d-b306df84b0f5-37"
+
++ Received: 
+undefined
+
+ ❯ claim src/artwork-dedup/__tests__/hot-run.postgres.test.ts:840:19
+    838| async function claim(id: string) {
+    839|   const job = await repository!.claim(prefix, capabilities)
+    840|   expect(job?.id).toBe(id)
+       |                   ^
+    841|   return job!
+    842| }
+ ❯ finish src/artwork-dedup/__tests__/hot-run.postgres.test.ts:844:37
+ ❯ src/artwork-dedup/__tests__/hot-run.postgres.test.ts:701:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/28]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  28 failed | 4 passed (32)
+   Start at  23:30:32
+   Duration  48.67s (transform 485ms, setup 0ms, import 753ms, tests 47.82s, environment 0ms)
+
+undefined
+/private/tmp/pixishelf-dedup-hot-batch-fallback/PixiShelf/packages/pixishelf-job-executors:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run --config vitest.config.ts src/artwork-dedup/__tests__/hot-run.postgres.test.ts
