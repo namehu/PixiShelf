@@ -32,13 +32,13 @@ import { createArtworkDedupExecutor, executeArtworkDedup } from '../executor.ts'
 
 type Run = Prisma.ArtworkDedupRunGetPayload<Record<string, never>>
 
-function fixture(options: { rollbackFeature?: number; rejectFinalizer?: boolean; status?: string; releaseFailure?: boolean } = {}) {
+function fixture(options: { rollbackFeature?: number; rejectFinalizer?: boolean; status?: string; releaseFailure?: boolean; contentStage?: boolean } = {}) {
   let clock = 0
   vi.spyOn(performance, 'now').mockImplementation(() => clock)
   let run = {
     id: 'run', jobId: 'job', stage: 'VISUAL', status: 'RUNNING', mode: 'INCREMENTAL',
     readBytes: 0n, statMedia: 0, hashedMedia: 0, cacheHitMedia: 0, rootBindings: [],
-    visualCheckpoint: options.releaseFailure ? null : { version: 3 }, visualSearchVersion: 'visual-search-v2', visualInputDigest: null,
+    visualCheckpoint: options.releaseFailure || options.contentStage ? null : { version: 3 }, visualSearchVersion: 'visual-search-v2', visualInputDigest: null,
     visualBudgetWaiting: false, includeSuspectedVersions: true,
     changedArtworks: 0, failedArtworks: 0, skippedArtworks: 0, completeArtworks: 2,
     artworkCount: 2, groupCount: 0, processedArtworks: 2, visualStatus: 'COMPLETE',
@@ -93,7 +93,7 @@ function fixture(options: { rollbackFeature?: number; rejectFinalizer?: boolean;
   } as unknown as ExecutionContext<{ runId: string; executionVersion: number }, EnqueuedChildJob>
   const reader = { metrics: { inspections: 0, reads: 0, bytesRead: 0n, statLatencyMs: 0, parentPeakRss: 0, childPeakRss: 0, ipcMessages: 0 }, start: async () => ({}), resolveRoots: async () => ({}), close: vi.fn() }
   const dependencies = { database: tx as never, sourceRoot: '/fixture', archiveRoot: '/fixture', readerOptions: { entrypoint: '/fixture/reader.cjs' }, supervisor: { create: () => reader } as never, now: () => clock, sliceMs: 60_000, searchCache: { runId: 'run', built: true, worker: { close: vi.fn() } as never } }
-  return { context, dependencies, scope, logger, tx, events: tx.systemJobEvent.create, getRun: () => run, getProgress: () => progressData, elapsed: () => clock, mutations: () => mutationCount }
+  return { context, dependencies, scope, logger, tx, reader, events: tx.systemJobEvent.create, getRun: () => run, getProgress: () => progressData, elapsed: () => clock, mutations: () => mutationCount }
 }
 
 beforeEach(() => vi.clearAllMocks())
@@ -116,7 +116,8 @@ describe('committed artwork detection lifecycle telemetry', () => {
     await executeArtworkDedup(f.context, f.dependencies)
     const summary = f.getRun().performanceSummary as unknown as ArtworkDedupPerformanceSummary
     expect(summary.durationsMs.active).toBe(5_000 + f.elapsed())
-    expect(summary.durationsMs).toMatchObject({ queue: 0, cooldown: 0, pause: null })
+    // This fixture has no preceding scheduling checkpoint; no cooldown was measured.
+    expect(summary.durationsMs).toMatchObject({ queue: 0, cooldown: null, pause: null })
     expect(summary.counters).toMatchObject({ decodedImages: 3, compareCalls: 50 })
     expect(summary.counters.transactions).toBeGreaterThan(0)
     expect(summary.counters.transactions).toBe(f.mutations() + 1)
@@ -168,6 +169,7 @@ describe('committed artwork detection lifecycle telemetry', () => {
 
   it('keeps an automatic compute yield distinct from a user pause and preserves zero cooldown', async () => {
     const f = fixture()
+    f.context.job.progressData = { kind: 'artwork-dedup', waitReason: 'SCHEDULER', updatedAt: new Date(0).toISOString() } as ArtworkDedupProgressData
     mocks.scan.mockResolvedValue(false)
     await executeArtworkDedup(f.context, f.dependencies)
     expect(f.getProgress()).toMatchObject({ waitReason: 'SCHEDULER' })
@@ -175,6 +177,27 @@ describe('committed artwork detection lifecycle telemetry', () => {
     expect(f.scope.retry).toHaveBeenCalledWith(expect.objectContaining({ availableAt: new Date(f.elapsed()), schedulingYield: true }))
     expect((f.getRun().performanceSummary as unknown as ArtworkDedupPerformanceSummary).durationsMs.cooldown).toBe(0)
     expect((f.getRun().performanceSummary as unknown as ArtworkDedupPerformanceSummary).counters.transactions).toBe(f.mutations() + 1)
+  })
+
+  it.each([false, true])('schedules a feature slice according to its actual content I/O: %s', async readsContent => {
+    const f = fixture({ contentStage: true })
+    mocks.scan.mockImplementation(async () => {
+      if (readsContent) { f.reader.metrics.reads = 1; f.reader.metrics.bytesRead = 4n }
+      return false
+    })
+    await executeArtworkDedup(f.context, f.dependencies)
+    expect(f.scope.retry).toHaveBeenCalledWith(expect.objectContaining({
+      availableAt: new Date(f.elapsed() + (readsContent ? 3000 : 0)), schedulingYield: true
+    }))
+  })
+
+  it('accounts for the actual previous cooldown even when the resumed slice has a visual checkpoint', async () => {
+    const f = fixture()
+    f.context.job.availableAt = new Date(3000)
+    f.context.job.progressData = { kind: 'artwork-dedup', waitReason: 'SCHEDULER', updatedAt: new Date(0).toISOString() } as ArtworkDedupProgressData
+    mocks.scan.mockResolvedValue(false)
+    await executeArtworkDedup(f.context, f.dependencies)
+    expect((f.getRun().performanceSummary as unknown as ArtworkDedupPerformanceSummary).durationsMs.cooldown).toBe(3000)
   })
 
   it('discards a built index after late reader release failure before a new executor retries the same run', async () => {

@@ -1,0 +1,323 @@
+{
+  "label": "baseline",
+  "sqlStatements": 15481,
+  "normalizedGroupCount": 1185,
+  "selection": "Union of top 30 by count and top 15 by query-event duration; all remaining groups aggregate by phase below. No bind values.",
+  "selectedStatementCount": 10146,
+  "statements": [
+    {
+      "phase": "STAT",
+      "sql": "SELECT \"resourceKey\" FROM \"job_resource_leases\" WHERE \"ownerJobId\" = ? AND \"workerId\" = ? AND \"leaseToken\" = ?::uuid AND \"expiresAt\" > ? LIMIT 1 FOR UPDATE",
+      "count": 1213,
+      "durationMs": 3
+    },
+    {
+      "phase": "STAT",
+      "sql": "SELECT \"id\", \"status\", \"stage\", \"progress\" FROM \"system_jobs\" WHERE \"id\" = ? AND \"workerId\" = ? AND \"leaseToken\" = ?::uuid AND \"attempt\" = ? AND \"status\" IN ('RUNNING', 'PAUSING', 'CANCELLING') AND \"leaseExpiresAt\" > ? LIMIT 1 FOR UPDATE",
+      "count": 1213,
+      "durationMs": 1
+    },
+    {
+      "phase": "STAT",
+      "sql": "SELECT id FROM \"ArtworkDedupRun\" WHERE id=? FOR UPDATE",
+      "count": 656,
+      "durationMs": 0
+    },
+    {
+      "phase": "STAT",
+      "sql": "SELECT \"public\".\"ArtworkDedupRun\".\"id\", \"public\".\"ArtworkDedupRun\".\"performanceSummary\", \"public\".\"ArtworkDedupRun\".\"visualSearchVersion\", \"public\".\"ArtworkDedupRun\".\"visualSearchComplete\", \"public\".\"ArtworkDedupRun\".\"visualInputDigest\", \"public\".\"ArtworkDedupRun\".\"visualComparisonRound\", \"public\".\"ArtworkDedupRun\".\"visualRoundStartComparisons\", \"public\".\"ArtworkDedupRun\".\"visualBudgetWaiting\", \"public\".\"ArtworkDedupRun\".\"visualCheckpoint\", \"public\".\"ArtworkDedupRun\".\"relationCacheVersion\", \"public\".\"ArtworkDedupRun\".\"visualCandidatePairs\", \"public\".\"ArtworkDedupRun\".\"originalReusedPairs\", \"public\".\"ArtworkDedupRun\".\"originalComparedPairs\", \"public\".\"ArtworkDedupRun\".\"visualReusedComparisons\", \"public\".\"ArtworkDedupRun\".\"visualComparedComparisons\", \"public\".\"ArtworkDedupRun\".\"includeSuspectedVersions\", \"public\".\"ArtworkDedupRun\".\"visualStatus\", \"public\".\"ArtworkDedupRun\".\"visualIncompleteReasons\", \"public\".\"ArtworkDedupRun\".\"visualAfterImageId\", \"public\".\"ArtworkDedupRun\".\"partialAfterArtworkId\", \"public\".\"ArtworkDedupRun\".\"partialAfterCandidateId\", \"public\".\"ArtworkDedupRun\".\"relationAfterArtworkId\", \"public\".\"ArtworkDedupRun\".\"relationAfterCandidateId\", \"public\".\"ArtworkDedupRun\".\"rootBindings\", \"public\".\"ArtworkDedupRun\".\"lastProgressAt\", \"public\".\"ArtworkDedupRun\".\"retryReadBytes\", \"public\".\"ArtworkDedupRun\".\"readerOwner\", \"public\".\"ArtworkDedupRun\".\"readerToken\", \"public\".\"ArtworkDedupRun\".\"readerState\", \"public\".\"ArtworkDedupRun\".\"artistId\", \"public\".\"ArtworkDedupRun\".\"requestedBy\", \"public\".\"ArtworkDedupRun\".\"idempotencyKey\", \"public\".\"ArtworkDedupRun\".\"mode\", \"publi",
+      "count": 656,
+      "durationMs": 3
+    },
+    {
+      "phase": "STAT",
+      "sql": "BEGIN",
+      "count": 609,
+      "durationMs": 3
+    },
+    {
+      "phase": "STAT",
+      "sql": "SET TRANSACTION ISOLATION LEVEL READ COMMITTED",
+      "count": 608,
+      "durationMs": 1
+    },
+    {
+      "phase": "STAT",
+      "sql": "COMMIT",
+      "count": 608,
+      "durationMs": 56
+    },
+    {
+      "phase": "STAT",
+      "sql": "SELECT id FROM \"Artwork\" WHERE id IN (?) ORDER BY id FOR UPDATE",
+      "count": 400,
+      "durationMs": 0
+    },
+    {
+      "phase": "STAT",
+      "sql": "SELECT \"public\".\"ArtworkContentSource\".\"artworkId\", \"public\".\"ArtworkContentSource\".\"revision\", \"public\".\"ArtworkContentSource\".\"mediaEpoch\", \"public\".\"ArtworkContentSource\".\"writeToken\", \"public\".\"ArtworkContentSource\".\"writeStartedAt\", \"public\".\"ArtworkContentSource\".\"updatedAt\" FROM \"public\".\"ArtworkContentSource\" WHERE \"public\".\"ArtworkContentSource\".\"artworkId\" IN (?) OFFSET ?",
+      "count": 400,
+      "durationMs": 0
+    },
+    {
+      "phase": "STAT",
+      "sql": "SELECT \"public\".\"Artwork\".\"id\" FROM \"public\".\"Artwork\" WHERE (\"public\".\"Artwork\".\"id\" = ? AND 1=1) LIMIT ? OFFSET ?",
+      "count": 300,
+      "durationMs": 0
+    },
+    {
+      "phase": "STAT",
+      "sql": "SELECT \"public\".\"ArtworkDedupItem\".\"runId\", \"public\".\"ArtworkDedupItem\".\"artworkId\", \"public\".\"ArtworkDedupItem\".\"visualReuseSignature\", \"public\".\"ArtworkDedupItem\".\"visualSignature\", \"public\".\"ArtworkDedupItem\".\"frozenMediaRevision\", \"public\".\"ArtworkDedupItem\".\"status\", \"public\".\"ArtworkDedupItem\".\"snapshotRevision\", \"public\".\"ArtworkDedupItem\".\"mediaEpoch\", \"public\".\"ArtworkDedupItem\".\"memberCount\", \"public\".\"ArtworkDedupItem\".\"afterImageId\", \"public\".\"ArtworkDedupItem\".\"sizeDigest\", \"public\".\"ArtworkDedupItem\".\"contentSha256\", \"public\".\"ArtworkDedupItem\".\"membersSignature\", \"public\".\"ArtworkDedupItem\".\"errorCode\", \"public\".\"ArtworkDedupItem\".\"updatedAt\" FROM \"public\".\"ArtworkDedupItem\" WHERE ((\"public\".\"ArtworkDedupItem\".\"runId\" = ? AND \"public\".\"ArtworkDedupItem\".\"artworkId\" = ?) AND 1=1) LIMIT ? OFFSET ?",
+      "count": 250,
+      "durationMs": 1
+    },
+    {
+      "phase": "STAT",
+      "sql": "SELECT \"public\".\"Artwork\".\"id\" FROM \"public\".\"Artwork\" WHERE (\"public\".\"Artwork\".\"id\" = ? AND \"public\".\"Artwork\".\"mediaRevision\" = ? AND \"public\".\"Artwork\".\"deletedAt\" IS NULL AND \"public\".\"Artwork\".\"archiveLifecycleState\" = CAST(?::text AS \"public\".\"ArchiveLifecycleState\") AND (\"public\".\"Artwork\".\"id\") IN (SELECT \"t1\".\"artworkId\" FROM \"public\".\"artwork_artists\" AS \"t1\" LEFT JOIN \"public\".\"Artist\" AS \"j3\" ON (\"j3\".\"id\") = (\"t1\".\"artistId\") WHERE (\"t1\".\"artistId\" = ? AND (\"t1\".\"id\") IN (SELECT \"t2\".\"membershipId\" FROM \"public\".\"artwork_artist_evidence\" AS \"t2\" WHERE (\"t2\".\"present\" = ? AND \"t2\".\"excludedAt\" IS NULL AND \"t2\".\"membershipId\" IS NOT NULL)) AND (\"j3\".\"mergedIntoId\" IS NULL AND (\"j3\".\"id\" IS NOT NULL)) AND \"t1\".\"artworkId\" IS NOT NULL))) LIMIT ? OFFSET ?",
+      "count": 250,
+      "durationMs": 1
+    },
+    {
+      "phase": "STAT",
+      "sql": "SELECT \"public\".\"MediaContentSource\".\"imageId\", \"public\".\"MediaContentSource\".\"revision\", \"public\".\"MediaContentSource\".\"directoryStateId\", \"public\".\"MediaContentSource\".\"writeToken\", \"public\".\"MediaContentSource\".\"writeStartedAt\", \"public\".\"MediaContentSource\".\"updatedAt\" FROM \"public\".\"MediaContentSource\" WHERE \"public\".\"MediaContentSource\".\"imageId\" IN (?…) OFFSET ?",
+      "count": 200,
+      "durationMs": 1
+    },
+    {
+      "phase": "STAT",
+      "sql": "SELECT \"public\".\"MediaContentFingerprint\".\"imageId\", \"public\".\"MediaContentFingerprint\".\"algorithmVersion\", \"public\".\"MediaContentFingerprint\".\"rootIdentity\", \"public\".\"MediaContentFingerprint\".\"sourcePath\", \"public\".\"MediaContentFingerprint\".\"canonicalPath\", \"public\".\"MediaContentFingerprint\".\"sourceRevision\", \"public\".\"MediaContentFingerprint\".\"artworkMediaEpoch\", \"public\".\"MediaContentFingerprint\".\"size\", \"public\".\"MediaContentFingerprint\".\"mtimeNs\", \"public\".\"MediaContentFingerprint\".\"ctimeNs\", \"public\".\"MediaContentFingerprint\".\"deviceId\", \"public\".\"MediaContentFingerprint\".\"inode\", \"public\".\"MediaContentFingerprint\".\"sha256\", \"public\".\"MediaContentFingerprint\".\"hashedAt\" FROM \"public\".\"MediaContentFingerprint\" WHERE \"public\".\"MediaContentFingerprint\".\"imageId\" IN (?…) OFFSET ?",
+      "count": 200,
+      "durationMs": 1
+    },
+    {
+      "phase": "REUSE",
+      "sql": "SELECT * FROM \"MediaContentDirectoryState\" WHERE \"logicalRoot\" IN (?) AND \"relativeDirectory\" = '' ORDER BY \"logicalRoot\" COLLATE \"C\" FOR UPDATE",
+      "count": 195,
+      "durationMs": 0
+    },
+    {
+      "phase": "MATCH",
+      "sql": "SELECT \"resourceKey\" FROM \"job_resource_leases\" WHERE \"ownerJobId\" = ? AND \"workerId\" = ? AND \"leaseToken\" = ?::uuid AND \"expiresAt\" > ? LIMIT 1 FOR UPDATE",
+      "count": 184,
+      "durationMs": 1
+    },
+    {
+      "phase": "MATCH",
+      "sql": "SELECT \"id\", \"status\", \"stage\", \"progress\" FROM \"system_jobs\" WHERE \"id\" = ? AND \"workerId\" = ? AND \"leaseToken\" = ?::uuid AND \"attempt\" = ? AND \"status\" IN ('RUNNING', 'PAUSING', 'CANCELLING') AND \"leaseExpiresAt\" > ? LIMIT 1 FOR UPDATE",
+      "count": 184,
+      "durationMs": 0
+    },
+    {
+      "phase": "STAT",
+      "sql": "SELECT * FROM \"MediaContentDirectoryState\" WHERE \"logicalRoot\" IN (?) AND \"relativeDirectory\" = '' ORDER BY \"logicalRoot\" COLLATE \"C\" FOR UPDATE",
+      "count": 150,
+      "durationMs": 0
+    },
+    {
+      "phase": "STAT",
+      "sql": "SELECT * FROM \"MediaContentDirectoryState\" WHERE (\"logicalRoot\", \"relativeDirectory\") IN (VALUES (?…),(?…)) ORDER BY \"logicalRoot\" COLLATE \"C\", \"relativeDirectory\" COLLATE \"C\" FOR UPDATE",
+      "count": 150,
+      "durationMs": 1
+    },
+    {
+      "phase": "REUSE",
+      "sql": "SELECT \"resourceKey\" FROM \"job_resource_leases\" WHERE \"ownerJobId\" = ? AND \"workerId\" = ? AND \"leaseToken\" = ?::uuid AND \"expiresAt\" > ? LIMIT 1 FOR UPDATE",
+      "count": 134,
+      "durationMs": 0
+    },
+    {
+      "phase": "REUSE",
+      "sql": "SELECT \"id\", \"status\", \"stage\", \"progress\" FROM \"system_jobs\" WHERE \"id\" = ? AND \"workerId\" = ? AND \"leaseToken\" = ?::uuid AND \"attempt\" = ? AND \"status\" IN ('RUNNING', 'PAUSING', 'CANCELLING') AND \"leaseExpiresAt\" > ? LIMIT 1 FOR UPDATE",
+      "count": 134,
+      "durationMs": 1
+    },
+    {
+      "phase": "REUSE",
+      "sql": "SELECT \"public\".\"ArtworkDedupRun\".\"id\", \"public\".\"ArtworkDedupRun\".\"performanceSummary\", \"public\".\"ArtworkDedupRun\".\"visualSearchVersion\", \"public\".\"ArtworkDedupRun\".\"visualSearchComplete\", \"public\".\"ArtworkDedupRun\".\"visualInputDigest\", \"public\".\"ArtworkDedupRun\".\"visualComparisonRound\", \"public\".\"ArtworkDedupRun\".\"visualRoundStartComparisons\", \"public\".\"ArtworkDedupRun\".\"visualBudgetWaiting\", \"public\".\"ArtworkDedupRun\".\"visualCheckpoint\", \"public\".\"ArtworkDedupRun\".\"relationCacheVersion\", \"public\".\"ArtworkDedupRun\".\"visualCandidatePairs\", \"public\".\"ArtworkDedupRun\".\"originalReusedPairs\", \"public\".\"ArtworkDedupRun\".\"originalComparedPairs\", \"public\".\"ArtworkDedupRun\".\"visualReusedComparisons\", \"public\".\"ArtworkDedupRun\".\"visualComparedComparisons\", \"public\".\"ArtworkDedupRun\".\"includeSuspectedVersions\", \"public\".\"ArtworkDedupRun\".\"visualStatus\", \"public\".\"ArtworkDedupRun\".\"visualIncompleteReasons\", \"public\".\"ArtworkDedupRun\".\"visualAfterImageId\", \"public\".\"ArtworkDedupRun\".\"partialAfterArtworkId\", \"public\".\"ArtworkDedupRun\".\"partialAfterCandidateId\", \"public\".\"ArtworkDedupRun\".\"relationAfterArtworkId\", \"public\".\"ArtworkDedupRun\".\"relationAfterCandidateId\", \"public\".\"ArtworkDedupRun\".\"rootBindings\", \"public\".\"ArtworkDedupRun\".\"lastProgressAt\", \"public\".\"ArtworkDedupRun\".\"retryReadBytes\", \"public\".\"ArtworkDedupRun\".\"readerOwner\", \"public\".\"ArtworkDedupRun\".\"readerToken\", \"public\".\"ArtworkDedupRun\".\"readerState\", \"public\".\"ArtworkDedupRun\".\"artistId\", \"public\".\"ArtworkDedupRun\".\"requestedBy\", \"public\".\"ArtworkDedupRun\".\"idempotencyKey\", \"public\".\"ArtworkDedupRun\".\"mode\", \"publi",
+      "count": 134,
+      "durationMs": 1
+    },
+    {
+      "phase": "REUSE",
+      "sql": "SELECT * FROM \"MediaContentDirectoryState\" WHERE (\"logicalRoot\", \"relativeDirectory\") IN (VALUES (?…)) ORDER BY \"logicalRoot\" COLLATE \"C\", \"relativeDirectory\" COLLATE \"C\" FOR UPDATE",
+      "count": 130,
+      "durationMs": 1
+    },
+    {
+      "phase": "REUSE",
+      "sql": "SELECT DISTINCT m.\"logicalRoot\",m.\"rootIdentity\",m.\"relativeDirectory\",m.\"directoryId\",m.\"directoryGeneration\" generation FROM \"ArtworkDedupMedia\" m JOIN \"ArtworkDedupItem\" i ON i.\"runId\"=m.\"runId\" AND i.\"artworkId\"=m.\"artworkId\" WHERE m.\"runId\"=? AND i.status='COMPLETE' AND m.\"artworkId\" IN (?…) AND m.\"directoryId\">? ORDER BY m.\"directoryId\" LIMIT 100",
+      "count": 130,
+      "durationMs": 208
+    },
+    {
+      "phase": "FEATURES",
+      "sql": "SELECT \"public\".\"ArtworkDedupRun\".\"id\", \"public\".\"ArtworkDedupRun\".\"performanceSummary\", \"public\".\"ArtworkDedupRun\".\"visualSearchVersion\", \"public\".\"ArtworkDedupRun\".\"visualSearchComplete\", \"public\".\"ArtworkDedupRun\".\"visualInputDigest\", \"public\".\"ArtworkDedupRun\".\"visualComparisonRound\", \"public\".\"ArtworkDedupRun\".\"visualRoundStartComparisons\", \"public\".\"ArtworkDedupRun\".\"visualBudgetWaiting\", \"public\".\"ArtworkDedupRun\".\"visualCheckpoint\", \"public\".\"ArtworkDedupRun\".\"relationCacheVersion\", \"public\".\"ArtworkDedupRun\".\"visualCandidatePairs\", \"public\".\"ArtworkDedupRun\".\"originalReusedPairs\", \"public\".\"ArtworkDedupRun\".\"originalComparedPairs\", \"public\".\"ArtworkDedupRun\".\"visualReusedComparisons\", \"public\".\"ArtworkDedupRun\".\"visualComparedComparisons\", \"public\".\"ArtworkDedupRun\".\"includeSuspectedVersions\", \"public\".\"ArtworkDedupRun\".\"visualStatus\", \"public\".\"ArtworkDedupRun\".\"visualIncompleteReasons\", \"public\".\"ArtworkDedupRun\".\"visualAfterImageId\", \"public\".\"ArtworkDedupRun\".\"partialAfterArtworkId\", \"public\".\"ArtworkDedupRun\".\"partialAfterCandidateId\", \"public\".\"ArtworkDedupRun\".\"relationAfterArtworkId\", \"public\".\"ArtworkDedupRun\".\"relationAfterCandidateId\", \"public\".\"ArtworkDedupRun\".\"rootBindings\", \"public\".\"ArtworkDedupRun\".\"lastProgressAt\", \"public\".\"ArtworkDedupRun\".\"retryReadBytes\", \"public\".\"ArtworkDedupRun\".\"readerOwner\", \"public\".\"ArtworkDedupRun\".\"readerToken\", \"public\".\"ArtworkDedupRun\".\"readerState\", \"public\".\"ArtworkDedupRun\".\"artistId\", \"public\".\"ArtworkDedupRun\".\"requestedBy\", \"public\".\"ArtworkDedupRun\".\"idempotencyKey\", \"public\".\"ArtworkDedupRun\".\"mode\", \"publi",
+      "count": 126,
+      "durationMs": 0
+    },
+    {
+      "phase": "STAT",
+      "sql": "SELECT \"public\".\"Artwork\".\"id\", COALESCE(\"aggr_selection_0_Image\".\"_aggr_count_images\", 0) AS \"_aggr_count_images\" FROM \"public\".\"Artwork\" LEFT JOIN (SELECT \"public\".\"Image\".\"artworkId\", COUNT(*) AS \"_aggr_count_images\" FROM \"public\".\"Image\" WHERE 1=1 GROUP BY \"public\".\"Image\".\"artworkId\") AS \"aggr_selection_0_Image\" ON (\"public\".\"Artwork\".\"id\" = \"aggr_selection_0_Image\".\"artworkId\") WHERE (\"public\".\"Artwork\".\"id\" = ? AND 1=1) LIMIT ? OFFSET ?",
+      "count": 100,
+      "durationMs": 1
+    },
+    {
+      "phase": "STAT",
+      "sql": "SELECT COUNT(*) FROM (SELECT \"public\".\"MediaContentSource\".\"imageId\" FROM \"public\".\"MediaContentSource\" LEFT JOIN \"public\".\"Image\" AS \"j1\" ON (\"j1\".\"id\") = (\"public\".\"MediaContentSource\".\"imageId\") WHERE ((\"j1\".\"artworkId\" = ? AND (\"j1\".\"id\" IS NOT NULL)) AND \"public\".\"MediaContentSource\".\"writeToken\" IS NOT NULL) OFFSET ?) AS \"sub\"",
+      "count": 100,
+      "durationMs": 1
+    },
+    {
+      "phase": "STAT",
+      "sql": "SELECT EXISTS ( SELECT 1 FROM \"Image\" i JOIN \"MediaContentSource\" s ON s.\"imageId\" = i.id JOIN \"MediaContentDirectoryState\" d ON d.id = s.\"directoryStateId\" JOIN \"MediaContentDirectoryState\" wd ON wd.\"logicalRoot\" = d.\"logicalRoot\" JOIN \"MediaContentPathWrite\" w ON w.\"directoryId\" = wd.id WHERE i.\"artworkId\" = ? AND w.status IN ('ACTIVE','READY','RECOVERY_REQUIRED') AND ( (w.scope = 'PATH' AND (d.\"relativeDirectory\" = '' OR left(w.\"relativePath\",length(d.\"relativeDirectory\")+1) = d.\"relativeDirectory\" || '/')) OR (w.scope = 'DIRECTORY' AND (wd.\"relativeDirectory\" = '' OR d.\"relativeDirectory\" = wd.\"relativeDirectory\" OR left(d.\"relativeDirectory\",length(wd.\"relativeDirectory\")+1) = wd.\"relativeDirectory\" || '/')) ) ) AS \"exists\"",
+      "count": 100,
+      "durationMs": 8
+    },
+    {
+      "phase": "STAT",
+      "sql": "SELECT \"public\".\"Image\".\"id\", \"public\".\"Image\".\"artworkId\", \"public\".\"Image\".\"path\" FROM \"public\".\"Image\" WHERE \"public\".\"Image\".\"artworkId\" = ? ORDER BY \"public\".\"Image\".\"id\" ASC LIMIT ? OFFSET ?",
+      "count": 100,
+      "durationMs": 0
+    },
+    {
+      "phase": "STAT",
+      "sql": "SELECT \"public\".\"MediaContentDirectoryState\".\"id\", \"public\".\"MediaContentDirectoryState\".\"logicalRoot\", \"public\".\"MediaContentDirectoryState\".\"relativeDirectory\", \"public\".\"MediaContentDirectoryState\".\"rootIdentity\", \"public\".\"MediaContentDirectoryState\".\"generation\", \"public\".\"MediaContentDirectoryState\".\"createdAt\", \"public\".\"MediaContentDirectoryState\".\"updatedAt\" FROM \"public\".\"MediaContentDirectoryState\" WHERE \"public\".\"MediaContentDirectoryState\".\"id\" IN (?) OFFSET ?",
+      "count": 100,
+      "durationMs": 0
+    },
+    {
+      "phase": "MATCH",
+      "sql": "WITH required AS MATERIALIZED ( SELECT size,sha256,count(*) n FROM \"ArtworkDedupMedia\" WHERE \"runId\"=? AND \"artworkId\"=? GROUP BY size,sha256 ), frequencies AS ( SELECT q.*,(SELECT count(DISTINCT p.\"artworkId\") FROM \"ArtworkDedupMedia\" p WHERE p.\"runId\"=? AND p.size=q.size AND p.sha256=q.sha256) frequency FROM required q ), prefix AS MATERIALIZED ( SELECT * FROM (SELECT *,coalesce(sum(n) OVER(ORDER BY frequency,size,sha256 ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0) before FROM frequencies) ranked WHERE before<=? ), candidate AS MATERIALIZED ( SELECT i.\"artworkId\",i.\"memberCount\" FROM prefix q JOIN \"ArtworkDedupMedia\" p ON p.\"runId\"=? AND p.size=q.size AND p.sha256=q.sha256 JOIN \"ArtworkDedupItem\" i ON i.\"runId\"=p.\"runId\" AND i.\"artworkId\"=p.\"artworkId\" WHERE i.status='COMPLETE' AND i.\"artworkId\">? AND (i.\"memberCount\">? OR i.\"memberCount\"=? AND i.\"artworkId\">?) AND NOT EXISTS(SELECT 1 FROM \"ArtworkDedupGroupMember\" m JOIN \"ArtworkDedupGroupMember\" earlier ON earlier.\"groupId\"=m.\"groupId\" AND earlier.\"artworkId\"<m.\"artworkId\" WHERE m.\"runId\"=i.\"runId\" AND m.\"artworkId\"=i.\"artworkId\") GROUP BY i.\"artworkId\",i.\"memberCount\" ORDER BY i.\"artworkId\" LIMIT 1 ), eligible AS MATERIALIZED (SELECT c.*,(SELECT count(*)=2 FROM \"ArtworkDedupItem\" old JOIN \"ArtworkDedupItem\" current ON current.\"runId\"=? AND current.\"artworkId\"=old.\"artworkId\" WHERE old.\"runId\"=? AND old.\"artworkId\" IN (?,c.\"artworkId\") AND old.status='COMPLETE' AND old.\"contentSha256\" IS NOT NULL AND old.\"contentSha256\"=current.\"contentSha256\" AND old.\"memberCount\"=current.\"memberCount\" AND NOT EXISTS(SELECT 1 F",
+      "count": 25,
+      "durationMs": 13063
+    },
+    {
+      "phase": "MATCH",
+      "sql": "WITH required AS MATERIALIZED ( SELECT size,sha256,count(*) n FROM \"ArtworkDedupMedia\" WHERE \"runId\"=? AND \"artworkId\"=? GROUP BY size,sha256 ), pivot AS ( SELECT q.* FROM required q ORDER BY (SELECT count(DISTINCT p.\"artworkId\") FROM \"ArtworkDedupMedia\" p WHERE p.\"runId\"=? AND p.size=q.size AND p.sha256=q.sha256),q.size,q.sha256 LIMIT 1 ), candidates AS MATERIALIZED ( SELECT i.\"artworkId\",i.\"memberCount\" FROM pivot q JOIN \"ArtworkDedupMedia\" p ON p.\"runId\"=? AND p.size=q.size AND p.sha256=q.sha256 JOIN \"ArtworkDedupItem\" i ON i.\"runId\"=p.\"runId\" AND i.\"artworkId\"=p.\"artworkId\" WHERE i.status='COMPLETE' AND i.\"memberCount\">? AND i.\"artworkId\">? AND NOT EXISTS(SELECT 1 FROM \"ArtworkDedupGroupMember\" m JOIN \"ArtworkDedupGroupMember\" earlier ON earlier.\"groupId\"=m.\"groupId\" AND earlier.\"artworkId\"<m.\"artworkId\" WHERE m.\"runId\"=i.\"runId\" AND m.\"artworkId\"=i.\"artworkId\") GROUP BY i.\"artworkId\",i.\"memberCount\",q.n HAVING count(*)>=q.n ORDER BY i.\"artworkId\" LIMIT ? ), eligible AS MATERIALIZED (SELECT c.*,(SELECT count(*)=2 FROM \"ArtworkDedupItem\" old JOIN \"ArtworkDedupItem\" current ON current.\"runId\"=? AND current.\"artworkId\"=old.\"artworkId\" WHERE old.\"runId\"=? AND old.\"artworkId\" IN (?,c.\"artworkId\") AND old.status='COMPLETE' AND old.\"contentSha256\" IS NOT NULL AND old.\"contentSha256\"=current.\"contentSha256\" AND old.\"memberCount\"=current.\"memberCount\" AND NOT EXISTS(SELECT 1 FROM \"ArtworkDedupGroupMember\" m JOIN \"ArtworkDedupGroupMember\" earlier ON earlier.\"groupId\"=m.\"groupId\" AND earlier.\"artworkId\"<m.\"artworkId\" WHERE m.\"runId\"=? AND m.\"artworkId\"=old.\"artworkId\")) reused FRO",
+      "count": 25,
+      "durationMs": 327
+    },
+    {
+      "phase": "FEATURES",
+      "sql": "UPDATE \"ArtworkDedupMedia\" m SET \"visualStatus\"=v.status,\"visualViews\"=v.views FROM (VALUES (?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?::jsonb),(?::integer,?::integer,?::text,?",
+      "count": 40,
+      "durationMs": 205
+    },
+    {
+      "phase": "REUSE",
+      "sql": "SELECT DISTINCT m.\"logicalRoot\",m.\"rootIdentity\" FROM \"ArtworkDedupMedia\" m JOIN \"ArtworkDedupItem\" i ON i.\"runId\"=m.\"runId\" AND i.\"artworkId\"=m.\"artworkId\" WHERE m.\"runId\"=? AND i.status='COMPLETE' AND m.\"artworkId\" IN (?…) LIMIT 3",
+      "count": 65,
+      "durationMs": 150
+    },
+    {
+      "phase": "STAT",
+      "sql": "SELECT count(*)::bigint AS count FROM \"Image\" i JOIN \"MediaContentSource\" s ON s.\"imageId\"=i.id JOIN \"MediaContentFingerprint\" f ON f.\"imageId\"=i.id JOIN \"MediaContentDirectoryState\" d ON d.id=s.\"directoryStateId\" JOIN \"MediaContentDirectoryState\" r ON r.\"logicalRoot\"=d.\"logicalRoot\" AND r.\"relativeDirectory\"='' WHERE i.\"artworkId\"=? AND s.\"writeToken\" IS NULL AND s.\"directoryStateId\" IS NOT NULL AND f.\"imageId\" IS NOT NULL AND f.\"algorithmVersion\"=? AND f.\"sourceRevision\"=s.revision AND f.\"sourcePath\"=i.path AND f.\"artworkMediaEpoch\"=? AND f.\"rootIdentity\"=d.\"rootIdentity\" AND d.\"rootIdentity\"=r.\"rootIdentity\" AND f.size>0 AND (CASE WHEN strpos(reverse(f.\"canonicalPath\"),'/')=0 THEN '' ELSE left(f.\"canonicalPath\",length(f.\"canonicalPath\")-strpos(reverse(f.\"canonicalPath\"),'/')) END)=d.\"relativeDirectory\"",
+      "count": 100,
+      "durationMs": 146
+    },
+    {
+      "phase": "FEATURES",
+      "sql": "COMMIT",
+      "count": 42,
+      "durationMs": 113
+    },
+    {
+      "phase": "GROUP",
+      "sql": "UPDATE \"ArtworkDedupItem\" i SET status='CHANGED',\"errorCode\"='CONTENT_CHANGED',\"updatedAt\"=CURRENT_TIMESTAMP WHERE i.\"runId\"=? AND i.status='COMPLETE' AND NOT EXISTS ( SELECT 1 FROM \"Artwork\" a JOIN \"ArtworkContentFingerprint\" f ON f.\"artworkId\"=a.id LEFT JOIN \"ArtworkContentSource\" s ON s.\"artworkId\"=a.id WHERE a.id=i.\"artworkId\" AND a.\"mediaRevision\"=i.\"frozenMediaRevision\" AND a.\"deletedAt\" IS NULL AND a.\"archiveLifecycleState\"='ACTIVE' AND s.\"writeToken\" IS NULL AND COALESCE(s.revision,0)=i.\"snapshotRevision\" AND COALESCE(s.\"mediaEpoch\",0)=i.\"mediaEpoch\" AND f.\"sourceRevision\"=COALESCE(s.revision,0) AND f.\"mediaEpoch\"=COALESCE(s.\"mediaEpoch\",0) AND f.\"contentSha256\"=i.\"contentSha256\" AND f.\"fileCount\"=i.\"memberCount\" AND f.\"membersSignature\"=i.\"membersSignature\" AND f.\"algorithmVersion\"=? AND EXISTS (SELECT 1 FROM artwork_artists m JOIN artwork_artist_evidence e ON e.\"membershipId\"=m.id JOIN \"Artist\" ar ON ar.id=m.\"artistId\" WHERE m.\"artworkId\"=a.id AND m.\"artistId\"=? AND ar.\"mergedIntoId\" IS NULL AND e.present AND e.\"excludedAt\" IS NULL) AND i.\"memberCount\"=(SELECT count(*) FROM \"ArtworkDedupMedia\" dm WHERE dm.\"runId\"=i.\"runId\" AND dm.\"artworkId\"=i.\"artworkId\" AND dm.sha256 IS NOT NULL) )",
+      "count": 1,
+      "durationMs": 106
+    },
+    {
+      "phase": "PUBLISH",
+      "sql": "UPDATE \"ArtworkDedupItem\" i SET status='CHANGED',\"errorCode\"='CONTENT_CHANGED',\"updatedAt\"=CURRENT_TIMESTAMP WHERE i.\"runId\"=? AND i.status='COMPLETE' AND NOT EXISTS ( SELECT 1 FROM \"Artwork\" a JOIN \"ArtworkContentFingerprint\" f ON f.\"artworkId\"=a.id LEFT JOIN \"ArtworkContentSource\" s ON s.\"artworkId\"=a.id WHERE a.id=i.\"artworkId\" AND a.\"mediaRevision\"=i.\"frozenMediaRevision\" AND a.\"deletedAt\" IS NULL AND a.\"archiveLifecycleState\"='ACTIVE' AND s.\"writeToken\" IS NULL AND COALESCE(s.revision,0)=i.\"snapshotRevision\" AND COALESCE(s.\"mediaEpoch\",0)=i.\"mediaEpoch\" AND f.\"sourceRevision\"=COALESCE(s.revision,0) AND f.\"mediaEpoch\"=COALESCE(s.\"mediaEpoch\",0) AND f.\"contentSha256\"=i.\"contentSha256\" AND f.\"fileCount\"=i.\"memberCount\" AND f.\"membersSignature\"=i.\"membersSignature\" AND f.\"algorithmVersion\"=? AND EXISTS (SELECT 1 FROM artwork_artists m JOIN artwork_artist_evidence e ON e.\"membershipId\"=m.id JOIN \"Artist\" ar ON ar.id=m.\"artistId\" WHERE m.\"artworkId\"=a.id AND m.\"artistId\"=? AND ar.\"mergedIntoId\" IS NULL AND e.present AND e.\"excludedAt\" IS NULL) AND i.\"memberCount\"=(SELECT count(*) FROM \"ArtworkDedupMedia\" dm WHERE dm.\"runId\"=i.\"runId\" AND dm.\"artworkId\"=i.\"artworkId\" AND dm.sha256 IS NOT NULL) )",
+      "count": 1,
+      "durationMs": 105
+    },
+    {
+      "phase": "FEATURES",
+      "sql": "SELECT EXISTS(SELECT 1 FROM \"MediaContentPathWrite\" w JOIN \"MediaContentDirectoryState\" r ON r.id = w.\"directoryId\" WHERE w.status IN ('ACTIVE','READY','RECOVERY_REQUIRED') AND ((r.\"logicalRoot\" = ? AND ((w.scope = 'PATH' AND (? = '' OR left(w.\"relativePath\", length(?) + 1) = ? || '/')) OR (w.scope = 'DIRECTORY' AND (? = '' OR r.\"relativeDirectory\" = '' OR r.\"relativeDirectory\" = ? OR left(?, length(r.\"relativeDirectory\") + 1) = r.\"relativeDirectory\" || '/' OR left(r.\"relativeDirectory\", length(?) + 1) = ? || '/')))) OR (r.\"logicalRoot\" = ? AND ((w.scope = 'PATH' AND (? = '' OR left(w.\"relativePath\", length(?) + 1) = ? || '/')) OR (w.scope = 'DIRECTORY' AND (? = '' OR r.\"relativeDirectory\" = '' OR r.\"relativeDirectory\" = ? OR left(?, length(r.\"relativeDirectory\") + 1) = r.\"relativeDirectory\" || '/' OR left(r.\"relativeDirectory\", length(?) + 1) = ? || '/')))) OR (r.\"logicalRoot\" = ? AND ((w.scope = 'PATH' AND (? = '' OR left(w.\"relativePath\", length(?) + 1) = ? || '/')) OR (w.scope = 'DIRECTORY' AND (? = '' OR r.\"relativeDirectory\" = '' OR r.\"relativeDirectory\" = ? OR left(?, length(r.\"relativeDirectory\") + 1) = r.\"relativeDirectory\" || '/' OR left(r.\"relativeDirectory\", length(?) + 1) = ? || '/')))) OR (r.\"logicalRoot\" = ? AND ((w.scope = 'PATH' AND (? = '' OR left(w.\"relativePath\", length(?) + 1) = ? || '/')) OR (w.scope = 'DIRECTORY' AND (? = '' OR r.\"relativeDirectory\" = '' OR r.\"relativeDirectory\" = ? OR left(?, length(r.\"relativeDirectory\") + 1) = r.\"relativeDirectory\" || '/' OR left(r.\"relativeDirectory\", length(?) + 1) = ? || '/')))) OR (r.\"logicalRoot\" = ? AND ((w.s",
+      "count": 41,
+      "durationMs": 97
+    },
+    {
+      "phase": "FEATURES",
+      "sql": "SELECT \"public\".\"ArtworkDedupMedia\".\"runId\", \"public\".\"ArtworkDedupMedia\".\"artworkId\", \"public\".\"ArtworkDedupMedia\".\"imageId\", \"public\".\"ArtworkDedupMedia\".\"visualStatus\", \"public\".\"ArtworkDedupMedia\".\"visualViews\", \"public\".\"ArtworkDedupMedia\".\"sourcePath\", \"public\".\"ArtworkDedupMedia\".\"sourceRevision\", \"public\".\"ArtworkDedupMedia\".\"logicalRoot\", \"public\".\"ArtworkDedupMedia\".\"rootIdentity\", \"public\".\"ArtworkDedupMedia\".\"relativeDirectory\", \"public\".\"ArtworkDedupMedia\".\"directoryId\", \"public\".\"ArtworkDedupMedia\".\"directoryGeneration\", \"public\".\"ArtworkDedupMedia\".\"canonicalPath\", \"public\".\"ArtworkDedupMedia\".\"size\", \"public\".\"ArtworkDedupMedia\".\"mtimeNs\", \"public\".\"ArtworkDedupMedia\".\"ctimeNs\", \"public\".\"ArtworkDedupMedia\".\"deviceId\", \"public\".\"ArtworkDedupMedia\".\"inode\", \"public\".\"ArtworkDedupMedia\".\"sha256\" FROM \"public\".\"ArtworkDedupMedia\" LEFT JOIN \"public\".\"ArtworkDedupItem\" AS \"j1\" ON (\"j1\".\"runId\",\"j1\".\"artworkId\") = (\"public\".\"ArtworkDedupMedia\".\"runId\",\"public\".\"ArtworkDedupMedia\".\"artworkId\") WHERE (\"public\".\"ArtworkDedupMedia\".\"runId\" = ? AND \"public\".\"ArtworkDedupMedia\".\"imageId\" > ? AND (\"j1\".\"status\" = ? AND (\"j1\".\"runId\" IS NOT NULL AND \"j1\".\"artworkId\" IS NOT NULL))) ORDER BY \"public\".\"ArtworkDedupMedia\".\"imageId\" ASC LIMIT ? OFFSET ?",
+      "count": 46,
+      "durationMs": 83
+    },
+    {
+      "phase": "PUBLISH",
+      "sql": "SELECT DISTINCT m.\"logicalRoot\",m.\"rootIdentity\",m.\"relativeDirectory\",m.\"directoryId\",m.\"directoryGeneration\" generation FROM \"ArtworkDedupMedia\" m JOIN \"ArtworkDedupItem\" i ON i.\"runId\"=m.\"runId\" AND i.\"artworkId\"=m.\"artworkId\" WHERE m.\"runId\"=? AND i.status='COMPLETE' AND m.\"directoryId\">? ORDER BY m.\"directoryId\" LIMIT 100",
+      "count": 4,
+      "durationMs": 63
+    },
+    {
+      "phase": "PUBLISH",
+      "sql": "SELECT DISTINCT m.\"logicalRoot\",m.\"rootIdentity\" FROM \"ArtworkDedupMedia\" m JOIN \"ArtworkDedupItem\" i ON i.\"runId\"=m.\"runId\" AND i.\"artworkId\"=m.\"artworkId\" WHERE m.\"runId\"=? AND i.status='COMPLETE' LIMIT 3",
+      "count": 2,
+      "durationMs": 60
+    },
+    {
+      "phase": "FEATURES",
+      "sql": "SELECT \"public\".\"MediaVisualFingerprint\".\"imageId\", \"public\".\"MediaVisualFingerprint\".\"identity\", \"public\".\"MediaVisualFingerprint\".\"algorithmVersion\", \"public\".\"MediaVisualFingerprint\".\"normalizationVersion\", \"public\".\"MediaVisualFingerprint\".\"contentSha256\", \"public\".\"MediaVisualFingerprint\".\"contentSize\", \"public\".\"MediaVisualFingerprint\".\"views\", \"public\".\"MediaVisualFingerprint\".\"updatedAt\" FROM \"public\".\"MediaVisualFingerprint\" WHERE \"public\".\"MediaVisualFingerprint\".\"imageId\" IN (?…) OFFSET ?",
+      "count": 40,
+      "durationMs": 41
+    }
+  ],
+  "remainingByPhase": {
+    "STAT": {
+      "groups": 390,
+      "statements": 1428,
+      "durationMs": 208
+    },
+    "MATCH": {
+      "groups": 39,
+      "statements": 724,
+      "durationMs": 76
+    },
+    "FEATURES": {
+      "groups": 191,
+      "statements": 1081,
+      "durationMs": 78
+    },
+    "REUSE": {
+      "groups": 406,
+      "statements": 1512,
+      "durationMs": 23
+    },
+    "PUBLISH": {
+      "groups": 53,
+      "statements": 505,
+      "durationMs": 71
+    },
+    "HASH": {
+      "groups": 11,
+      "statements": 22,
+      "durationMs": 0
+    },
+    "CANDIDATES": {
+      "groups": 12,
+      "statements": 14,
+      "durationMs": 3
+    },
+    "GROUP": {
+      "groups": 18,
+      "statements": 22,
+      "durationMs": 18
+    },
+    "QUERY": {
+      "groups": 14,
+      "statements": 17,
+      "durationMs": 1
+    },
+    "DONE": {
+      "groups": 8,
+      "statements": 10,
+      "durationMs": 1
+    }
+  },
+  "rawEvidence": {
+    "path": "/private/tmp/pixishelf-dedup-hot-20261030/evidence/baseline.json",
+    "sha256": "c338135eec59291f82c8a4e94cf7147a5a05928623afe6abeee384d3425a8a63"
+  }
+}

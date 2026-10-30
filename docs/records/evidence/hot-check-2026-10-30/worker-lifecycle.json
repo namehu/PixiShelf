@@ -1,0 +1,1544 @@
+{
+  "assertions": {
+    "passed": true,
+    "sameRunAndJob": true,
+    "runId": "88591024-95b4-41e2-957d-f7ce2b2753b4",
+    "jobId": "6396e29a-6112-4f42-acb8-bf19def6a64e",
+    "pausedAt": "2026-10-30T02:16:24.245Z",
+    "killedAt": "2026-10-30T02:17:35.265Z",
+    "recovered": true,
+    "statMedia": 2000,
+    "cacheHitMedia": 2000,
+    "media": 2000,
+    "hashedMedia": 0,
+    "readBytes": "0",
+    "groups": 25,
+    "groupSummaryEqual": true,
+    "readerToken": null,
+    "leases": 0
+  },
+  "processes": [
+    {
+      "label": "before-kill",
+      "pid": 42357,
+      "at": "2026-10-30T02:11:29.646Z",
+      "workerId": "dedup-hot-20261030-browser",
+      "entrypoint": "/private/tmp/pixishelf-dedup-hot-20261030/service-bundle/main.cjs",
+      "exitAt": "2026-10-30T02:17:35.276Z",
+      "code": null,
+      "signal": "SIGKILL"
+    },
+    {
+      "label": "after-restart",
+      "pid": 45262,
+      "at": "2026-10-30T02:17:36.776Z",
+      "workerId": "dedup-hot-20261030-browser",
+      "entrypoint": "/private/tmp/pixishelf-dedup-hot-20261030/service-bundle/main.cjs",
+      "exitAt": "2026-10-30T02:18:00.858Z",
+      "code": 0,
+      "signal": null
+    }
+  ],
+  "afterKill": {
+    "at": "2026-10-30T02:17:36.772Z",
+    "workerPid": 42357,
+    "workerAlive": false,
+    "readerPid": 45250,
+    "readerAlive": false
+  },
+  "paused": {
+    "at": "2026-10-30T02:16:24.245Z",
+    "run": {
+      "id": "88591024-95b4-41e2-957d-f7ce2b2753b4",
+      "jobId": "6396e29a-6112-4f42-acb8-bf19def6a64e",
+      "version": 6,
+      "executionVersion": 1,
+      "status": "PAUSED",
+      "stage": "MATCH",
+      "statMedia": 2000,
+      "hashedMedia": 0,
+      "cacheHitMedia": 2000,
+      "readBytes": "0",
+      "retryReadBytes": "0",
+      "processedArtworks": 50,
+      "completeArtworks": 50,
+      "changedArtworks": 0,
+      "failedArtworks": 0,
+      "groupCount": 25,
+      "readerState": "IDLE",
+      "relationAfterArtworkId": 50,
+      "relationAfterCandidateId": 0,
+      "partialAfterArtworkId": 18,
+      "partialAfterCandidateId": 0,
+      "visualAfterImageId": 0,
+      "visualCheckpoint": null,
+      "visualStatus": "PENDING",
+      "visualSearchComplete": false,
+      "performanceSummary": {
+        "kind": "artwork-dedup-performance",
+        "batch": 8,
+        "jobId": "6396e29a-6112-4f42-acb8-bf19def6a64e",
+        "phase": "PAIR",
+        "runId": "88591024-95b4-41e2-957d-f7ce2b2753b4",
+        "version": 1,
+        "complete": false,
+        "counters": {
+          "readBytes": 0,
+          "dbLoadCalls": 100,
+          "compareCalls": null,
+          "dbWriteCalls": 618,
+          "transactions": 513,
+          "decodedImages": null,
+          "indexRebuilds": null,
+          "candidatePairs": null,
+          "ownFeatureHits": null,
+          "indexNodeVisits": null,
+          "replayedQueries": null,
+          "localChannelHits": null,
+          "wholeChannelHits": null,
+          "dbValidationCalls": 2903,
+          "contentFeatureHits": null,
+          "relationReusedPairs": null,
+          "replayedComparisons": null,
+          "relationInvalidatedPairs": null
+        },
+        "progress": {
+          "originals": 2000,
+          "queryTotal": null,
+          "staticImages": null,
+          "queryCompleted": null,
+          "uncheckedMedia": null
+        },
+        "updatedAt": "2026-10-30T02:16:24.182Z",
+        "durationsMs": {
+          "pair": null,
+          "index": null,
+          "pause": null,
+          "query": null,
+          "queue": 391,
+          "active": 14498.17549899994,
+          "dbLoad": 208.4420439997921,
+          "compare": null,
+          "dbWrite": 1129.121089999971,
+          "feature": null,
+          "cooldown": 4,
+          "dbValidation": 10759.37461699813,
+          "transactionWall": 13649.24710999976
+        },
+        "inputDigest": null,
+        "searchVersion": null,
+        "memoryPeakBytes": null,
+        "protocolVersion": 8,
+        "cacheInvalidationReasons": []
+      }
+    },
+    "job": {
+      "id": "6396e29a-6112-4f42-acb8-bf19def6a64e",
+      "status": "PAUSED",
+      "attempt": 1,
+      "workerId": null,
+      "leaseExpiresAt": null,
+      "heartbeatAt": "2026-10-30T02:16:24.190Z",
+      "availableAt": "2026-10-30T02:16:19.918Z",
+      "startedAt": "2026-10-30T02:16:09.564Z",
+      "finishedAt": null,
+      "stage": "MATCH",
+      "progressData": {
+        "kind": "artwork-dedup",
+        "unit": "pairs",
+        "phase": "PAIR",
+        "total": null,
+        "version": 1,
+        "completed": null,
+        "updatedAt": "2026-10-30T02:16:24.182Z",
+        "waitReason": "USER_PAUSED",
+        "uncheckedMedia": null
+      },
+      "errorCode": null
+    },
+    "media": 2000,
+    "items": [
+      {
+        "artworkId": 1,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 2,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 3,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 4,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 5,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 6,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 7,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 8,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 9,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 10,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 11,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 12,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 13,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 14,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 15,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 16,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 17,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 18,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 19,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 20,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 21,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 22,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 23,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 24,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 25,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 26,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 27,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 28,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 29,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 30,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 31,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 32,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 33,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 34,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 35,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 36,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 37,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 38,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 39,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 40,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 41,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 42,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 43,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 44,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 45,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 46,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 47,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 48,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 49,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 50,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      }
+    ]
+  },
+  "beforeKill": {
+    "at": "2026-10-30T02:17:35.265Z",
+    "run": {
+      "id": "88591024-95b4-41e2-957d-f7ce2b2753b4",
+      "jobId": "6396e29a-6112-4f42-acb8-bf19def6a64e",
+      "version": 8,
+      "executionVersion": 1,
+      "status": "RUNNING",
+      "stage": "MATCH",
+      "statMedia": 2000,
+      "hashedMedia": 0,
+      "cacheHitMedia": 2000,
+      "readBytes": "0",
+      "retryReadBytes": "0",
+      "processedArtworks": 50,
+      "completeArtworks": 50,
+      "changedArtworks": 0,
+      "failedArtworks": 0,
+      "groupCount": 25,
+      "readerState": "ACTIVE",
+      "relationAfterArtworkId": 50,
+      "relationAfterCandidateId": 0,
+      "partialAfterArtworkId": 22,
+      "partialAfterCandidateId": 0,
+      "visualAfterImageId": 0,
+      "visualCheckpoint": null,
+      "visualStatus": "PENDING",
+      "visualSearchComplete": false,
+      "performanceSummary": {
+        "kind": "artwork-dedup-performance",
+        "batch": 9,
+        "jobId": "6396e29a-6112-4f42-acb8-bf19def6a64e",
+        "phase": "PAIR",
+        "runId": "88591024-95b4-41e2-957d-f7ce2b2753b4",
+        "version": 1,
+        "complete": false,
+        "counters": {
+          "readBytes": 0,
+          "dbLoadCalls": 100,
+          "compareCalls": null,
+          "dbWriteCalls": 618,
+          "transactions": 513,
+          "decodedImages": null,
+          "indexRebuilds": null,
+          "candidatePairs": null,
+          "ownFeatureHits": null,
+          "indexNodeVisits": null,
+          "replayedQueries": null,
+          "localChannelHits": null,
+          "wholeChannelHits": null,
+          "dbValidationCalls": 2903,
+          "contentFeatureHits": null,
+          "relationReusedPairs": null,
+          "replayedComparisons": null,
+          "relationInvalidatedPairs": null
+        },
+        "progress": {
+          "originals": 2000,
+          "queryTotal": null,
+          "staticImages": null,
+          "queryCompleted": null,
+          "uncheckedMedia": null
+        },
+        "updatedAt": "2026-10-30T02:17:34.997Z",
+        "durationsMs": {
+          "pair": null,
+          "index": null,
+          "pause": 70696,
+          "query": null,
+          "queue": 496,
+          "active": 14513.07712399994,
+          "dbLoad": 208.4420439997921,
+          "compare": null,
+          "dbWrite": 1129.121089999971,
+          "feature": null,
+          "cooldown": 4,
+          "dbValidation": 10759.37461699813,
+          "transactionWall": 13649.24710999976
+        },
+        "inputDigest": null,
+        "searchVersion": null,
+        "memoryPeakBytes": null,
+        "protocolVersion": 8,
+        "cacheInvalidationReasons": []
+      }
+    },
+    "job": {
+      "id": "6396e29a-6112-4f42-acb8-bf19def6a64e",
+      "status": "RUNNING",
+      "attempt": 2,
+      "workerId": "dedup-hot-20261030-browser",
+      "leaseExpiresAt": "2026-10-30T02:17:54.956Z",
+      "heartbeatAt": "2026-10-30T02:17:34.956Z",
+      "availableAt": "2026-10-30T02:17:34.878Z",
+      "startedAt": "2026-10-30T02:16:09.564Z",
+      "finishedAt": null,
+      "stage": "MATCH",
+      "progressData": {
+        "kind": "artwork-dedup",
+        "unit": "pairs",
+        "phase": "PAIR",
+        "total": null,
+        "version": 1,
+        "completed": null,
+        "updatedAt": "2026-10-30T02:17:34.997Z",
+        "waitReason": null,
+        "uncheckedMedia": null
+      },
+      "errorCode": null
+    },
+    "media": 2000,
+    "items": [
+      {
+        "artworkId": 1,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 2,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 3,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 4,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 5,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 6,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 7,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 8,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 9,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 10,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 11,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 12,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 13,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 14,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 15,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 16,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 17,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 18,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 19,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 20,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 21,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 22,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 23,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 24,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 25,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 26,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 27,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 28,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 29,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 30,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 31,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 32,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 33,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 34,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 35,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 36,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 37,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 38,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 39,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 40,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 41,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 42,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 43,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 44,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 45,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 46,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 47,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 48,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 49,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 50,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      }
+    ]
+  },
+  "recovered": {
+    "at": "2026-10-30T02:17:55.201Z",
+    "run": {
+      "id": "88591024-95b4-41e2-957d-f7ce2b2753b4",
+      "jobId": "6396e29a-6112-4f42-acb8-bf19def6a64e",
+      "version": 10,
+      "executionVersion": 1,
+      "status": "RUNNING",
+      "stage": "MATCH",
+      "statMedia": 2000,
+      "hashedMedia": 0,
+      "cacheHitMedia": 2000,
+      "readBytes": "0",
+      "retryReadBytes": "0",
+      "processedArtworks": 50,
+      "completeArtworks": 50,
+      "changedArtworks": 0,
+      "failedArtworks": 0,
+      "groupCount": 25,
+      "readerState": "ACTIVE",
+      "relationAfterArtworkId": 50,
+      "relationAfterCandidateId": 0,
+      "partialAfterArtworkId": 22,
+      "partialAfterCandidateId": 0,
+      "visualAfterImageId": 0,
+      "visualCheckpoint": null,
+      "visualStatus": "PENDING",
+      "visualSearchComplete": false,
+      "performanceSummary": {
+        "kind": "artwork-dedup-performance",
+        "batch": 10,
+        "jobId": "6396e29a-6112-4f42-acb8-bf19def6a64e",
+        "phase": "PAIR",
+        "runId": "88591024-95b4-41e2-957d-f7ce2b2753b4",
+        "version": 1,
+        "complete": false,
+        "counters": {
+          "readBytes": 0,
+          "dbLoadCalls": 100,
+          "compareCalls": null,
+          "dbWriteCalls": 618,
+          "transactions": 513,
+          "decodedImages": null,
+          "indexRebuilds": null,
+          "candidatePairs": null,
+          "ownFeatureHits": null,
+          "indexNodeVisits": null,
+          "replayedQueries": null,
+          "localChannelHits": null,
+          "wholeChannelHits": null,
+          "dbValidationCalls": 2903,
+          "contentFeatureHits": null,
+          "relationReusedPairs": null,
+          "replayedComparisons": null,
+          "relationInvalidatedPairs": null
+        },
+        "progress": {
+          "originals": 2000,
+          "queryTotal": null,
+          "staticImages": null,
+          "queryCompleted": null,
+          "uncheckedMedia": null
+        },
+        "updatedAt": "2026-10-30T02:17:55.159Z",
+        "durationsMs": {
+          "pair": null,
+          "index": null,
+          "pause": 70696,
+          "query": null,
+          "queue": 532,
+          "active": 14520.95753999994,
+          "dbLoad": 208.4420439997921,
+          "compare": null,
+          "dbWrite": 1129.121089999971,
+          "feature": null,
+          "cooldown": 4,
+          "dbValidation": 10759.37461699813,
+          "transactionWall": 13649.24710999976
+        },
+        "inputDigest": null,
+        "searchVersion": null,
+        "memoryPeakBytes": null,
+        "protocolVersion": 8,
+        "cacheInvalidationReasons": []
+      }
+    },
+    "job": {
+      "id": "6396e29a-6112-4f42-acb8-bf19def6a64e",
+      "status": "RUNNING",
+      "attempt": 3,
+      "workerId": "dedup-hot-20261030-browser",
+      "leaseExpiresAt": "2026-10-30T02:18:15.116Z",
+      "heartbeatAt": "2026-10-30T02:17:55.116Z",
+      "availableAt": "2026-10-30T02:17:55.116Z",
+      "startedAt": "2026-10-30T02:16:09.564Z",
+      "finishedAt": null,
+      "stage": "MATCH",
+      "progressData": {
+        "kind": "artwork-dedup",
+        "unit": "pairs",
+        "phase": "PAIR",
+        "total": null,
+        "version": 1,
+        "completed": null,
+        "updatedAt": "2026-10-30T02:17:55.159Z",
+        "waitReason": null,
+        "uncheckedMedia": null
+      },
+      "errorCode": null
+    },
+    "media": 2000,
+    "items": [
+      {
+        "artworkId": 1,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 2,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 3,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 4,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 5,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 6,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 7,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 8,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 9,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 10,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 11,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 12,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 13,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 14,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 15,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 16,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 17,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 18,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 19,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 20,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 21,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 22,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 23,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 24,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 25,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 26,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 27,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 28,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 29,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 30,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 31,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 32,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 33,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 34,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 35,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 36,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 37,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 38,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 39,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 40,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 41,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 42,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 43,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 44,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 45,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 46,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 47,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 48,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 49,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 50,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      }
+    ]
+  },
+  "terminal": {
+    "at": "2026-10-30T02:18:00.823Z",
+    "run": {
+      "id": "88591024-95b4-41e2-957d-f7ce2b2753b4",
+      "jobId": "6396e29a-6112-4f42-acb8-bf19def6a64e",
+      "version": 11,
+      "executionVersion": 1,
+      "status": "COMPLETED",
+      "stage": "DONE",
+      "statMedia": 2000,
+      "hashedMedia": 0,
+      "cacheHitMedia": 2000,
+      "readBytes": "0",
+      "retryReadBytes": "0",
+      "processedArtworks": 50,
+      "completeArtworks": 50,
+      "changedArtworks": 0,
+      "failedArtworks": 0,
+      "groupCount": 25,
+      "readerState": "IDLE",
+      "relationAfterArtworkId": 50,
+      "relationAfterCandidateId": 0,
+      "partialAfterArtworkId": 50,
+      "partialAfterCandidateId": 0,
+      "visualAfterImageId": 2000,
+      "visualCheckpoint": {
+        "phase": "PUBLISH",
+        "version": 3,
+        "pairLeft": 0,
+        "postings": 0,
+        "pairRight": 0,
+        "indexAfter": 0,
+        "queryAfter": 0,
+        "queryTotal": 2000,
+        "reuseAfter": 65,
+        "reuseBaseId": "849bc5d7-c4d7-4cee-a4fe-1130635a0e6c",
+        "queryImageId": 0,
+        "candidateAfter": 0,
+        "queryCompleted": 2000,
+        "uncheckedMedia": 0,
+        "queryCandidates": [],
+        "reuseInitialized": true
+      },
+      "visualStatus": "COMPLETE",
+      "visualSearchComplete": true,
+      "performanceSummary": {
+        "kind": "artwork-dedup-performance",
+        "batch": 56,
+        "jobId": "6396e29a-6112-4f42-acb8-bf19def6a64e",
+        "phase": "COMPLETED",
+        "runId": "88591024-95b4-41e2-957d-f7ce2b2753b4",
+        "version": 1,
+        "complete": true,
+        "counters": {
+          "readBytes": 0,
+          "dbLoadCalls": 341,
+          "compareCalls": 0,
+          "dbWriteCalls": 1525,
+          "transactions": 663,
+          "decodedImages": 0,
+          "indexRebuilds": 0,
+          "candidatePairs": 0,
+          "ownFeatureHits": 2000,
+          "indexNodeVisits": 0,
+          "replayedQueries": null,
+          "localChannelHits": 0,
+          "wholeChannelHits": 0,
+          "dbValidationCalls": 5253,
+          "contentFeatureHits": 0,
+          "relationReusedPairs": 0,
+          "replayedComparisons": null,
+          "relationInvalidatedPairs": 0
+        },
+        "progress": {
+          "originals": 2000,
+          "queryTotal": 2000,
+          "staticImages": 2000,
+          "queryCompleted": 2000,
+          "uncheckedMedia": 0
+        },
+        "updatedAt": "2026-10-30T02:18:00.741Z",
+        "durationsMs": {
+          "pair": null,
+          "index": null,
+          "pause": 70696,
+          "query": null,
+          "queue": 532,
+          "active": 20102.27120699994,
+          "dbLoad": 847.6042939997749,
+          "compare": 0,
+          "dbWrite": 2508.994750999911,
+          "feature": 1984.678046000018,
+          "cooldown": 4,
+          "dbValidation": 13074.32224199815,
+          "transactionWall": 18079.37744499978
+        },
+        "inputDigest": "913092ac33facfee1db020c54855c9560f5bff7be2e4d8e2ea3c8581ef3c262e",
+        "searchVersion": "bktree-global12-region7of9-10-global28-v2",
+        "memoryPeakBytes": null,
+        "protocolVersion": 8,
+        "cacheInvalidationReasons": []
+      }
+    },
+    "job": {
+      "id": "6396e29a-6112-4f42-acb8-bf19def6a64e",
+      "status": "COMPLETED",
+      "attempt": 3,
+      "workerId": null,
+      "leaseExpiresAt": null,
+      "heartbeatAt": "2026-10-30T02:18:00.746Z",
+      "availableAt": "2026-10-30T02:17:55.116Z",
+      "startedAt": "2026-10-30T02:16:09.564Z",
+      "finishedAt": "2026-10-30T02:18:00.746Z",
+      "stage": "DONE",
+      "progressData": {
+        "kind": "artwork-dedup",
+        "unit": "artworks",
+        "phase": "COMPLETED",
+        "total": null,
+        "version": 1,
+        "completed": null,
+        "updatedAt": "2026-10-30T02:18:00.741Z",
+        "waitReason": null,
+        "uncheckedMedia": 0
+      },
+      "errorCode": null
+    },
+    "media": 2000,
+    "items": [
+      {
+        "artworkId": 1,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 2,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 3,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 4,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 5,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 6,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 7,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 8,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 9,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 10,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 11,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 12,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 13,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 14,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 15,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 16,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 17,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 18,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 19,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 20,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 21,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 22,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 23,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 24,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 25,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 26,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 27,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 28,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 29,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 30,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 31,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 32,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 33,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 34,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 35,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 36,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 37,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 38,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 39,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 40,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 41,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 42,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 43,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 44,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 45,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 46,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 47,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 48,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 49,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      },
+      {
+        "artworkId": 50,
+        "status": "COMPLETE",
+        "afterImageId": 0
+      }
+    ]
+  },
+  "sameNormalizedGroupResultDigest": "e2563400a00cf731d6f9d856baa63531eac91070446be5cc249a43a089f7aaa6",
+  "cursorEvidence": {
+    "paused": {
+      "relationAfterArtworkId": 50,
+      "relationAfterCandidateId": 0,
+      "partialAfterArtworkId": 18,
+      "partialAfterCandidateId": 0
+    },
+    "beforeKill": {
+      "relationAfterArtworkId": 50,
+      "relationAfterCandidateId": 0,
+      "partialAfterArtworkId": 22,
+      "partialAfterCandidateId": 0
+    },
+    "recovered": {
+      "relationAfterArtworkId": 50,
+      "relationAfterCandidateId": 0,
+      "partialAfterArtworkId": 22,
+      "partialAfterCandidateId": 0
+    }
+  },
+  "scope": "Real main.cjs OS processes and reader child; browser pause/resume and SIGKILL/restart on same run/job. Kill occurred in MATCH after all original checks committed, not inside an original-content read or visual query. Dedicated PostgreSQL clone; no artificial state or lease edits. Raw snapshots and logs retained in restricted task temp evidence, no lease tokens/payload copied here."
+}

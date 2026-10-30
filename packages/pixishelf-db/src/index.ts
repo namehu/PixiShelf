@@ -3,6 +3,7 @@ import { Prisma, PrismaClient } from '@prisma/client'
 export { Prisma, PrismaClient }
 export * from './creators'
 export * from './artwork-dedup'
+export * from './artwork-dedup-hot-batch'
 export * from './artwork-dedup-reader-recovery'
 export * from './discovery-creators'
 export * from './artist-merge'

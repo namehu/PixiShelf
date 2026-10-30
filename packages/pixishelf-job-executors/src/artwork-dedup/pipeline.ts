@@ -11,6 +11,8 @@ import {
   readArtworkContentMembersPage,
   readArtworkDedupItemsPage,
   readArtworkDedupMediaPage,
+  readArtworkDedupStatMembersPage,
+  saveArtworkDedupHotBatch,
   saveArtworkDedupItem,
   saveArtworkDedupMediaPage,
   updateArtworkDedupRun,
@@ -138,7 +140,7 @@ export async function statArtwork(context: DedupPipelineContext, item: ArtworkDe
     return captured
   })
   if (snapshot.memberCount === 0n) return true
-  const archive = await context.transaction(
+  const archive = await (context.visualSearchV2 && context.read ? context.read : context.transaction)(
     async (tx) =>
       (await tx.artwork.findUniqueOrThrow({ where: { id: item.artworkId }, select: { source: true } })).source ===
       'URL_ARCHIVE'
@@ -146,13 +148,29 @@ export async function statArtwork(context: DedupPipelineContext, item: ArtworkDe
   let cursor = item.afterImageId
   for (;;) {
     throwIfAborted(context.signal)
-    const page = ready(
+    const page = context.visualSearchV2 && context.read
+      ? await context.read(tx => readArtworkDedupStatMembersPage(tx, {
+        artworkId: item.artworkId, afterImageId: cursor, limit: limits.cacheBatch
+      }))
+      : ready(
       await context.transaction((tx) =>
         readArtworkContentMembersPage(tx, { snapshot, afterImageId: cursor || null, limit: limits.mediaPage })
       )
     )
     for (const members of chunks(page.members, limits.cacheBatch)) {
-      const targets = await context.transaction(async (tx) => {
+      const boundTargets = members.map(member => ({ member, ...target(member, context.roots, archive), directory: member.directory }))
+      const alreadyBound = context.visualSearchV2 && !context.forceRead && boundTargets.every(t =>
+        t.directory && !t.member.writeToken && t.member.fingerprint &&
+        t.directory.logicalRoot === t.root.logicalRoot && t.directory.rootIdentity === t.root.rootIdentity &&
+        t.directory.relativeDirectory === t.relativeDirectory &&
+        t.member.fingerprint.algorithmVersion === MEDIA_CONTENT_ALGORITHM_VERSION &&
+        t.member.fingerprint.sourceRevision === t.member.sourceRevision &&
+        t.member.fingerprint.artworkMediaEpoch === snapshot.mediaEpoch &&
+        t.member.fingerprint.sourcePath === t.member.sourcePath &&
+        t.member.fingerprint.rootIdentity === t.root.rootIdentity)
+      const targets = alreadyBound
+        ? boundTargets.map(t => ({ ...t, directory: t.directory! }))
+        : await context.transaction(async (tx) => {
         await current(context, tx, item.artworkId)
         const bindings = new Map<string, MediaContentDirectorySnapshot>()
         const targets = []
@@ -218,7 +236,20 @@ export async function statArtwork(context: DedupPipelineContext, item: ArtworkDe
         if (context.shouldYield()) break
       }
       throwIfAborted(context.signal)
-      snapshot = await context.transaction(async (tx) => {
+      if (alreadyBound) {
+        const byId = new Map(members.map(member => [member.imageId, member.fingerprint!]))
+        for (const row of entries) {
+          const cached = byId.get(row.imageId)!
+          if (cached.canonicalPath === row.canonicalPath && sameContentFileState(cached, state(row)))
+            row.sha256 = cached.sha256
+        }
+      }
+      snapshot = alreadyBound && entries.every(row => row.sha256 !== null)
+        ? await context.transaction(async tx => ready(await saveArtworkDedupHotBatch(tx, {
+          execution: context.execution, snapshot, afterImageId: cursor,
+          algorithmVersion: MEDIA_CONTENT_ALGORITHM_VERSION, entries
+        })))
+        : await context.transaction(async (tx) => {
         await current(context, tx, item.artworkId)
         const observed = ready(
           await observeMediaContentSources(tx, {

@@ -1,0 +1,28 @@
+{
+  "at": "2026-10-30T02:04:57.351Z",
+  "sourceDatabase": "dedup_hot_seed_20261030",
+  "dumpSha256": "27f56230021955550eae72292d8db06e02894177ced3008653e1a2fe46835b0a",
+  "compatibility": "pg_restore client emits SET transaction_timeout absent on test server; exact setting removed from SQL restore. Baseline original restore completed with only this SET warning; table counts verified.",
+  "clones": [
+    {
+      "database": "dedup_hot_baseline_20261030",
+      "counts": "50|2000|2000|2000|133",
+      "restore": "completed"
+    },
+    {
+      "database": "dedup_hot_after_20261030",
+      "counts": "50|2000|2000|2000|133",
+      "restore": "completed"
+    },
+    {
+      "database": "dedup_hot_browser_20261030",
+      "counts": "50|2000|2000|2000|133",
+      "restore": "completed"
+    },
+    {
+      "database": "dedup_hot_restart_20261030",
+      "counts": "50|2000|2000|2000|133",
+      "restore": "completed"
+    }
+  ]
+}

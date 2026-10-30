@@ -1,0 +1,53 @@
+{
+  "before": {
+    "at": "2026-10-30T02:20:55.030Z",
+    "targets": [
+      {
+        "pid": 41693,
+        "ppid": 41684,
+        "command": "next-server (v16.1.1)"
+      },
+      {
+        "pid": 41684,
+        "ppid": 41672,
+        "command": "node ./node_modules/.bin/../../../../node_modules/.pnpm/next@16.1.1_@babel+core@7.28.4_react-dom@19.2.3_react@19.2.3/node_modules/next/dist/bin/next dev --webpack --hostname 127.0.0.1 --port 5500"
+      }
+    ],
+    "workerPids": [
+      {
+        "pid": 42357,
+        "alive": false
+      },
+      {
+        "pid": 45262,
+        "alive": false
+      }
+    ],
+    "monitor": []
+  },
+  "signals": [
+    {
+      "pid": 41693,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 41684,
+      "signal": "SIGTERM"
+    }
+  ],
+  "after": {
+    "at": "2026-10-30T02:21:31.782Z",
+    "ports": {
+      "5500": {
+        "listening": false
+      },
+      "55432": {
+        "listening": true,
+        "processes": "COMMAND     PID   USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\ncom.docke 30979 namehu  156u  IPv4 0xf9a722c6a08635a5      0t0  TCP 127.0.0.1:55432 (LISTEN)"
+      },
+      "55840": {
+        "listening": false
+      }
+    }
+  }
+}

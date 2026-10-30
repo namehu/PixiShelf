@@ -146,9 +146,7 @@ export async function executeArtworkDedup(
     const availableAt = context.job.availableAt.getTime()
     const schedulingDurations = schedulingAccounted ? {} : {
       queue: Math.max(0, started - availableAt),
-      ...(run.stage === 'VISUAL' && run.visualCheckpoint !== null
-        ? { cooldown: 0 }
-        : context.job.progressData?.kind === 'artwork-dedup' && context.job.progressData.waitReason === 'SCHEDULER'
+      ...(context.job.progressData?.kind === 'artwork-dedup' && context.job.progressData.waitReason === 'SCHEDULER'
           ? { cooldown: Math.max(0, availableAt - Date.parse(context.job.progressData.updatedAt)) }
           : {})
     }
@@ -616,7 +614,7 @@ export async function executeArtworkDedup(
       })
     }
     await scope.retry({
-      availableAt: new Date(now() + (context.job.definitionVersion >= 8 && run.stage === 'VISUAL' && run.visualCheckpoint !== null ? 0 : limits.cooldownMs)),
+      availableAt: new Date(now() + (v2 && !(reader?.metrics.reads || reader?.metrics.bytesRead) ? 0 : limits.cooldownMs)),
       errorCode: 'RESOURCE_BUSY',
       error: 'Detection yielded',
       message: '检测已保存检查点，等待继续',

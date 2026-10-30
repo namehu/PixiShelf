@@ -119,6 +119,111 @@ afterAll(async () => {
 })
 
 suite('durable detection executor with real isolated media', () => {
+  it('v8 hot batches commit once per 100 stats, yield without cooldown and resume a paused cursor in a new executor', async () => {
+    const artistId = await fixture([Array<number>(205).fill(2)])
+    const cold = await start(artistId, 'FULL', false, 8)
+    await finish(cold.jobId)
+    const hot = await start(artistId, 'INCREMENTAL', false, 8)
+    const supervisor = new DedupReaderSupervisor(readerOptions), create = supervisor.create.bind(supervisor)
+    let inspections = 0, mutations = 0, reads = 0
+    const batchStarts: number[] = []
+    supervisor.create = () => {
+      const reader = create(), inspect = reader.inspect.bind(reader)
+      reader.inspect = async input => {
+        if (inspections % 100 === 0) batchStarts.push(mutations)
+        const inspected = ++inspections
+        const result = await inspect(input)
+        if (inspected === 200) clock.advance(10_000)
+        return result
+      }
+      return reader
+    }
+    const ctx = context(await claim(hot.jobId)), mutate = ctx.mutateInTransaction
+    ctx.mutateInTransaction = (...args) => { mutations++; return mutate(...args) }
+    await executeArtworkDedup(ctx, dependencies({ supervisor, onMeasurement: value => { reads += value.reads } }))
+    expect(batchStarts).toHaveLength(2)
+    expect(batchStarts[1]! - batchStarts[0]!).toBe(1)
+    const item = await db!.artworkDedupItem.findFirstOrThrow({ where: { runId: hot.runId } })
+    const images = await db!.image.findMany({ where: { artworkId: item.artworkId }, orderBy: { id: 'asc' } })
+    expect(item).toMatchObject({ status: 'STATTING', afterImageId: images[199]!.id })
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: hot.runId } })).toMatchObject({ statMedia: 200, hashedMedia: 0 })
+    expect(await db!.systemJob.findUniqueOrThrow({ where: { id: hot.jobId } })).toMatchObject({ status: 'RETRY_WAIT', availableAt: clock.now() })
+    const paused = await claim(hot.jobId)
+    await db!.systemJob.update({ where: { id: hot.jobId }, data: { status: 'PAUSING', pauseRequestedAt: clock.now() } })
+    const controller = new AbortController()
+    controller.abort(new Error('Pause requested'))
+    await executeArtworkDedup(context(paused, controller), dependencies())
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: hot.runId } })).toMatchObject({ status: 'PAUSED', statMedia: 200 })
+    await db!.systemJob.update({ where: { id: hot.jobId }, data: { status: 'PENDING', pauseRequestedAt: null, availableAt: clock.now() } })
+    await createArtworkDedupExecutor(dependencies({ onMeasurement: value => { reads += value.reads } }), 8).execute(context(await claim(hot.jobId)))
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: hot.runId } })).toMatchObject({ status: 'COMPLETED', statMedia: 205, cacheHitMedia: 205, hashedMedia: 0, readBytes: 0n })
+    expect(await db!.artworkDedupMedia.count({ where: { runId: hot.runId } })).toBe(205)
+    expect(reads).toBe(0)
+  }, 30_000)
+
+  it.each(['modify', 'insert', 'missing', 'full'] as const)('v8 hot inspection uses the original read path for %s', async change => {
+    const artistId = await fixture([[2, 2, 2], [2, 2, 2]])
+    const cold = await start(artistId, 'FULL', false, 8)
+    await finish(cold.jobId)
+    const image = await db!.image.findFirstOrThrow({ where: { artwork: { creators: { some: { artistId } } } }, orderBy: { id: 'asc' } })
+    if (change === 'modify') await fs.writeFile(path.join(root, image.path), Buffer.alloc(3, 3))
+    if (change === 'missing') await db!.mediaContentFingerprint.delete({ where: { imageId: image.id } })
+    if (change === 'insert') {
+      const relative = `${image.artworkId}/new.bin`
+      await fs.writeFile(path.join(root, relative), Buffer.alloc(4, 4))
+      await db!.image.create({ data: { artworkId: image.artworkId, path: relative } })
+    }
+    const run = await start(artistId, change === 'full' ? 'FULL' : 'INCREMENTAL', false, 8)
+    await finish(run.jobId)
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })).toMatchObject({
+      status: 'COMPLETED', hashedMedia: change === 'full' ? 6 : 1,
+      cacheHitMedia: change === 'full' ? 0 : change === 'insert' ? 6 : 5
+    })
+  }, 20_000)
+
+  it.each(['cancel', 'lease', 'rollback'] as const)('v8 hot batch saves no media, cursor or count after %s', async change => {
+    const artistId = await fixture([[2, 2, 2]])
+    const cold = await start(artistId, 'FULL', false, 8)
+    await finish(cold.jobId)
+    const hot = await start(artistId, 'INCREMENTAL', false, 8), job = await claim(hot.jobId)
+    const supervisor = new DedupReaderSupervisor(readerOptions), create = supervisor.create.bind(supervisor)
+    let changed = false
+    supervisor.create = () => {
+      const reader = create(), inspect = reader.inspect.bind(reader)
+      reader.inspect = async input => {
+        const result = await inspect(input)
+        if (!changed) {
+          changed = true
+          if (change === 'lease') await db!.systemJob.update({ where: { id: job.id }, data: { leaseToken: randomUUID() } })
+          if (change === 'cancel') await db!.systemJob.update({ where: { id: job.id }, data: { status: 'CANCELLING', cancelRequestedAt: clock.now() } })
+        }
+        return result
+      }
+      return reader
+    }
+    const ctx = context(job), mutate = ctx.mutateInTransaction
+    ctx.mutateInTransaction = <TTransaction extends QueueSqlExecutor, TResult>(operation: (tx: TTransaction) => Promise<TResult>) => mutate<TTransaction, TResult>(async tx => {
+      const result = await operation(tx)
+      if (changed && change === 'rollback') throw new Error('hot batch rollback')
+      return result
+    })
+    try {
+      const outcome = executeArtworkDedup(ctx, dependencies({ supervisor }))
+      if (change === 'lease') await expect(outcome).rejects.toThrow()
+      else await outcome
+      expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: hot.runId } })).toMatchObject({ statMedia: 0, cacheHitMedia: 0, hashedMedia: 0 })
+      expect(await db!.artworkDedupItem.findFirstOrThrow({ where: { runId: hot.runId } })).toMatchObject({ afterImageId: 0 })
+      expect(await db!.artworkDedupMedia.count({ where: { runId: hot.runId } })).toBe(0)
+    } finally {
+      if (change === 'lease') {
+        await db!.systemJob.update({ where: { id: job.id }, data: { leaseToken: job.leaseToken, status: 'CANCELLING', cancelRequestedAt: clock.now() } })
+        const controller = new AbortController()
+        controller.abort(new Error('fixture cleanup'))
+        await executeArtworkDedup(context(job, controller), dependencies())
+      }
+    }
+  }, 20_000)
+
   it('v8 new executor instance resumes a PostgreSQL file checkpoint without recounting committed media', async () => {
     const artistId = await fixture([[32, 32, 32], [32, 32, 32]])
     const started = await start(artistId, 'FULL', false, 8)
@@ -1160,9 +1265,9 @@ suite('durable detection executor with real isolated media', () => {
     expect({ reads, inspections }).toEqual({ reads: 0, inspections: 1002 })
   }, 60_000)
 
-  it.each(['insert', 'delete', 'source write', 'directory write'] as const)(
-    'rejects a hot cache batch when %s starts after file inspection',
-    async (change) => {
+  it.each([1, 8].flatMap(version => (['insert', 'delete', 'source write', 'directory write'] as const).map(change => ({ version, change }))))(
+    'v$version rejects a hot cache batch when $change starts after file inspection',
+    async ({ version, change }) => {
       const artistId = await fixture([
         [2, 2, 2],
         [2, 2, 2]
@@ -1174,7 +1279,7 @@ suite('durable detection executor with real isolated media', () => {
         orderBy: { id: 'asc' }
       })
       const changedArtworkId = images[0]!.artworkId!
-      const hot = await start(artistId)
+      const hot = await start(artistId, 'INCREMENTAL', false, version)
       const supervisor = new DedupReaderSupervisor(readerOptions)
       const create = supervisor.create.bind(supervisor)
       let inspections = 0

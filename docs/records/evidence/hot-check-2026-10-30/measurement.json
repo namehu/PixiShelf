@@ -1,0 +1,711 @@
+{
+  "before": {
+    "observedAt": "2026-10-30T02:06:00.243Z",
+    "label": "baseline",
+    "runId": "85b942c4-5a31-4217-8af9-68d90aaab8a8",
+    "jobId": "48bc291e-bde2-4cb7-8e65-6dfaca110230",
+    "node": "v20.19.4",
+    "input": {
+      "artistId": 1,
+      "artworks": 50,
+      "media": 2000,
+      "fileStateDigest": "8680a87f640a4e625c6443d49fa8582c6252b49759f6c5d7ffbdd82c0a92977a"
+    },
+    "elapsedMs": 32768.605375,
+    "preIndexMs": 30078.132458,
+    "mutationTransactions": 814,
+    "transactionWallMs": 25229.809779000032,
+    "instrumentedApiCalls": 11874,
+    "sqlStatements": 15481,
+    "sqlBeginTransactions": 825,
+    "phases": {
+      "STAT": {
+        "apiCalls": 7167,
+        "sqlStatements": 9891,
+        "sqlDurationMs": 436,
+        "transactions": 609,
+        "transactionWallMs": 6446.5388680000015
+      },
+      "CANDIDATES": {
+        "apiCalls": 11,
+        "sqlStatements": 14,
+        "sqlDurationMs": 3,
+        "transactions": 1,
+        "transactionWallMs": 11.771041999999397
+      },
+      "HASH": {
+        "apiCalls": 16,
+        "sqlStatements": 22,
+        "sqlDurationMs": 0,
+        "transactions": 2,
+        "transactionWallMs": 16.261124999999083
+      },
+      "GROUP": {
+        "apiCalls": 19,
+        "sqlStatements": 23,
+        "sqlDurationMs": 124,
+        "transactions": 1,
+        "transactionWallMs": 143.7512910000005
+      },
+      "MATCH": {
+        "apiCalls": 852,
+        "sqlStatements": 1142,
+        "sqlDurationMs": 13467,
+        "transactions": 98,
+        "transactionWallMs": 14450.729746000005
+      },
+      "FEATURES": {
+        "apiCalls": 1169,
+        "sqlStatements": 1416,
+        "sqlDurationMs": 617,
+        "transactions": 42,
+        "transactionWallMs": 1571.2894140000062
+      },
+      "REUSE": {
+        "apiCalls": 2167,
+        "sqlStatements": 2434,
+        "sqlDurationMs": 384,
+        "transactions": 67,
+        "transactionWallMs": 1906.655292000014
+      },
+      "QUERY": {
+        "apiCalls": 14,
+        "sqlStatements": 17,
+        "sqlDurationMs": 1,
+        "transactions": 1,
+        "transactionWallMs": 8.591709000000264
+      },
+      "PUBLISH": {
+        "apiCalls": 453,
+        "sqlStatements": 512,
+        "sqlDurationMs": 299,
+        "transactions": 3,
+        "transactionWallMs": 665.6017090000059
+      },
+      "DONE": {
+        "apiCalls": 6,
+        "sqlStatements": 10,
+        "sqlDurationMs": 1,
+        "transactions": 1,
+        "transactionWallMs": 8.619582999999693
+      }
+    },
+    "slices": [
+      {
+        "stage": "MATCH",
+        "phase": "MATCH",
+        "wallMs": 10821.044833,
+        "elapsedMs": 10852.055957999999,
+        "mutationTransactions": 643,
+        "sqlStatements": 10368,
+        "status": "RETRY_WAIT",
+        "availableAt": "2026-10-30T02:05:41.310Z",
+        "schedulingRemainingMs": 2989,
+        "statMedia": 2000,
+        "hashedMedia": 0,
+        "cacheHitMedia": 2000,
+        "readBytes": "0"
+      },
+      {
+        "stage": "MATCH",
+        "phase": "MATCH",
+        "wallMs": 10120.6535,
+        "elapsedMs": 24006.137542,
+        "mutationTransactions": 40,
+        "sqlStatements": 480,
+        "status": "RETRY_WAIT",
+        "availableAt": "2026-10-30T02:05:54.468Z",
+        "schedulingRemainingMs": 2993,
+        "statMedia": 2000,
+        "hashedMedia": 0,
+        "cacheHitMedia": 2000,
+        "readBytes": "0"
+      },
+      {
+        "stage": "DONE",
+        "phase": "PUBLISH",
+        "wallMs": 5737.8840409999975,
+        "elapsedMs": 32768.450625,
+        "mutationTransactions": 131,
+        "sqlStatements": 4585,
+        "status": "COMPLETED",
+        "availableAt": "2026-10-30T02:05:54.468Z",
+        "schedulingRemainingMs": 0,
+        "statMedia": 2000,
+        "hashedMedia": 0,
+        "cacheHitMedia": 2000,
+        "readBytes": "0"
+      }
+    ],
+    "readerMeasurements": [
+      {
+        "inspections": 2000,
+        "reads": 0,
+        "bytesRead": "0",
+        "statLatencyMs": 1055,
+        "parentPeakRss": 149848064,
+        "childPeakRss": 92520448,
+        "ipcMessages": 2002,
+        "runId": "85b942c4-5a31-4217-8af9-68d90aaab8a8",
+        "elapsedMs": 10797,
+        "transactions": 642
+      },
+      {
+        "inspections": 0,
+        "reads": 0,
+        "bytesRead": "0",
+        "statLatencyMs": 0,
+        "parentPeakRss": 102318080,
+        "childPeakRss": 72990720,
+        "ipcMessages": 2,
+        "runId": "85b942c4-5a31-4217-8af9-68d90aaab8a8",
+        "elapsedMs": 10101,
+        "transactions": 39
+      },
+      {
+        "inspections": 0,
+        "reads": 0,
+        "bytesRead": "0",
+        "statLatencyMs": 0,
+        "parentPeakRss": 162856960,
+        "childPeakRss": 75235328,
+        "ipcMessages": 2,
+        "runId": "85b942c4-5a31-4217-8af9-68d90aaab8a8",
+        "elapsedMs": 5463,
+        "transactions": 130
+      }
+    ],
+    "performanceSummary": {
+      "kind": "artwork-dedup-performance",
+      "batch": 55,
+      "jobId": "48bc291e-bde2-4cb7-8e65-6dfaca110230",
+      "phase": "COMPLETED",
+      "runId": "85b942c4-5a31-4217-8af9-68d90aaab8a8",
+      "version": 1,
+      "complete": true,
+      "counters": {
+        "readBytes": 0,
+        "dbLoadCalls": 241,
+        "compareCalls": 0,
+        "dbWriteCalls": 1777,
+        "transactions": 817,
+        "decodedImages": 0,
+        "indexRebuilds": 0,
+        "candidatePairs": 0,
+        "ownFeatureHits": 2000,
+        "indexNodeVisits": 0,
+        "replayedQueries": null,
+        "localChannelHits": 0,
+        "wholeChannelHits": 0,
+        "dbValidationCalls": 6522,
+        "contentFeatureHits": 0,
+        "relationReusedPairs": 0,
+        "replayedComparisons": null,
+        "relationInvalidatedPairs": 0
+      },
+      "progress": {
+        "originals": 2000,
+        "queryTotal": 2000,
+        "staticImages": 2000,
+        "queryCompleted": 2000,
+        "uncheckedMedia": 0
+      },
+      "updatedAt": "2026-10-30T02:06:00.224Z",
+      "durationsMs": {
+        "pair": null,
+        "index": null,
+        "pause": null,
+        "query": null,
+        "queue": 119,
+        "active": 26637.92424999999,
+        "dbLoad": 550.4693299999853,
+        "compare": 0,
+        "dbWrite": 2671.307539999976,
+        "feature": 1493.69874900001,
+        "cooldown": 6008,
+        "dbValidation": 19423.57166400002,
+        "transactionWall": 24936.28212199999
+      },
+      "inputDigest": "913092ac33facfee1db020c54855c9560f5bff7be2e4d8e2ea3c8581ef3c262e",
+      "searchVersion": "bktree-global12-region7of9-10-global28-v2",
+      "memoryPeakBytes": null,
+      "protocolVersion": 8,
+      "cacheInvalidationReasons": []
+    },
+    "resultSummary": {
+      "status": "COMPLETED",
+      "stage": "DONE",
+      "statMedia": 2000,
+      "hashedMedia": 0,
+      "cacheHitMedia": 2000,
+      "readBytes": "0",
+      "groupCount": 25,
+      "duplicateArtworks": 25,
+      "failedArtworks": 0,
+      "changedArtworks": 0,
+      "groups": [
+        [
+          1,
+          2
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          5,
+          6
+        ],
+        [
+          7,
+          8
+        ],
+        [
+          9,
+          10
+        ],
+        [
+          11,
+          12
+        ],
+        [
+          13,
+          14
+        ],
+        [
+          15,
+          16
+        ],
+        [
+          17,
+          18
+        ],
+        [
+          19,
+          20
+        ],
+        [
+          21,
+          22
+        ],
+        [
+          23,
+          24
+        ],
+        [
+          25,
+          26
+        ],
+        [
+          27,
+          28
+        ],
+        [
+          29,
+          30
+        ],
+        [
+          31,
+          32
+        ],
+        [
+          33,
+          34
+        ],
+        [
+          35,
+          36
+        ],
+        [
+          37,
+          38
+        ],
+        [
+          39,
+          40
+        ],
+        [
+          41,
+          42
+        ],
+        [
+          43,
+          44
+        ],
+        [
+          45,
+          46
+        ],
+        [
+          47,
+          48
+        ],
+        [
+          49,
+          50
+        ]
+      ],
+      "pairs": []
+    },
+    "resultDigest": "f6b3f49dd2bd5d18dc5a7e2fcfbf3b5feb09e77f643eb591b0a62233359d4841",
+    "metricMeaning": "Full executor STAT + HASH + FEATURES + search + publish and real scheduling waits; fixture freeze and result audit excluded. SQL query events include queue fence/claim/settlement and transaction control, omit bind values. API instrumentation includes all observed Prisma model/raw operations; persisted performance counters use executor capture cutoff. Mutation transaction wall includes round trips. preIndexMs is first observed INDEX checkpoint update/read; includes original stat/cache checks. One run per revision, warm filesystem/page cache, no browser or Worker service competing."
+  },
+  "after": {
+    "observedAt": "2026-10-30T02:06:55.114Z",
+    "label": "after",
+    "runId": "6cee9351-9e63-4da7-be8c-c178632622c7",
+    "jobId": "9e42ea43-b832-40fa-8989-5cb7b21e5a00",
+    "node": "v20.19.4",
+    "input": {
+      "artistId": 1,
+      "artworks": 50,
+      "media": 2000,
+      "fileStateDigest": "8680a87f640a4e625c6443d49fa8582c6252b49759f6c5d7ffbdd82c0a92977a"
+    },
+    "elapsedMs": 25195.628958,
+    "preIndexMs": 22167.513708,
+    "mutationTransactions": 666,
+    "transactionWallMs": 23487.36587700001,
+    "instrumentedApiCalls": 9911,
+    "sqlStatements": 12876,
+    "sqlBeginTransactions": 677,
+    "phases": {
+      "STAT": {
+        "apiCalls": 5167,
+        "sqlStatements": 7241,
+        "sqlDurationMs": 344,
+        "transactions": 459,
+        "transactionWallMs": 4645.128125000001
+      },
+      "CANDIDATES": {
+        "apiCalls": 11,
+        "sqlStatements": 14,
+        "sqlDurationMs": 3,
+        "transactions": 1,
+        "transactionWallMs": 12.33441700000003
+      },
+      "HASH": {
+        "apiCalls": 16,
+        "sqlStatements": 22,
+        "sqlDurationMs": 0,
+        "transactions": 2,
+        "transactionWallMs": 16.05475000000024
+      },
+      "GROUP": {
+        "apiCalls": 19,
+        "sqlStatements": 23,
+        "sqlDurationMs": 126,
+        "transactions": 1,
+        "transactionWallMs": 144.5277500000002
+      },
+      "MATCH": {
+        "apiCalls": 776,
+        "sqlStatements": 1038,
+        "sqlDurationMs": 13309,
+        "transactions": 88,
+        "transactionWallMs": 14203.391959999995
+      },
+      "FEATURES": {
+        "apiCalls": 1282,
+        "sqlStatements": 1566,
+        "sqlDurationMs": 550,
+        "transactions": 54,
+        "transactionWallMs": 1551.9391699999978
+      },
+      "REUSE": {
+        "apiCalls": 2167,
+        "sqlStatements": 2433,
+        "sqlDurationMs": 453,
+        "transactions": 67,
+        "transactionWallMs": 2177.696622000014
+      },
+      "QUERY": {
+        "apiCalls": 14,
+        "sqlStatements": 17,
+        "sqlDurationMs": 2,
+        "transactions": 1,
+        "transactionWallMs": 8.51141600000119
+      },
+      "PUBLISH": {
+        "apiCalls": 453,
+        "sqlStatements": 512,
+        "sqlDurationMs": 335,
+        "transactions": 3,
+        "transactionWallMs": 719.080334000002
+      },
+      "DONE": {
+        "apiCalls": 6,
+        "sqlStatements": 10,
+        "sqlDurationMs": 1,
+        "transactions": 1,
+        "transactionWallMs": 8.701333000000886
+      }
+    },
+    "slices": [
+      {
+        "stage": "MATCH",
+        "phase": "MATCH",
+        "wallMs": 10172.017292,
+        "elapsedMs": 10206.013625,
+        "mutationTransactions": 495,
+        "sqlStatements": 7741,
+        "status": "RETRY_WAIT",
+        "availableAt": "2026-10-30T02:06:40.106Z",
+        "schedulingRemainingMs": 0,
+        "statMedia": 2000,
+        "hashedMedia": 0,
+        "cacheHitMedia": 2000,
+        "readBytes": "0"
+      },
+      {
+        "stage": "VISUAL",
+        "phase": "FEATURES",
+        "wallMs": 10059.524540999999,
+        "elapsedMs": 20284.187167,
+        "mutationTransactions": 58,
+        "sqlStatements": 821,
+        "status": "RETRY_WAIT",
+        "availableAt": "2026-10-30T02:06:50.190Z",
+        "schedulingRemainingMs": 0,
+        "statMedia": 2000,
+        "hashedMedia": 0,
+        "cacheHitMedia": 2000,
+        "readBytes": "0"
+      },
+      {
+        "stage": "DONE",
+        "phase": "PUBLISH",
+        "wallMs": 4901.149041999997,
+        "elapsedMs": 25195.446833,
+        "mutationTransactions": 113,
+        "sqlStatements": 4266,
+        "status": "COMPLETED",
+        "availableAt": "2026-10-30T02:06:50.190Z",
+        "schedulingRemainingMs": 0,
+        "statMedia": 2000,
+        "hashedMedia": 0,
+        "cacheHitMedia": 2000,
+        "readBytes": "0"
+      }
+    ],
+    "readerMeasurements": [
+      {
+        "inspections": 2000,
+        "reads": 0,
+        "bytesRead": "0",
+        "statLatencyMs": 993,
+        "parentPeakRss": 150700032,
+        "childPeakRss": 90341376,
+        "ipcMessages": 2002,
+        "runId": "6cee9351-9e63-4da7-be8c-c178632622c7",
+        "elapsedMs": 10143,
+        "transactions": 494
+      },
+      {
+        "inspections": 0,
+        "reads": 0,
+        "bytesRead": "0",
+        "statLatencyMs": 0,
+        "parentPeakRss": 121143296,
+        "childPeakRss": 74727424,
+        "ipcMessages": 2,
+        "runId": "6cee9351-9e63-4da7-be8c-c178632622c7",
+        "elapsedMs": 10042,
+        "transactions": 57
+      },
+      {
+        "inspections": 0,
+        "reads": 0,
+        "bytesRead": "0",
+        "statLatencyMs": 0,
+        "parentPeakRss": 162054144,
+        "childPeakRss": 73465856,
+        "ipcMessages": 2,
+        "runId": "6cee9351-9e63-4da7-be8c-c178632622c7",
+        "elapsedMs": 4612,
+        "transactions": 112
+      }
+    ],
+    "performanceSummary": {
+      "kind": "artwork-dedup-performance",
+      "batch": 56,
+      "jobId": "9e42ea43-b832-40fa-8989-5cb7b21e5a00",
+      "phase": "COMPLETED",
+      "runId": "6cee9351-9e63-4da7-be8c-c178632622c7",
+      "version": 1,
+      "complete": true,
+      "counters": {
+        "readBytes": 0,
+        "dbLoadCalls": 348,
+        "compareCalls": 0,
+        "dbWriteCalls": 1535,
+        "transactions": 669,
+        "decodedImages": 0,
+        "indexRebuilds": 0,
+        "candidatePairs": 0,
+        "ownFeatureHits": 2000,
+        "indexNodeVisits": 0,
+        "replayedQueries": null,
+        "localChannelHits": 0,
+        "wholeChannelHits": 0,
+        "dbValidationCalls": 5286,
+        "contentFeatureHits": 0,
+        "relationReusedPairs": 0,
+        "replayedComparisons": null,
+        "relationInvalidatedPairs": 0
+      },
+      "progress": {
+        "originals": 2000,
+        "queryTotal": 2000,
+        "staticImages": 2000,
+        "queryCompleted": 2000,
+        "uncheckedMedia": 0
+      },
+      "updatedAt": "2026-10-30T02:06:55.090Z",
+      "durationsMs": {
+        "pair": null,
+        "index": null,
+        "pause": null,
+        "query": null,
+        "queue": 97,
+        "active": 25084.305457,
+        "dbLoad": 811.1040440000131,
+        "compare": 0,
+        "dbWrite": 2559.104422000025,
+        "feature": 1533.294244999997,
+        "cooldown": 7,
+        "dbValidation": 18391.57386299985,
+        "transactionWall": 23178.61787700002
+      },
+      "inputDigest": "913092ac33facfee1db020c54855c9560f5bff7be2e4d8e2ea3c8581ef3c262e",
+      "searchVersion": "bktree-global12-region7of9-10-global28-v2",
+      "memoryPeakBytes": null,
+      "protocolVersion": 8,
+      "cacheInvalidationReasons": []
+    },
+    "resultSummary": {
+      "status": "COMPLETED",
+      "stage": "DONE",
+      "statMedia": 2000,
+      "hashedMedia": 0,
+      "cacheHitMedia": 2000,
+      "readBytes": "0",
+      "groupCount": 25,
+      "duplicateArtworks": 25,
+      "failedArtworks": 0,
+      "changedArtworks": 0,
+      "groups": [
+        [
+          1,
+          2
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          5,
+          6
+        ],
+        [
+          7,
+          8
+        ],
+        [
+          9,
+          10
+        ],
+        [
+          11,
+          12
+        ],
+        [
+          13,
+          14
+        ],
+        [
+          15,
+          16
+        ],
+        [
+          17,
+          18
+        ],
+        [
+          19,
+          20
+        ],
+        [
+          21,
+          22
+        ],
+        [
+          23,
+          24
+        ],
+        [
+          25,
+          26
+        ],
+        [
+          27,
+          28
+        ],
+        [
+          29,
+          30
+        ],
+        [
+          31,
+          32
+        ],
+        [
+          33,
+          34
+        ],
+        [
+          35,
+          36
+        ],
+        [
+          37,
+          38
+        ],
+        [
+          39,
+          40
+        ],
+        [
+          41,
+          42
+        ],
+        [
+          43,
+          44
+        ],
+        [
+          45,
+          46
+        ],
+        [
+          47,
+          48
+        ],
+        [
+          49,
+          50
+        ]
+      ],
+      "pairs": []
+    },
+    "resultDigest": "f6b3f49dd2bd5d18dc5a7e2fcfbf3b5feb09e77f643eb591b0a62233359d4841",
+    "metricMeaning": "Full executor STAT + HASH + FEATURES + search + publish and real scheduling waits; fixture freeze and result audit excluded. SQL query events include queue fence/claim/settlement and transaction control, omit bind values. API instrumentation includes all observed Prisma model/raw operations; persisted performance counters use executor capture cutoff. Mutation transaction wall includes round trips. preIndexMs is first observed INDEX checkpoint update/read; includes original stat/cache checks. One run per revision, warm filesystem/page cache, no browser or Worker service competing."
+  },
+  "sameResults": true,
+  "reductionPercent": {
+    "elapsed": 23.11046298838709,
+    "preIndex": 26.30023243978362,
+    "mutationTransactions": 18.181818181818176,
+    "sqlStatements": 16.827078354111492
+  }
+}
