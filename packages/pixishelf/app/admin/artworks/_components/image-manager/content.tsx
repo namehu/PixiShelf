@@ -24,6 +24,7 @@ import { MediaVideoMetadataDialog } from '../media-video-metadata-dialog'
 import { getFirstImageDirectory, getImageManagerStats, isVideoImageListItem } from './utils'
 import { createImageManagerColumns } from './columns'
 import { ImageManagerTagPanel } from './tag-panel'
+import { VideoPlaybackManagerProvider, VideoPlaybackBatchButton } from './video-playback'
 import { ImageManagerToolbar } from './toolbar'
 import { ImageManagerDragOverlay } from './drag-overlay'
 import { ImageManagerThumbnailList } from './thumbnail-list'
@@ -508,190 +509,193 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
   const mediaStats = useMemo(() => getImageManagerStats(imageList), [imageList])
 
   return (
-    <div className="flex flex-col h-full gap-4">
-      <ImageManagerTagPanel
-        isSavingTags={isSavingTags}
-        selectedTagOptions={selectedTagOptions}
-        onSearchTag={handleSearchTag}
-        onTagsChange={(options) => {
-          void handleTagsChange(options)
-        }}
-      />
+    <VideoPlaybackManagerProvider imageIds={videoImageIds}>
+      <div className="flex flex-col h-full gap-4">
+        <ImageManagerTagPanel
+          isSavingTags={isSavingTags}
+          selectedTagOptions={selectedTagOptions}
+          onSearchTag={handleSearchTag}
+          onTagsChange={(options) => {
+            void handleTagsChange(options)
+          }}
+        />
 
-      <ImageManagerToolbar
-        showThumbnails={showThumbnails}
-        onShowThumbnailsChange={setShowThumbnails}
-        onRefresh={refreshMediaList}
-        onAdd={() => mediaUpload.openAddDialog()}
-        onReplace={mediaUpload.openReplaceDialog}
-        firstImagePath={firstImagePath}
-        mediaCount={mediaStats.count}
-        totalSize={mediaStats.totalSize}
-        selectedVideoCount={selectedVideoIds.length}
-        isSubmittingKeyframes={isSubmittingKeyframes}
-        onGenerateSelectedKeyframes={() => {
-          void handleGenerateSelectedKeyframes()
-        }}
-      />
+        <ImageManagerToolbar
+          playbackActions={<VideoPlaybackBatchButton imageIds={selectedVideoIds} />}
+          showThumbnails={showThumbnails}
+          onShowThumbnailsChange={setShowThumbnails}
+          onRefresh={refreshMediaList}
+          onAdd={() => mediaUpload.openAddDialog()}
+          onReplace={mediaUpload.openReplaceDialog}
+          firstImagePath={firstImagePath}
+          mediaCount={mediaStats.count}
+          totalSize={mediaStats.totalSize}
+          selectedVideoCount={selectedVideoIds.length}
+          isSubmittingKeyframes={isSubmittingKeyframes}
+          onGenerateSelectedKeyframes={() => {
+            void handleGenerateSelectedKeyframes()
+          }}
+        />
 
-      <div
-        className={cn(
-          'flex-1 min-h-0 relative flex flex-col transition-colors duration-150 ease-out',
-          mediaUpload.isDragging && 'bg-accent/10'
-        )}
-        {...mediaUpload.dragHandlers}
-      >
-        {mediaUpload.isDragging && <ImageManagerDragOverlay dragZone={mediaUpload.dragZone} />}
-        {showThumbnails ? (
-          <ImageManagerThumbnailList
-            imageList={imageList}
-            refreshKey={refreshKey}
-            reprobingImageId={reprobingImageId}
-            videoOptimizationJobsByImageId={videoOptimizationJobsByImageId}
-            startingVideoOptimizationImageId={startingVideoOptimizationImageId}
-            onPreviewIndexChange={setPreviewIndex}
-            onOpenVideoMetadata={setVideoMetadataTarget}
-            onDownload={(path) => {
-              void handleDownload(path)
-            }}
-            onOpenChapterDialog={openChapterDialog}
-            onDownloadChapters={(image) => {
-              void handleDownloadChapters(image)
-            }}
-            onDeleteChapter={setDeleteChapterTarget}
-            onReprobeVideo={(image) => {
-              void handleReprobeVideo(image)
-            }}
-            onStartVideoOptimization={handleStartVideoOptimization}
-            onCancelVideoOptimization={(job) => {
-              void handleCancelVideoOptimization(job)
-            }}
-            onDelete={setDeleteTarget}
-          />
-        ) : (
-          <div className="flex-1 overflow-auto h-full">
-            <ProTable
-              key={refreshKey}
-              columns={columns}
-              dataSource={imageList}
-              rowSelection={mediaRowSelection}
-              onRowSelectionChange={setMediaRowSelection}
-              defaultPageSize={50}
-              className="h-full"
+        <div
+          className={cn(
+            'flex-1 min-h-0 relative flex flex-col transition-colors duration-150 ease-out',
+            mediaUpload.isDragging && 'bg-accent/10'
+          )}
+          {...mediaUpload.dragHandlers}
+        >
+          {mediaUpload.isDragging && <ImageManagerDragOverlay dragZone={mediaUpload.dragZone} />}
+          {showThumbnails ? (
+            <ImageManagerThumbnailList
+              imageList={imageList}
+              refreshKey={refreshKey}
+              reprobingImageId={reprobingImageId}
+              videoOptimizationJobsByImageId={videoOptimizationJobsByImageId}
+              startingVideoOptimizationImageId={startingVideoOptimizationImageId}
+              onPreviewIndexChange={setPreviewIndex}
+              onOpenVideoMetadata={setVideoMetadataTarget}
+              onDownload={(path) => {
+                void handleDownload(path)
+              }}
+              onOpenChapterDialog={openChapterDialog}
+              onDownloadChapters={(image) => {
+                void handleDownloadChapters(image)
+              }}
+              onDeleteChapter={setDeleteChapterTarget}
+              onReprobeVideo={(image) => {
+                void handleReprobeVideo(image)
+              }}
+              onStartVideoOptimization={handleStartVideoOptimization}
+              onCancelVideoOptimization={(job) => {
+                void handleCancelVideoOptimization(job)
+              }}
+              onDelete={setDeleteTarget}
             />
-          </div>
-        )}
-      </div>
-
-      <HoverPreview media={hoverImage} x={hoverPos.x} y={hoverPos.y} visible={!!hoverImage} cacheKey={refreshKey} />
-
-      <ImagePreviewDialog
-        open={previewIndex !== null}
-        onOpenChange={(open) => !open && setPreviewIndex(null)}
-        images={imageList}
-        currentIndex={previewIndex}
-        onIndexChange={setPreviewIndex}
-        cacheKey={refreshKey}
-      />
-
-      <AddImageDialog {...mediaUpload.addDialog} />
-
-      <ImageChapterDialog
-        open={!!chapterDialogTarget}
-        mode={chapterDialogMode}
-        image={chapterDialogTarget}
-        isSubmitting={isSubmittingChapter}
-        onOpenChange={(open) => {
-          if (!open) {
-            setChapterDialogTarget(null)
-          }
-        }}
-        onSubmit={handleChapterSubmit}
-      />
-
-      <MediaVideoMetadataDialog
-        open={!!videoMetadataTarget}
-        image={videoMetadataTarget}
-        onOpenChange={(open) => {
-          if (!open) {
-            setVideoMetadataTarget(null)
-          }
-        }}
-      />
-
-      <ImageReplaceDialog {...mediaUpload.replaceDialog} />
-
-      <ProDialog
-        open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title="删除媒体"
-        description="确定要删除这个媒体文件吗？"
-        onOk={handleDelete}
-        okText={mediaDeletePreview?.recovery ? '重试原删除' : '确定删除'}
-        okButtonProps={{ variant: 'destructive', disabled: deletePhysical && !mediaDeletePreview }}
-        onCancel={() => setDeleteTarget(null)}
-      >
-        {deletionNotice(mediaDeletePreview)}
-        <div className="flex flex-row items-start gap-3 py-4">
-          <Checkbox
-            id="delete-physical"
-            disabled={mediaDeletePreview?.recovery}
-            checked={deletePhysical}
-            onCheckedChange={(checked) => setDeletePhysical(checked as boolean)}
-            className="mt-1"
-          />
-          <div className="flex flex-col gap-1 leading-none">
-            <Label
-              htmlFor="delete-physical"
-              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-            >
-              同时删除物理文件
-            </Label>
-            <p className="text-xs text-muted-foreground">物理删除不可撤销；文件恢复依赖已有备份或快照。</p>
-          </div>
+          ) : (
+            <div className="flex-1 overflow-auto h-full">
+              <ProTable
+                key={refreshKey}
+                columns={columns}
+                dataSource={imageList}
+                rowSelection={mediaRowSelection}
+                onRowSelectionChange={setMediaRowSelection}
+                defaultPageSize={50}
+                className="h-full"
+              />
+            </div>
+          )}
         </div>
-      </ProDialog>
 
-      <ProDialog
-        open={!!deleteChapterTarget}
-        onOpenChange={(open) => {
-          if (!open) {
+        <HoverPreview media={hoverImage} x={hoverPos.x} y={hoverPos.y} visible={!!hoverImage} cacheKey={refreshKey} />
+
+        <ImagePreviewDialog
+          open={previewIndex !== null}
+          onOpenChange={(open) => !open && setPreviewIndex(null)}
+          images={imageList}
+          currentIndex={previewIndex}
+          onIndexChange={setPreviewIndex}
+          cacheKey={refreshKey}
+        />
+
+        <AddImageDialog {...mediaUpload.addDialog} />
+
+        <ImageChapterDialog
+          open={!!chapterDialogTarget}
+          mode={chapterDialogMode}
+          image={chapterDialogTarget}
+          isSubmitting={isSubmittingChapter}
+          onOpenChange={(open) => {
+            if (!open) {
+              setChapterDialogTarget(null)
+            }
+          }}
+          onSubmit={handleChapterSubmit}
+        />
+
+        <MediaVideoMetadataDialog
+          open={!!videoMetadataTarget}
+          image={videoMetadataTarget}
+          onOpenChange={(open) => {
+            if (!open) {
+              setVideoMetadataTarget(null)
+            }
+          }}
+        />
+
+        <ImageReplaceDialog {...mediaUpload.replaceDialog} />
+
+        <ProDialog
+          open={!!deleteTarget}
+          onOpenChange={(open) => !open && setDeleteTarget(null)}
+          title="删除媒体"
+          description="确定要删除这个媒体文件吗？"
+          onOk={handleDelete}
+          okText={mediaDeletePreview?.recovery ? '重试原删除' : '确定删除'}
+          okButtonProps={{ variant: 'destructive', disabled: deletePhysical && !mediaDeletePreview }}
+          onCancel={() => setDeleteTarget(null)}
+        >
+          {deletionNotice(mediaDeletePreview)}
+          <div className="flex flex-row items-start gap-3 py-4">
+            <Checkbox
+              id="delete-physical"
+              disabled={mediaDeletePreview?.recovery}
+              checked={deletePhysical}
+              onCheckedChange={(checked) => setDeletePhysical(checked as boolean)}
+              className="mt-1"
+            />
+            <div className="flex flex-col gap-1 leading-none">
+              <Label
+                htmlFor="delete-physical"
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+              >
+                同时删除物理文件
+              </Label>
+              <p className="text-xs text-muted-foreground">物理删除不可撤销；文件恢复依赖已有备份或快照。</p>
+            </div>
+          </div>
+        </ProDialog>
+
+        <ProDialog
+          open={!!deleteChapterTarget}
+          onOpenChange={(open) => {
+            if (!open) {
+              setDeleteChapterTarget(null)
+              setDeleteChapterPhysical(false)
+            }
+          }}
+          title="删除章节"
+          description="确定要删除这个视频关联的章节吗？"
+          onOk={handleDeleteChapter}
+          okText={chapterDeletePreview?.recovery ? '重试原删除' : '确定删除'}
+          okButtonProps={{ variant: 'destructive', disabled: deleteChapterPhysical && !chapterDeletePreview }}
+          onCancel={() => {
             setDeleteChapterTarget(null)
             setDeleteChapterPhysical(false)
-          }
-        }}
-        title="删除章节"
-        description="确定要删除这个视频关联的章节吗？"
-        onOk={handleDeleteChapter}
-        okText={chapterDeletePreview?.recovery ? '重试原删除' : '确定删除'}
-        okButtonProps={{ variant: 'destructive', disabled: deleteChapterPhysical && !chapterDeletePreview }}
-        onCancel={() => {
-          setDeleteChapterTarget(null)
-          setDeleteChapterPhysical(false)
-        }}
-      >
-        {deletionNotice(chapterDeletePreview)}
-        <div className="flex flex-row items-start gap-3 py-4">
-          <Checkbox
-            id="delete-chapter-physical"
-            disabled={chapterDeletePreview?.recovery}
-            checked={deleteChapterPhysical}
-            onCheckedChange={(checked) => setDeleteChapterPhysical(checked as boolean)}
-            className="mt-1"
-          />
-          <div className="flex flex-col gap-1 leading-none">
-            <Label
-              htmlFor="delete-chapter-physical"
-              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-            >
-              同时删除物理章节文件
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              不勾选时仅清空数据库关联；勾选后会尝试删除源库中的 `.chapters.json` 文件。
-            </p>
+          }}
+        >
+          {deletionNotice(chapterDeletePreview)}
+          <div className="flex flex-row items-start gap-3 py-4">
+            <Checkbox
+              id="delete-chapter-physical"
+              disabled={chapterDeletePreview?.recovery}
+              checked={deleteChapterPhysical}
+              onCheckedChange={(checked) => setDeleteChapterPhysical(checked as boolean)}
+              className="mt-1"
+            />
+            <div className="flex flex-col gap-1 leading-none">
+              <Label
+                htmlFor="delete-chapter-physical"
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+              >
+                同时删除物理章节文件
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                不勾选时仅清空数据库关联；勾选后会尝试删除源库中的 `.chapters.json` 文件。
+              </p>
+            </div>
           </div>
-        </div>
-      </ProDialog>
-    </div>
+        </ProDialog>
+      </div>
+    </VideoPlaybackManagerProvider>
   )
 }

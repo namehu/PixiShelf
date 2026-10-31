@@ -66,7 +66,7 @@ function artwork(id: number, kinds: ('image' | 'video' | 'webp' | 'gif' | 'apng'
     }))
   }
 }
-function mount(
+async function mount(
   images: RandomImageItem[],
   extra: Partial<ComponentProps<typeof ImmersiveImageViewer>> = {},
   strict = false
@@ -83,6 +83,7 @@ function mount(
   }
   const node = <ImmersiveImageViewer {...props} />
   const view = render(strict ? <StrictMode>{node}</StrictMode> : node)
+  await act(async () => {})
   return { ...view, props }
 }
 function run() {
@@ -109,36 +110,39 @@ function finishVideo(video: HTMLVideoElement) {
 }
 
 describe('immersive automatic browsing with real Swipers', () => {
-  it.each([true, false])('keeps automatic advancement running after a speed change (horizontal=%s)', (horizontal) => {
-    const images = horizontal ? [artwork(1, ['video', 'video'])] : [artwork(1, ['video']), artwork(2, ['video'])]
-    const view = mount(images, { playbackRate: 1.5 })
-    run()
-    const video = activeVideo(view.container)
-    fireEvent.loadedMetadata(video)
-    fireEvent.canPlay(video)
-    expect(video.playbackRate).toBe(1.5)
-    fireEvent.click(screen.getByRole('button', { name: '切换倍速' }))
-    expect(view.props.onPlaybackRateChange).toHaveBeenCalledWith(2)
-    view.rerender(<ImmersiveImageViewer {...view.props} playbackRate={2} />)
-    expect(video.playbackRate).toBe(2)
-    expect(useViewerStore.getState().autoBrowseStatus).toBe('running')
-    finishVideo(video)
-    tick(2)
-    expect(
-      horizontal ? useViewerStore.getState().horizontalIndexes['art-1'] : useViewerStore.getState().verticalIndex
-    ).toBe(1)
-    finishTransitions(view.container)
-    tick(1000)
-    expect(
-      horizontal ? useViewerStore.getState().horizontalIndexes['art-1'] : useViewerStore.getState().verticalIndex
-    ).toBe(1)
-    expect(activeVideo(view.container).playbackRate).toBe(2)
-  })
+  it.each([true, false])(
+    'keeps automatic advancement running after a speed change (horizontal=%s)',
+    async (horizontal) => {
+      const images = horizontal ? [artwork(1, ['video', 'video'])] : [artwork(1, ['video']), artwork(2, ['video'])]
+      const view = await mount(images, { playbackRate: 1.5 })
+      run()
+      const video = activeVideo(view.container)
+      fireEvent.loadedMetadata(video)
+      fireEvent.canPlay(video)
+      expect(video.playbackRate).toBe(1.5)
+      fireEvent.click(screen.getByRole('button', { name: '切换倍速' }))
+      expect(view.props.onPlaybackRateChange).toHaveBeenCalledWith(2)
+      view.rerender(<ImmersiveImageViewer {...view.props} playbackRate={2} />)
+      expect(video.playbackRate).toBe(2)
+      expect(useViewerStore.getState().autoBrowseStatus).toBe('running')
+      finishVideo(video)
+      tick(2)
+      expect(
+        horizontal ? useViewerStore.getState().horizontalIndexes['art-1'] : useViewerStore.getState().verticalIndex
+      ).toBe(1)
+      finishTransitions(view.container)
+      tick(1000)
+      expect(
+        horizontal ? useViewerStore.getState().horizontalIndexes['art-1'] : useViewerStore.getState().verticalIndex
+      ).toBe(1)
+      expect(activeVideo(view.container).playbackRate).toBe(2)
+    }
+  )
 
   it.each(['background', 'media-error', 'user'] as const)(
     'does not resume %s pause when changing speed',
-    (reason) => {
-      const view = mount([artwork(1, ['video']), artwork(2, ['video'])])
+    async (reason) => {
+      const view = await mount([artwork(1, ['video']), artwork(2, ['video'])])
       run()
       act(() => useViewerStore.getState().pauseAutoBrowse(reason))
       fireEvent.click(screen.getByRole('button', { name: '切换倍速' }))
@@ -153,6 +157,18 @@ describe('immersive automatic browsing with real Swipers', () => {
 
   beforeEach(() => {
     vi.useFakeTimers()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const id = url.match(/media\/(\d+)/)?.[1]
+        return Response.json({
+          status: 'READY',
+          originalUrl: `/api/v1/media/${id}/playback?original=${'a'.repeat(24)}`,
+          playbackUrl: null
+        })
+      })
+    )
+
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(400)
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(800)
     vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (this: HTMLMediaElement) {
@@ -169,11 +185,12 @@ describe('immersive automatic browsing with real Swipers', () => {
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
     vi.useRealTimers()
   })
 
-  it('waits for loaded images, advances horizontally then vertically and stops at the end', () => {
-    const view = mount([artwork(1, ['image', 'video']), artwork(2, ['video'])], {}, true)
+  it('waits for loaded images, advances horizontally then vertically and stops at the end', async () => {
+    const view = await mount([artwork(1, ['image', 'video']), artwork(2, ['video'])], {}, true)
     run()
     tick(20000)
     expect(useViewerStore.getState().horizontalIndexes['art-1'] ?? 0).toBe(0)
@@ -198,8 +215,8 @@ describe('immersive automatic browsing with real Swipers', () => {
     expect(screen.getByText('已浏览全部作品')).toBeTruthy()
   })
 
-  it('does not advance while a pointer is held and ignores duplicate/stale end events', () => {
-    const view = mount([artwork(1, ['video', 'video']), artwork(2, ['video'])])
+  it('does not advance while a pointer is held and ignores duplicate/stale end events', async () => {
+    const view = await mount([artwork(1, ['video', 'video']), artwork(2, ['video'])])
     run()
     const video = activeVideo(view.container)
     fireEvent.pointerDown(video)
@@ -213,8 +230,8 @@ describe('immersive automatic browsing with real Swipers', () => {
     expect(useViewerStore.getState().verticalIndex).toBe(0)
   })
 
-  it('pauses for panels and background and requires explicit continuation with a fresh image interval', () => {
-    const view = mount([artwork(1, ['image']), artwork(2, ['image'])])
+  it('pauses for panels and background and requires explicit continuation with a fresh image interval', async () => {
+    const view = await mount([artwork(1, ['image']), artwork(2, ['image'])])
     fireEvent.load(view.container.querySelector('img')!)
     run()
     tick(3000)
@@ -238,8 +255,8 @@ describe('immersive automatic browsing with real Swipers', () => {
     expect(useViewerStore.getState().verticalIndex).toBe(1)
   })
 
-  it('keeps automatic mode while manually switching, but cancels the old timer', () => {
-    const view = mount([artwork(1, ['image', 'image']), artwork(2, ['image'])])
+  it('keeps automatic mode while manually switching, but cancels the old timer', async () => {
+    const view = await mount([artwork(1, ['image', 'image']), artwork(2, ['image'])])
     fireEvent.load(view.container.querySelector('img')!)
     run()
     tick(4500)
@@ -255,8 +272,8 @@ describe('immersive automatic browsing with real Swipers', () => {
     expect(useViewerStore.getState().verticalIndex).toBe(1)
   })
 
-  it('pauses for video controls, preserves paused seeking and advances on explicit continue', () => {
-    const view = mount([artwork(1, ['video']), artwork(2, ['image'])])
+  it('pauses for video controls, preserves paused seeking and advances on explicit continue', async () => {
+    const view = await mount([artwork(1, ['video']), artwork(2, ['image'])])
     const video = activeVideo(view.container)
     Object.defineProperty(video, 'duration', { configurable: true, value: 100 })
     run()
@@ -271,8 +288,8 @@ describe('immersive automatic browsing with real Swipers', () => {
     expect(useViewerStore.getState().verticalIndex).toBe(1)
   })
 
-  it('advances after releasing a playing seek to the end', () => {
-    const view = mount([artwork(1, ['video']), artwork(2, ['image'])])
+  it('advances after releasing a playing seek to the end', async () => {
+    const view = await mount([artwork(1, ['video']), artwork(2, ['image'])])
     Object.defineProperty(activeVideo(view.container), 'duration', { configurable: true, value: 100 })
     run()
     fireEvent.click(screen.getByText('开始拖动'))
@@ -286,7 +303,7 @@ describe('immersive automatic browsing with real Swipers', () => {
   it('waits for pagination and advances only once when the next page arrives', async () => {
     const load = vi.fn().mockResolvedValue(undefined)
     const images = [artwork(1, ['video'])]
-    const view = mount(images, { hasMore: true, isLoading: true, onLoadMore: load })
+    const view = await mount(images, { hasMore: true, isLoading: true, onLoadMore: load })
     run()
     finishVideo(activeVideo(view.container))
     expect(useViewerStore.getState().autoBrowseWait).toBe('page')
@@ -301,8 +318,28 @@ describe('immersive automatic browsing with real Swipers', () => {
     expect(useViewerStore.getState().autoBrowseStatus).toBe('running')
   })
 
-  it('pauses on media errors and can skip the final item of an artwork', () => {
-    const view = mount([artwork(1, ['image']), artwork(2, ['image'])])
+  it.each(['MISSING', 'WRITING', 'HTTP'] as const)(
+    'pauses automatic browsing when source resolution fails: %s',
+    async (status) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () =>
+          status === 'HTTP'
+            ? new Response(null, { status: 500 })
+            : Response.json({ status, originalUrl: null, playbackUrl: null })
+        )
+      )
+      await mount([artwork(1, ['video']), artwork(2, ['image'])])
+      run()
+      tick(1)
+      expect(useViewerStore.getState().autoBrowseStatus).toBe('paused')
+      expect(useViewerStore.getState().autoBrowsePauseReason).toBe('media-error')
+      expect(useViewerStore.getState().verticalIndex).toBe(0)
+    }
+  )
+
+  it('pauses on media errors and can skip the final item of an artwork', async () => {
+    const view = await mount([artwork(1, ['image']), artwork(2, ['image'])])
     run()
     fireEvent.error(view.container.querySelector('img')!)
     expect(useViewerStore.getState().autoBrowseStatus).toBe('paused')
@@ -311,8 +348,8 @@ describe('immersive automatic browsing with real Swipers', () => {
     expect(useViewerStore.getState().autoBrowseStatus).toBe('running')
   })
 
-  it('uses the real WebP adapter for single-loop completion and pause/resume', () => {
-    const view = mount([artwork(1, ['webp']), artwork(2, ['image'])])
+  it('uses the real WebP adapter for single-loop completion and pause/resume', async () => {
+    const view = await mount([artwork(1, ['webp']), artwork(2, ['image'])])
     run()
     expect(stream.props?.loop).toBe(false)
     act(() => stream.props!.onReady())
@@ -329,8 +366,8 @@ describe('immersive automatic browsing with real Swipers', () => {
     expect(useViewerStore.getState().autoBrowseStatus).toBe('off')
   })
 
-  it('starts the GIF timer only after the animated original loads', () => {
-    const view = mount([artwork(1, ['gif']), artwork(2, ['image'])])
+  it('starts the GIF timer only after the animated original loads', async () => {
+    const view = await mount([artwork(1, ['gif']), artwork(2, ['image'])])
     run()
     const gif = view.container.querySelector('img.absolute[src*="media-1-0.gif"]')!
     expect(gif).toBeTruthy()
@@ -341,8 +378,8 @@ describe('immersive automatic browsing with real Swipers', () => {
     expect(useViewerStore.getState().verticalIndex).toBe(1)
   })
 
-  it('treats a static WebP as a timed image without interpreting its idle player as a user pause', () => {
-    const view = mount([artwork(1, ['image', 'static-webp', 'video'])])
+  it('treats a static WebP as a timed image without interpreting its idle player as a user pause', async () => {
+    const view = await mount([artwork(1, ['image', 'static-webp', 'video'])])
     fireEvent.load(view.container.querySelector('img')!)
     run()
     tick(5000)
@@ -354,8 +391,8 @@ describe('immersive automatic browsing with real Swipers', () => {
     expect(useViewerStore.getState().horizontalIndexes['art-1']).toBe(2)
   })
 
-  it('loads the original APNG and starts timing only after it loads, not after the poster', () => {
-    const view = mount([artwork(1, ['apng']), artwork(2, ['image'])])
+  it('loads the original APNG and starts timing only after it loads, not after the poster', async () => {
+    const view = await mount([artwork(1, ['apng']), artwork(2, ['image'])])
     fireEvent.load(view.container.querySelector('img')!)
     run()
     const original = view.container.querySelector('img[src^="/api/v1/images/"][src*=".apng"]')!
@@ -368,7 +405,7 @@ describe('immersive automatic browsing with real Swipers', () => {
   })
 
   it('keeps only interval preferences across persistence and cancels work on unmount', async () => {
-    const view = mount([artwork(1, ['image']), artwork(2, ['image'])])
+    const view = await mount([artwork(1, ['image']), artwork(2, ['image'])])
     fireEvent.load(view.container.querySelector('img')!)
     run()
     act(() => useViewerStore.getState().setAutoBrowseInterval(15))
@@ -384,8 +421,8 @@ describe('immersive automatic browsing with real Swipers', () => {
     expect(useViewerStore.getState().autoBrowseStatus).toBe('off')
   })
 
-  it('does not reset the image timer for chrome toggles or short pointer interactions', () => {
-    const view = mount([artwork(1, ['image']), artwork(2, ['image'])])
+  it('does not reset the image timer for chrome toggles or short pointer interactions', async () => {
+    const view = await mount([artwork(1, ['image']), artwork(2, ['image'])])
     const image = view.container.querySelector('img')!
     fireEvent.load(image)
     run()
@@ -399,8 +436,8 @@ describe('immersive automatic browsing with real Swipers', () => {
     expect(useViewerStore.getState().isChromeHidden).toBe(true)
   })
 
-  it('holds the next image timer until the slide transition finishes', () => {
-    const view = mount([artwork(1, ['image', 'image']), artwork(2, ['image'])])
+  it('holds the next image timer until the slide transition finishes', async () => {
+    const view = await mount([artwork(1, ['image', 'image']), artwork(2, ['image'])])
     run()
     const horizontal = view.container.querySelector('.swiper-horizontal') as HTMLElement & { swiper: SwiperType }
     act(() => horizontal.swiper.slideTo(1))
@@ -412,9 +449,9 @@ describe('immersive automatic browsing with real Swipers', () => {
     expect(useViewerStore.getState().verticalIndex).toBe(1)
   })
 
-  it('cancels a pending page advance when manually going back within the same artwork', () => {
+  it('cancels a pending page advance when manually going back within the same artwork', async () => {
     const images = [artwork(1, ['image', 'video'])]
-    const view = mount(images, { hasMore: true, isLoading: true })
+    const view = await mount(images, { hasMore: true, isLoading: true })
     const horizontal = view.container.querySelector('.swiper-horizontal') as HTMLElement & { swiper: SwiperType }
     act(() => horizontal.swiper.slideTo(1))
     finishTransitions(view.container)
@@ -434,7 +471,7 @@ describe('immersive automatic browsing with real Swipers', () => {
   it('pauses on page failure, retries without resuming and continues only on request', async () => {
     const load = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined)
     const images = [artwork(1, ['video'])]
-    const view = mount(images, { hasMore: true, onLoadMore: load })
+    const view = await mount(images, { hasMore: true, onLoadMore: load })
     run()
     finishVideo(activeVideo(view.container))
     await act(async () => {
@@ -454,8 +491,8 @@ describe('immersive automatic browsing with real Swipers', () => {
     expect(load).toHaveBeenCalledTimes(2)
   })
 
-  it('does not resume automatically after a failed image is retried successfully', () => {
-    const view = mount([artwork(1, ['image']), artwork(2, ['image'])])
+  it('does not resume automatically after a failed image is retried successfully', async () => {
+    const view = await mount([artwork(1, ['image']), artwork(2, ['image'])])
     run()
     fireEvent.error(view.container.querySelector('img')!)
     fireEvent.click(screen.getByText('重试'))
@@ -468,8 +505,8 @@ describe('immersive automatic browsing with real Swipers', () => {
     expect(useViewerStore.getState().verticalIndex).toBe(1)
   })
 
-  it('publishes final reading evidence before leaving and restores looping without unpausing', () => {
-    const view = mount([artwork(1, ['video']), artwork(2, ['image'])])
+  it('publishes final reading evidence before leaving and restores looping without unpausing', async () => {
+    const view = await mount([artwork(1, ['video']), artwork(2, ['image'])])
     const video = activeVideo(view.container)
     Object.defineProperty(video, 'duration', { configurable: true, value: 100 })
     fireEvent.canPlay(video)
@@ -493,8 +530,8 @@ describe('immersive automatic browsing with real Swipers', () => {
     expect(useViewerStore.getState().verticalIndex).toBe(1)
   })
 
-  it('consumes automatic restart once and restores the watched position on a later manual return', () => {
-    const view = mount([artwork(1, ['video']), artwork(2, ['video']), artwork(3, ['video'])])
+  it('consumes automatic restart once and restores the watched position on a later manual return', async () => {
+    const view = await mount([artwork(1, ['video']), artwork(2, ['video']), artwork(3, ['video'])])
     run()
     finishVideo(activeVideo(view.container))
     finishTransitions(view.container)
@@ -520,9 +557,9 @@ describe('immersive automatic browsing with real Swipers', () => {
     expect(useViewerStore.getState().autoBrowseStatus).toBe('paused')
   })
 
-  it('cancels pending pagination navigation when seeking back from the end', () => {
+  it('cancels pending pagination navigation when seeking back from the end', async () => {
     const images = [artwork(1, ['video'])]
-    const view = mount(images, { hasMore: true, isLoading: true })
+    const view = await mount(images, { hasMore: true, isLoading: true })
     run()
     finishVideo(activeVideo(view.container))
     expect(useViewerStore.getState().autoBrowseWait).toBe('page')

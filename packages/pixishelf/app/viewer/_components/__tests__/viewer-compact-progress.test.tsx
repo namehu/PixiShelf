@@ -20,7 +20,15 @@ vi.mock('next/image', () => ({
 }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 vi.mock('@/hooks/use-artwork-rating', () => ({
-  useArtworkRating: () => ({ level: null, confirmedLevel: null, isLoading: false, isSaving: false, error: null, setLevel: vi.fn(), retry: vi.fn() })
+  useArtworkRating: () => ({
+    level: null,
+    confirmedLevel: null,
+    isLoading: false,
+    isSaving: false,
+    error: null,
+    setLevel: vi.fn(),
+    retry: vi.fn()
+  })
 }))
 vi.mock('../action-drawer', () => ({ ActionDrawer: () => null }))
 vi.mock('../tags-panel', () => ({ default: () => null }))
@@ -85,6 +93,18 @@ describe('compact progress with real controls and Swipers', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const id = url.match(/media\/(\d+)/)?.[1]
+        return Response.json({
+          status: 'READY',
+          originalUrl: `/api/v1/media/${id}/playback?original=${'a'.repeat(24)}`,
+          playbackUrl: null
+        })
+      })
+    )
+
+    vi.stubGlobal(
       'matchMedia',
       vi.fn(() => ({
         matches: false,
@@ -133,6 +153,7 @@ describe('compact progress with real controls and Swipers', () => {
     cleanup()
     queryClients.splice(0).forEach((client) => client.clear())
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
     vi.unstubAllGlobals()
     vi.useRealTimers()
   })
@@ -274,8 +295,9 @@ describe('compact progress with real controls and Swipers', () => {
     expect(index()).toBe(0)
   })
 
-  it('resumes playback after dragging back to the original video position', () => {
+  it('resumes playback after dragging back to the original video position', async () => {
     const view = mount([artwork(1, 1, 'video')])
+    await act(async () => {})
     const video = view.container.querySelector('video')!
     Object.defineProperty(video, 'duration', { configurable: true, value: 100 })
     video.currentTime = 10
@@ -288,8 +310,9 @@ describe('compact progress with real controls and Swipers', () => {
     expect(video.paused).toBe(false)
   })
 
-  it('cancels video seeking on blur and ignores the old release', () => {
+  it('cancels video seeking on blur and ignores the old release', async () => {
     const view = mount([artwork(1, 1, 'video')])
+    await act(async () => {})
     const video = view.container.querySelector('video')!
     Object.defineProperty(video, 'duration', { configurable: true, value: 100 })
     video.currentTime = 10
@@ -306,8 +329,9 @@ describe('compact progress with real controls and Swipers', () => {
 
   it.each([true, false])(
     'keeps full video controls and preserves playing=%s, rate, and node across chrome changes',
-    (playing) => {
+    async (playing) => {
       const view = mount([artwork(1, 1, 'video')])
+      await act(async () => {})
       const video = view.container.querySelector('video')!
       Object.defineProperties(video, {
         duration: { configurable: true, value: 100 },

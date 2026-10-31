@@ -247,6 +247,10 @@ export const videoChapterPreviewPayloadSchema = z.object({
   mode: z.enum(['FULL', 'INCREMENTAL']).default('INCREMENTAL')
 })
 
+export const videoPlaybackGenerationPayloadSchema = targetImagePayloadSchema.extend({
+  mode: z.literal('SDR_1080P_V1').default('SDR_1080P_V1')
+})
+
 export const videoStreamingOptimizationPayloadSchema = targetImagePayloadSchema.extend({
   mode: z.literal('REMUX_FASTSTART')
 })
@@ -537,6 +541,7 @@ export const JOB_PAYLOAD_SCHEMAS = {
   VIDEO_POSTER_GENERATION: targetImagePayloadSchema,
   VIDEO_CHAPTER_PREVIEW_GENERATION: videoChapterPreviewPayloadSchema,
   VIDEO_STREAMING_OPTIMIZATION: videoStreamingOptimizationPayloadSchema,
+  VIDEO_PLAYBACK_GENERATION: videoPlaybackGenerationPayloadSchema,
   VIDEO_KEYFRAME_DISCOVERY: videoKeyframeDiscoveryPayloadSchema,
   VIDEO_KEYFRAME_GENERATION: videoKeyframeGenerationPayloadSchema,
   ARCHIVE_UPLOADER_SCAN: archiveUploaderScanPayloadSchema,

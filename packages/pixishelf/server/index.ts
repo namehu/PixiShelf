@@ -1,3 +1,4 @@
+import { videoPlaybackRouter } from './routers/video-playback'
 import { artworkDedupRouter } from './routers/artwork-dedup'
 import { artworkQuickFilterRouter } from './routers/artwork-quick-filter'
 import { creatorRouter } from './routers/creator'
@@ -36,6 +37,7 @@ export const appRouter = router({
   artworkDedup: artworkDedupRouter,
   artworkRating: artworkRatingRouter,
   mediaMark: mediaMarkRouter,
+  videoPlayback: videoPlaybackRouter,
   reading: readingRouter,
   artworkQuickFilter: artworkQuickFilterRouter,
   search: searchRouter,

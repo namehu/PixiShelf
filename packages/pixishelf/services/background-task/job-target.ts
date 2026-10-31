@@ -1,5 +1,9 @@
 import { redactSensitiveText } from './job-redaction'
-import { videoKeyframeGenerationPayloadSchema, videoStreamingOptimizationPayloadSchema } from '@pixishelf/job-contracts'
+import {
+  videoPlaybackGenerationPayloadSchema,
+  videoKeyframeGenerationPayloadSchema,
+  videoStreamingOptimizationPayloadSchema
+} from '@pixishelf/job-contracts'
 import { z } from 'zod'
 
 const legacyDisplaySchema = z.object({
@@ -29,7 +33,9 @@ export function projectJobTarget<
         ? videoKeyframeGenerationPayloadSchema
         : job.type === 'VIDEO_STREAMING_OPTIMIZATION'
           ? videoStreamingOptimizationPayloadSchema
-          : null
+          : job.type === 'VIDEO_PLAYBACK_GENERATION'
+            ? videoPlaybackGenerationPayloadSchema
+            : null
     const parsed = schema?.safeParse(job.payload)
     if (parsed?.success) {
       target = { targetImageId: parsed.data.imageId, targetPath: parsed.data.relativePath, mode: parsed.data.mode }

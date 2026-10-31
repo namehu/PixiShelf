@@ -27,3 +27,5 @@ export function resolveDerivedMediaStoragePath(typeRoot: string, relativePath: s
 
   return resolvedPath
 }
+
+export const VIDEO_PLAYBACK_STORAGE_ROOT = path.join(DERIVED_MEDIA_STORAGE_ROOT, 'video', 'playback')

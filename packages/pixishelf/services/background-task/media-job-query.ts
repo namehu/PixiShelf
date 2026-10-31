@@ -5,7 +5,7 @@ import { projectJobTarget } from './job-target'
 
 /** Resolve each target in PostgreSQL; never scan all task history into the App. */
 export async function latestMediaJobs(
-  type: 'VIDEO_KEYFRAME_GENERATION' | 'VIDEO_STREAMING_OPTIMIZATION',
+  type: 'VIDEO_KEYFRAME_GENERATION' | 'VIDEO_STREAMING_OPTIMIZATION' | 'VIDEO_PLAYBACK_GENERATION',
   imageIds: number[]
 ) {
   if (!imageIds.length) return []

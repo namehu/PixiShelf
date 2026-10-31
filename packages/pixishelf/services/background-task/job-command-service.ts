@@ -1,3 +1,4 @@
+import { lockActiveVideoPlayback } from '@/services/video-playback-lock'
 import {
   hasBlockingMediaContentCancellation,
   hasBlockingMediaContentRecoveryResume,
@@ -12,6 +13,7 @@ import { ArchiveError } from '@/services/archive/errors'
 import { assertArchiveIntakeSourceProof } from '@/services/archive-intake/archive-intake-source-proof'
 import {
   executionLaneForJobType,
+  inferMediaTypeFromPath,
   JOB_DEFINITION_VERSION,
   jobTypeSchema,
   jsonValueSchema,
@@ -237,6 +239,25 @@ export async function enqueueJob(
         if (existing) return toJobDto(existing)
       }
 
+      if (parsed.type === 'VIDEO_PLAYBACK_GENERATION') {
+        const target = payload as { imageId: number; relativePath: string }
+        const active = await lockActiveVideoPlayback(transaction, target.imageId)
+        const image = await transaction.image.findFirst({
+          where: {
+            id: target.imageId,
+            artwork: { is: { deletedAt: null, archiveLifecycleState: 'ACTIVE' } }
+          },
+          select: { path: true, mediaType: true }
+        })
+        if (
+          !image ||
+          (image.mediaType !== 'VIDEO' && inferMediaTypeFromPath(image.path) !== 'VIDEO') ||
+          image.path.replace(/^[/\\]+/, '') !== target.relativePath
+        ) {
+          throw new BackgroundTaskError('PRECONDITION_FAILED', '视频已变化，请重新提交播放副本任务')
+        }
+        if (active) return toJobDto(active)
+      }
       const timestamp = now()
       const executionLane = executionLaneForJobType(parsed.type)
       const record = await transaction.systemJob.create({
@@ -668,6 +689,25 @@ export async function retryJobCommand(
     const executionLane = executionLaneForJobType(retryType)
     if (job.executionLane !== executionLane) {
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '该历史任务的执行通道无效，请修复后再重试')
+    }
+    if (retryType === 'VIDEO_PLAYBACK_GENERATION') {
+      const target = retryPayload as { imageId: number; relativePath: string }
+      const active = await lockActiveVideoPlayback(transaction, target.imageId)
+      const image = await transaction.image.findFirst({
+        where: {
+          id: target.imageId,
+          artwork: { is: { deletedAt: null, archiveLifecycleState: 'ACTIVE' } }
+        },
+        select: { path: true, mediaType: true }
+      })
+      if (
+        !image ||
+        (image.mediaType !== 'VIDEO' && inferMediaTypeFromPath(image.path) !== 'VIDEO') ||
+        image.path.replace(/^[/\\]+/, '') !== target.relativePath
+      ) {
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '视频已变化，请重新生成播放副本')
+      }
+      if (active) return toJobDto(active)
     }
     if (retryType === 'VIDEO_STREAMING_OPTIMIZATION') {
       const target = retryPayload as { imageId: number; relativePath: string }

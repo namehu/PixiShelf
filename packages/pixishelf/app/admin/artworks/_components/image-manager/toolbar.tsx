@@ -7,6 +7,7 @@ import { formatFileSize } from '@/utils/media'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface ImageManagerToolbarProps {
+  playbackActions?: React.ReactNode
   showThumbnails: boolean
   onShowThumbnailsChange: (showThumbnails: boolean) => void
   onRefresh: () => void
@@ -21,6 +22,7 @@ interface ImageManagerToolbarProps {
 }
 
 export function ImageManagerToolbar({
+  playbackActions,
   showThumbnails,
   onShowThumbnailsChange,
   onRefresh,
@@ -79,6 +81,7 @@ export function ImageManagerToolbar({
           <Sparkles className="mr-1.5 size-4" />
           为已选视频生成代表帧{selectedVideoCount > 0 ? ` (${selectedVideoCount})` : ''}
         </Button>
+        {playbackActions}
       </div>
       {mediaCount > 0 && (
         <div className="text-xs text-muted-foreground flex items-center gap-3">

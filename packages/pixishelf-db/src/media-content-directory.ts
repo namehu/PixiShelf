@@ -13,7 +13,7 @@ export async function contentDirectoryHasWriter(tx: MediaContentTransaction, dir
 }
 export async function contentDirectoriesHaveWriter(
   tx: MediaContentTransaction,
-  directories: readonly MediaContentDirectorySnapshot[]
+  directories: readonly Pick<MediaContentDirectorySnapshot, 'logicalRoot' | 'relativeDirectory'>[]
 ) {
   if (!directories.length) return false
   const conditions = directories.map(

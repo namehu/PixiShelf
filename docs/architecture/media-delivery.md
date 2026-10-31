@@ -27,6 +27,10 @@ sources:
 
 ImgProxy URL 当前未签名，直连端口与反向代理需按安全基线限制；系统图中的图片流不能被理解为 ImgProxy 自带账户认证。App 原媒体默认只读，Worker 可写，ImgProxy 只读；具体挂载真值见 Compose 和[部署基线](../operations/deployment.md)。
 
+## 视频播放源解析
+
+2026-10-31 局部核验：详情和沉浸播放器共用 `useVideoPlaybackSource`，只对准备播放的视频调用受保护的媒体 ID 解析接口。有效副本优先，原片和 generation URL 由服务端返回；播放器直接接受该受控同源 URL，不再经过路径编码或 ImgProxy。切换恢复播放状态，副本错误重新解析后回退原片，不能在原 generation URL 下改发其他文件。源检查、固定 URL、单 Range 与缓存规则见[视频播放副本](../features/video-playback.md)。
+
 ## 分类与源一致性
 
 App、扫描、待替换发现与历史 UNKNOWN 分类共用 job-contracts 的 `inferMediaTypeFromPath` / `needsAnimationContentScan`。PNG/WebP 初始为 IMAGE，GIF/APNG 初始为 ANIMATION，四类进入内容探测；状态 1/2 分别确认静态/动画并纠正 mediaType。其他受支持图片不进入动画探测，视频为 VIDEO，未接纳后缀保持 UNKNOWN。

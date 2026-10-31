@@ -1,5 +1,7 @@
 'use client'
 
+import { VideoPlaybackEntry } from './video-playback'
+
 import { useState } from 'react'
 import { Play, ZoomIn } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -187,9 +189,12 @@ export function ImageManagerThumbnailList({
                     onCancel={onCancelVideoOptimization}
                   />
                 </div>
-                <span className="sr-only">
-                  {img.path}
-                </span>
+                {isVideoImageListItem(img) && (
+                  <div className="pointer-events-auto mt-1">
+                    <VideoPlaybackEntry imageId={img.id} />
+                  </div>
+                )}
+                <span className="sr-only">{img.path}</span>
               </div>
             </div>
           )

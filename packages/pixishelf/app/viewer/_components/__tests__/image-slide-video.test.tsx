@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { cleanup, fireEvent, waitFor, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MediaType } from '@/types'
 import { SingleImage } from '../image-slide'
@@ -6,6 +6,108 @@ import { SingleImage } from '../image-slide'
 vi.mock('next/image', () => ({ default: () => null }))
 
 describe('viewer video lifecycle', () => {
+  it('continues the original when the copy fails before the first playing event', async () => {
+    const onPlaybackError = vi.fn()
+    let rejectPlay!: (reason: Error) => void
+    play.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectPlay = reject
+        })
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          status: 'READY',
+          originalUrl: `/api/v1/media/7/playback?original=${'a'.repeat(24)}`,
+          playbackUrl: '/api/v1/media/7/playback?generation=11111111-1111-4111-8111-111111111111'
+        })
+      )
+    )
+    const view = render(
+      <SingleImage
+        media={{
+          id: 7,
+          key: 'media-7',
+          url: '/video.mp4',
+          updatedAt: '2026-10-31',
+          mediaType: MediaType.VIDEO,
+          animationMetadata: null
+        }}
+        retryKey={0}
+        onRetry={vi.fn()}
+        isActiveMedia
+        onPlaybackError={onPlaybackError}
+        audioPreference={{ muted: true, volume: 0.4 }}
+      />
+    )
+    const video = view.container.querySelector('video')!
+    await waitFor(() => expect(video.src).toContain('generation='))
+    fireEvent.play(video)
+    Object.defineProperty(video, 'error', { configurable: true, value: { code: 4 } })
+    rejectPlay(new Error('The element has no supported sources'))
+    fireEvent.pause(video)
+    fireEvent.error(video)
+    await waitFor(() => expect(video.src).toContain('original='))
+    Object.defineProperty(video, 'error', { configurable: true, value: null })
+    play.mockClear()
+    pause.mockClear()
+    fireEvent.loadedMetadata(video)
+    expect(play).toHaveBeenCalledTimes(1)
+    expect(pause).not.toHaveBeenCalled()
+    expect(onPlaybackError).not.toHaveBeenCalled()
+  })
+
+  it('switches a copy to the original without changing reading identity or paused state', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          status: 'READY',
+          originalUrl: `/api/v1/media/7/playback?original=${'a'.repeat(24)}`,
+          playbackUrl: '/api/v1/media/7/playback?generation=11111111-1111-4111-8111-111111111111'
+        })
+      )
+    )
+    const onReadingProgress = vi.fn()
+    const view = render(
+      <SingleImage
+        media={{
+          id: 7,
+          key: 'media-7',
+          url: '/video.mp4',
+          updatedAt: '2026-10-31',
+          mediaType: MediaType.VIDEO,
+          animationMetadata: null
+        }}
+        retryKey={0}
+        onRetry={vi.fn()}
+        isActiveMedia
+        playbackRate={1.5}
+        audioPreference={{ muted: true, volume: 0.4 }}
+        onReadingProgress={onReadingProgress}
+      />
+    )
+    const video = view.container.querySelector('video')!
+    await waitFor(() => expect(video.src).toContain('generation='))
+    video.currentTime = 27
+    Object.defineProperties(video, {
+      duration: { configurable: true, value: 60 },
+      paused: { configurable: true, value: true }
+    })
+    play.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: '切换到原片' }))
+    expect(video.src).toContain('original=')
+    video.currentTime = 0
+    fireEvent.loadedMetadata(video)
+    expect(video).toMatchObject({ currentTime: 27, volume: 0.4, muted: true, playbackRate: 1.5 })
+    expect(play).not.toHaveBeenCalled()
+    expect(pause).toHaveBeenCalled()
+    expect(view.container.querySelector('video')).toBe(video)
+    expect(onReadingProgress).not.toHaveBeenCalledWith(expect.objectContaining({ ended: true }))
+  })
+
   it('zooms only the video without remounting, seeking or changing playback', () => {
     const props = {
       media: {
@@ -74,15 +176,32 @@ describe('viewer video lifecycle', () => {
   const pause = vi.fn()
 
   beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        const id = /media\/(\d+)\//.exec(url)?.[1] ?? '1'
+        return Promise.resolve(
+          Response.json({
+            status: 'READY',
+            originalUrl: `/api/v1/media/${id}/playback?original=${'a'.repeat(24)}`,
+            playbackUrl: null
+          })
+        )
+      })
+    )
+
     play.mockClear()
     pause.mockClear()
     Object.defineProperty(HTMLMediaElement.prototype, 'play', { configurable: true, value: play })
     Object.defineProperty(HTMLMediaElement.prototype, 'pause', { configurable: true, value: pause })
   })
 
-  afterEach(() => cleanup())
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+  })
 
-  it('plays only while active and pauses when the media becomes inactive', () => {
+  it('plays only while active and pauses when the media becomes inactive', async () => {
     const commonProps = {
       media: {
         id: 1,
@@ -99,7 +218,7 @@ describe('viewer video lifecycle', () => {
     }
     const view = render(<SingleImage {...commonProps} isActiveMedia />)
 
-    expect(play).toHaveBeenCalled()
+    await waitFor(() => expect(play).toHaveBeenCalled())
     const video = view.container.querySelector('video')
     expect(video?.muted).toBe(true)
     expect(video?.volume).toBe(0.5)
@@ -108,7 +227,7 @@ describe('viewer video lifecycle', () => {
     expect(pause).toHaveBeenCalled()
   })
 
-  it('does not restart an active video when its saved position bookkeeping changes', () => {
+  it('does not restart an active video when its saved position bookkeeping changes', async () => {
     const commonProps = {
       media: {
         id: 4,
@@ -125,7 +244,7 @@ describe('viewer video lifecycle', () => {
       isActiveMedia: true
     }
     const view = render(<SingleImage {...commonProps} savedPlaybackPosition={10} />)
-    expect(play).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(play).toHaveBeenCalledTimes(1))
 
     view.rerender(<SingleImage {...commonProps} savedPlaybackPosition={11} />)
     expect(play).toHaveBeenCalledTimes(1)

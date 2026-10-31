@@ -82,6 +82,18 @@ function swipe(video: HTMLVideoElement, pointerType: string, horizontal: boolean
 describe('viewer gestures with real Swiper and focused video', () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const id = url.match(/media\/(\d+)/)?.[1]
+        return Response.json({
+          status: 'READY',
+          originalUrl: `/api/v1/media/${id}/playback?original=${'a'.repeat(24)}`,
+          playbackUrl: null
+        })
+      })
+    )
+
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(400)
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(800)
     vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (this: HTMLMediaElement) {
@@ -97,38 +109,43 @@ describe('viewer gestures with real Swiper and focused video', () => {
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
     vi.useRealTimers()
   })
 
-  it.each([false, true])('keeps gestures and selected speed after a speed change (horizontal=%s)', (horizontal) => {
-    const images = [artwork(1, true), artwork(2, true)]
-    useViewerStore.setState({ images })
-    const props = {
-      initialImages: images,
-      hasMore: false,
-      isLoading: false,
-      onLoadMore: vi.fn(),
-      onPlaybackRateChange: vi.fn()
+  it.each([false, true])(
+    'keeps gestures and selected speed after a speed change (horizontal=%s)',
+    async (horizontal) => {
+      const images = [artwork(1, true), artwork(2, true)]
+      useViewerStore.setState({ images })
+      const props = {
+        initialImages: images,
+        hasMore: false,
+        isLoading: false,
+        onLoadMore: vi.fn(),
+        onPlaybackRateChange: vi.fn()
+      }
+      const view = render(<ImmersiveImageViewer {...props} playbackRate={1.5} />)
+      await act(async () => {})
+      const video = view.container.querySelector('video')!
+      fireEvent.click(screen.getByRole('button', { name: '切换倍速' }))
+      expect(props.onPlaybackRateChange).toHaveBeenCalledWith(2)
+      view.rerender(<ImmersiveImageViewer {...props} playbackRate={2} />)
+      expect(video.playbackRate).toBe(2)
+      expect(useViewerStore.getState().isChromeHidden).toBe(false)
+      pointer(video, 'pointerdown', 'touch', 200, 400)
+      act(() => vi.advanceTimersByTime(1000))
+      expect(video.playbackRate).toBe(3)
+      fireEvent(window, new Event('blur'))
+      expect(video.playbackRate).toBe(2)
+      swipe(video, 'touch', horizontal)
+      act(() => vi.advanceTimersByTime(301))
+      expect(
+        horizontal ? useViewerStore.getState().horizontalIndexes['artwork-1'] : useViewerStore.getState().verticalIndex
+      ).toBe(1)
+      expect((view.container.querySelector('.swiper-slide-active video') as HTMLVideoElement)?.playbackRate).toBe(2)
     }
-    const view = render(<ImmersiveImageViewer {...props} playbackRate={1.5} />)
-    const video = view.container.querySelector('video')!
-    fireEvent.click(screen.getByRole('button', { name: '切换倍速' }))
-    expect(props.onPlaybackRateChange).toHaveBeenCalledWith(2)
-    view.rerender(<ImmersiveImageViewer {...props} playbackRate={2} />)
-    expect(video.playbackRate).toBe(2)
-    expect(useViewerStore.getState().isChromeHidden).toBe(false)
-    pointer(video, 'pointerdown', 'touch', 200, 400)
-    act(() => vi.advanceTimersByTime(1000))
-    expect(video.playbackRate).toBe(3)
-    fireEvent(window, new Event('blur'))
-    expect(video.playbackRate).toBe(2)
-    swipe(video, 'touch', horizontal)
-    act(() => vi.advanceTimersByTime(301))
-    expect(
-      horizontal ? useViewerStore.getState().horizontalIndexes['artwork-1'] : useViewerStore.getState().verticalIndex
-    ).toBe(1)
-    expect((view.container.querySelector('.swiper-slide-active video') as HTMLVideoElement)?.playbackRate).toBe(2)
-  })
+  )
 
   it.each(['mouse', 'touch'])(
     'toggles playback with %s double taps while keeping chrome hidden and automatic browsing paused',
@@ -145,6 +162,7 @@ describe('viewer gestures with real Swiper and focused video', () => {
           onLoadMore={vi.fn()}
         />
       )
+      await act(async () => {})
       const video = view.container.querySelector('video')!
       act(() => useViewerStore.getState().requestAutoBrowse())
       act(() => useViewerStore.getState().setChromeHidden(true))
@@ -174,6 +192,7 @@ describe('viewer gestures with real Swiper and focused video', () => {
         onLoadMore={vi.fn()}
       />
     )
+    await act(async () => {})
     const video = view.container.querySelector('video')!
     doubleTap(video)
     video.muted = false
@@ -192,11 +211,12 @@ describe('viewer gestures with real Swiper and focused video', () => {
     expect(video.paused).toBe(true)
   })
 
-  it('blocks double taps behind a panel and cancels a pending tap on blur', () => {
+  it('blocks double taps behind a panel and cancels a pending tap on blur', async () => {
     const images = [artwork(1, false)]
     useViewerStore.setState({ images })
     const props = { initialImages: images, hasMore: false, isLoading: false, onLoadMore: vi.fn() }
     const view = render(<ImmersiveImageViewer playbackRate={1} onPlaybackRateChange={vi.fn()} {...props} />)
+    await act(async () => {})
     const video = view.container.querySelector('video')!
     pointer(video, 'pointerdown', 'touch', 200, 400)
     pointer(video, 'pointerup', 'touch', 200, 400)
@@ -234,7 +254,7 @@ describe('viewer gestures with real Swiper and focused video', () => {
     ['touch', false, true, true]
   ] as const)(
     'allows %s swipes (horizontal=%s, restored=%s, nested=%s) after chrome toggles',
-    (pointerType, horizontal, restored, multiple) => {
+    async (pointerType, horizontal, restored, multiple) => {
       const images = [artwork(1, multiple), artwork(2, multiple)]
       useViewerStore.setState({ images })
       const view = render(
@@ -247,6 +267,7 @@ describe('viewer gestures with real Swiper and focused video', () => {
           onLoadMore={vi.fn()}
         />
       )
+      await act(async () => {})
       const video = view.container.querySelector('video')!
       tap(video, pointerType)
       expect(useViewerStore.getState().isChromeHidden).toBe(true)
@@ -264,11 +285,12 @@ describe('viewer gestures with real Swiper and focused video', () => {
 
   it.each([false, true])(
     'blocks swipes while a panel is open and restores them after closing (horizontal=%s)',
-    (horizontal) => {
+    async (horizontal) => {
       const images = [artwork(1, horizontal), artwork(2, horizontal)]
       useViewerStore.setState({ images })
       const props = { initialImages: images, hasMore: false, isLoading: false, onLoadMore: vi.fn() }
       const view = render(<ImmersiveImageViewer playbackRate={1} onPlaybackRateChange={vi.fn()} {...props} />)
+      await act(async () => {})
       const video = view.container.querySelector('video')!
       tap(video, 'touch')
       view.rerender(

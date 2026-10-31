@@ -21,6 +21,7 @@ export const backgroundJobTypeLabels: Record<JobType, string> = {
   VIDEO_MEDIA_PROBE: '视频媒体探测与封面生成',
   VIDEO_POSTER_GENERATION: '视频封面生成',
   VIDEO_CHAPTER_PREVIEW_GENERATION: '视频章节截图',
+  VIDEO_PLAYBACK_GENERATION: '视频播放副本',
   VIDEO_STREAMING_OPTIMIZATION: '视频播放优化',
   VIDEO_KEYFRAME_DISCOVERY: '代表帧筛选',
   VIDEO_KEYFRAME_GENERATION: '代表帧生成',

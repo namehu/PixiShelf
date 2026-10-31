@@ -393,6 +393,14 @@ async function lockGcReference(transaction: GcTransaction, entry: GcEntry) {
 
 async function isReferenced(database: VideoMediaDatabase | VideoMediaTransaction, entry: GcEntry) {
   switch (entry.mediaKind) {
+    case 'VIDEO_PLAYBACK':
+      if (!database.mediaVideoPlayback) throw new Error('Playback GC database is unavailable')
+      return Boolean(
+        await database.mediaVideoPlayback.findFirst({
+          where: { relativePath: entry.relativePath },
+          select: { imageId: true }
+        })
+      )
     case 'VIDEO_POSTER':
       return Boolean(
         await database.mediaVideoMetadata.findFirst({
@@ -423,6 +431,10 @@ async function isReferenced(database: VideoMediaDatabase | VideoMediaTransaction
 
 function resolveGcTarget(config: VideoMediaRuntimeConfig, entry: GcEntry) {
   switch (entry.mediaKind) {
+    case 'VIDEO_PLAYBACK':
+      if (entry.referenceType !== 'MEDIA_VIDEO_PLAYBACK' || !config.playbackStorageRoot)
+        throw new Error('Invalid playback GC target')
+      return { root: config.playbackStorageRoot }
     case 'VIDEO_POSTER':
       if (entry.referenceType !== 'MEDIA_VIDEO_METADATA_POSTER') {
         throw new Error(`Invalid VIDEO_POSTER reference type: ${entry.referenceType ?? 'null'}`)

@@ -1,6 +1,7 @@
 import { Prisma, PrismaClient } from '@prisma/client'
 
 export { Prisma, PrismaClient }
+export type { MediaVideoPlayback } from '@prisma/client'
 export * from './creators'
 export * from './artwork-dedup'
 export * from './artwork-dedup-hot-batch'
@@ -16,7 +17,7 @@ export * from './media-content-writes'
 export * from './media-content-evidence'
 export * from './media-content-recovery'
 
-const latestRequiredMigration = '20261024001400_artwork_dedup_source_snapshot'
+const latestRequiredMigration = '20261031003000_video_playback'
 
 const requiredSourceSnapshotTables = [
   'scan_run_metadata_inputs',
@@ -52,6 +53,7 @@ const requiredQueueObjects = [
   'ArtworkContentFingerprint',
   'archive_import_executions',
   'archive_staging_generations',
+  'MediaVideoPlayback',
   'ArtworkSummary',
   'ArtworkSummaryFeature',
   'artist_merges',

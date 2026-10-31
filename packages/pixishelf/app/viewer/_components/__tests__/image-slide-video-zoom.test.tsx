@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, waitFor, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useEffect, type ReactNode, type ComponentProps } from 'react'
 import type { Swiper as SwiperType } from 'swiper'
@@ -73,6 +73,20 @@ const props: ComponentProps<typeof ImageSlide> = {
 }
 
 beforeEach(() => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockImplementation((url: string) => {
+      const id = /media\/(\d+)\//.exec(url)?.[1] ?? '1'
+      return Promise.resolve(
+        Response.json({
+          status: 'READY',
+          originalUrl: `/api/v1/media/${id}/playback?original=${'a'.repeat(24)}`,
+          playbackUrl: null
+        })
+      )
+    })
+  )
+
   useViewerStore.setState({ horizontalIndexes: {}, isChromeHidden: false })
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
@@ -80,10 +94,11 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('viewer zoom ownership', () => {
-  it('preserves zoom when hiding chrome but resets across horizontal media and inactive artworks', () => {
+  it('preserves zoom when hiding chrome but resets across horizontal media and inactive artworks', async () => {
     const view = render(<ImageSlide {...props} />)
     fireEvent.click(screen.getByRole('button', { name: '画面缩放：完整画面' }))
     expect(view.container.querySelector('video')!.style.scale).toBe('1.5')
@@ -91,13 +106,18 @@ describe('viewer zoom ownership', () => {
     expect(screen.getByRole('button', { name: '画面缩放：1.5倍' })).toBeTruthy()
     act(() => useViewerStore.getState().setHorizontalIndex(image.key, 1))
     expect(screen.getByRole('button', { name: '画面缩放：完整画面' })).toBeTruthy()
-    const activeVideo = view.container.querySelector('video[src^="/2.mp4"]') as HTMLVideoElement
+    await waitFor(() => expect(view.container.querySelector('video[src^="/api/v1/media/2/playback"]')).toBeTruthy())
+    const activeVideo = view.container.querySelector('video[src^="/api/v1/media/2/playback"]') as HTMLVideoElement
     expect(activeVideo.style.scale).toBe('1')
     fireEvent.click(screen.getByRole('button', { name: '画面缩放：完整画面' }))
     expect(activeVideo.style.scale).toBe('1.5')
     view.rerender(<ImageSlide {...props} isActive={false} />)
     view.rerender(<ImageSlide {...props} />)
     expect(screen.getByRole('button', { name: '画面缩放：完整画面' })).toBeTruthy()
-    expect(view.container.querySelector('video[src^="/2.mp4"]')?.getAttribute('style')).toBe('scale: 1;')
+    await waitFor(() =>
+      expect(view.container.querySelector('video[src^="/api/v1/media/2/playback"]')?.getAttribute('style')).toBe(
+        'scale: 1;'
+      )
+    )
   })
 })

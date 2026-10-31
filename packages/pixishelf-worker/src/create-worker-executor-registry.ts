@@ -26,6 +26,7 @@ import {
   createPrismaMigrationDatabase,
   createPrismaPendingReplaceDatabase,
   createScanExecutorRegistrations,
+  createVideoPlaybackExecutor,
   createVideoMediaExecutorRegistrations,
   createVideoProcessingExecutorRegistrations,
   createVideoKeyframeExecutorRegistrations,
@@ -61,6 +62,18 @@ export function createWorkerExecutorRegistry(input: {
   registry.register(createArchiveTitleRulePreviewRegistration(1))
   registry.register(createArchiveTitleRulePreviewRegistration())
   const resolved = resolveExecutorWorkerConfiguration(input.config)
+  registry.register(
+    createVideoPlaybackExecutor({
+      database: input.database,
+      config: {
+        sourceRoot: resolved.sourceMediaRoot,
+        archiveRoot: resolved.archiveRoot,
+        playbackRoot: path.join(input.config.derivedMediaRoot, 'video', 'playback'),
+        ffmpegPath: resolved.ffmpegPath,
+        ffprobePath: resolved.ffprobePath
+      }
+    })
+  )
   registry.register(createArtworkSummaryExecutor({ database: input.database, scanRoot: resolved.sourceMediaRoot }))
   const readerOptions =
     typeof __dirname === 'string'
@@ -184,6 +197,7 @@ export function createWorkerExecutorRegistry(input: {
     config: {
       scanRoot: resolved.sourceMediaRoot,
       posterStorageRoot: resolved.posterStorageRoot,
+      playbackStorageRoot: path.join(input.config.derivedMediaRoot, 'video', 'playback'),
       chapterPreviewStorageRoot: resolved.chapterPreviewRoot,
       ffmpegPath: resolved.ffmpegPath,
       ffprobePath: resolved.ffprobePath

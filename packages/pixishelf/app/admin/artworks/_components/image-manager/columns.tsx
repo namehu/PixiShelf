@@ -1,5 +1,7 @@
 'use client'
 
+import { VideoPlaybackEntry } from './video-playback'
+
 import { Download, MoreHorizontal, RotateCcw, Trash2, Upload, WandSparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -269,9 +271,7 @@ export function createImageManagerColumns({
                 {val.split('/').pop()}
               </span>
             </span>
-            <span className="max-w-[300px] truncate text-[10px] text-muted-foreground">
-              {val}
-            </span>
+            <span className="max-w-[300px] truncate text-[10px] text-muted-foreground">{val}</span>
           </div>
         )
       }
@@ -305,6 +305,12 @@ export function createImageManagerColumns({
           onCancel={onCancelVideoOptimization}
         />
       )
+    },
+    {
+      header: '播放副本',
+      id: 'videoPlayback',
+      size: 210,
+      cell: ({ row }) => (isVideoImageListItem(row.original) ? <VideoPlaybackEntry imageId={row.original.id} /> : null)
     },
     {
       header: '尺寸',

@@ -71,6 +71,8 @@ PixiShelf 当前是**单一管理员信任域**。可以创建多个账户，但
 
 去重成员封面 `GET /api/artwork-dedup/cover/:artworkId` 独立核验 Session 与 expectedUserId，并按当前活动、未删除及非维护 COPY 声明的作品可见性读取第一登记图片或已有视频封面。DTO仅返回作品ID路由，不暴露原路径；隐藏目录和解析后隐藏路径均拒绝，响应为 private/no-store、Vary Cookie，不重定向原媒体、不现场重编码。
 
+2026-10-31 局部核验：视频播放副本管理使用 `adminProcedure`；`/api/v1/media/[image-id]/playback` 及其 `source` 路由独立检查 Session，复核当前活动作品、非维护 COPY、源写入门禁与真实根内文件。副本 generation 固定对应一个文件，失效拒绝而非 Range 期间换源；响应 private/no-store、Vary Cookie，不返回绝对路径，不经 ImgProxy。详见[视频播放副本](../features/video-playback.md)。
+
 ## 移动客户端接口
 
 2026-10-28 局部核验：`/api/mobile/v1` 是 Android 验证版新增的独立 transport。只有精确 `POST /api/mobile/v1/session` 公开登录；GET、DELETE 及其他子路由均由 proxy 和 Route 双重验证。相似前缀不豁免网页鉴权。

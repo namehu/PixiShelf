@@ -205,6 +205,7 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
       const mediaSrc = appendMediaVersion(combinationApiResource(src), media.updatedAt)
       return (
         <VideoPlayer
+          imageId={media.id}
           src={mediaSrc}
           chaptersUrl={media.chaptersUrl}
           chaptersCount={media.chaptersCount}

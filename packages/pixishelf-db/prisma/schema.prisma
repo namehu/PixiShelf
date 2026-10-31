@@ -413,6 +413,7 @@ model Image {
   readingSummaries    ArtworkReadingSummary[] @relation("ReadingLastMedia")
   readMedia           ArtworkReadMedia[]
   mediaMarks          MediaMark[]
+  videoPlayback       MediaVideoPlayback?
   videoMetadata       MediaVideoMetadata?
   animationMetadata   ImageAnimationMetadata?
   summaryFeature      ArtworkSummaryFeature?
@@ -640,6 +641,27 @@ model ImageAnimationMetadata {
   updatedAt           DateTime                @updatedAt
 
   @@index([status, nextRetryAt, imageId])
+}
+
+model MediaVideoPlayback {
+  imageId                 Int      @id
+  image                   Image    @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  generationId            String   @unique
+  sourcePath              String
+  sourceRevision          BigInt
+  sourceArtworkMediaEpoch BigInt
+  sourceSize              BigInt
+  sourceMtimeNs           BigInt?
+  sourceCtimeNs           BigInt?
+  sourceDeviceId          BigInt?
+  sourceInode             BigInt?
+  profileVersion          Int
+  relativePath            String   @unique
+  outputSize              BigInt
+  duration                Float
+  width                   Int
+  height                  Int
+  publishedAt             DateTime @default(now())
 }
 
 model MediaVideoMetadata {

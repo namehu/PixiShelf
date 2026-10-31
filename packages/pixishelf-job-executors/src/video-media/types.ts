@@ -3,13 +3,15 @@ import type { Prisma, PrismaClient } from '@pixishelf/db'
 export type VideoMediaDatabase = Pick<
   PrismaClient,
   'image' | 'mediaVideoMetadata' | 'mediaChapterPreview' | 'derivedMediaGcEntry'
->
+> &
+  Partial<Pick<PrismaClient, 'mediaVideoPlayback'>>
 
 export type VideoMediaTransaction = Prisma.TransactionClient
 
 export interface VideoMediaRuntimeConfig {
   scanRoot: string
   posterStorageRoot: string
+  playbackStorageRoot?: string
   chapterPreviewStorageRoot: string
   ffprobePath?: string
   ffmpegPath?: string

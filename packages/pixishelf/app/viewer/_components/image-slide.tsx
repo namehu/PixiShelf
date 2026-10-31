@@ -1,5 +1,6 @@
 'use client'
 
+import { useVideoPlaybackSource } from '@/hooks/use-video-playback-source'
 import {
   useCallback,
   useEffect,
@@ -30,14 +31,13 @@ import type { VideoInteractionFeedback } from '@/components/players/video-intera
 import { readMediaPreloadEnvironment, type MediaPreloadEnvironment } from '@/lib/media-preload'
 import { withMediaVersion } from '@/lib/media-url'
 import { isApngFile, isGifFile, isWebpFile } from '@/lib/media'
-import { Loader2Icon, PauseIcon, PlayIcon } from 'lucide-react'
+import { ViewerGestureFeedback } from './viewer-gesture-feedback'
 import { Button } from '@/components/ui/button'
 import ViewerImageProgress from './viewer-image-progress'
 import { useViewerAutoMedia } from './use-viewer-auto-media'
 import { combinationApiResource } from '@/utils/combination-static'
 import type { VideoZoom } from '@/components/players/video-zoom-button'
 
-// 导入 Swiper 样式
 import 'swiper/css'
 
 interface ImageSlideProps extends Pick<SingleImageProps, 'onError'> {
@@ -65,6 +65,7 @@ interface ImageSlideProps extends Pick<SingleImageProps, 'onError'> {
 }
 
 interface SingleImageProps {
+  sourceSwitchDisabled?: boolean
   videoZoom?: VideoZoom
   playbackRate?: ViewerPlaybackRate
   autoPlayback?: 'running' | 'paused'
@@ -127,9 +128,6 @@ function readVideoState(video: HTMLVideoElement, waiting = false): ViewerVideoSt
   }
 }
 
-/**
- * 单个媒体渲染组件。视频只允许在自身同时处于纵向、横向活动状态时播放。
- */
 export function SingleImage(props: SingleImageProps) {
   const ignoreControl = (event: ReactPointerEvent<HTMLDivElement>) =>
     event.target instanceof Element && Boolean(event.target.closest(VIEWER_CONTROL_SELECTOR))
@@ -152,6 +150,7 @@ export function SingleImage(props: SingleImageProps) {
 }
 
 function SingleImageContent({
+  sourceSwitchDisabled = false,
   videoZoom = 1,
   playbackRate = 1,
   autoPlayback,
@@ -183,6 +182,13 @@ function SingleImageContent({
 }: SingleImageProps) {
   const [imageError, setImageError] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const playbackSource = useVideoPlaybackSource(
+    media.mediaType === MediaType.VIDEO ? media.id : undefined,
+    withMediaVersion(media.url, media.updatedAt),
+    shouldLoad,
+    retryKey
+  )
+  const playingBeforeSourceError = useRef(false)
   const playbackRateRef = useRef(playbackRate)
   playbackRateRef.current = playbackRate
   const readingStartedRef = useRef(false)
@@ -240,6 +246,9 @@ function SingleImageContent({
     onMediaError?.()
   }
 
+  useEffect(() => {
+    if (playbackSource.error) handleImageError()
+  }, [playbackSource.error])
   useLayoutEffect(() => {
     setImageError(false)
     restoredMediaIdRef.current = null
@@ -300,9 +309,10 @@ function SingleImageContent({
       callbacks.current.onMediaComplete?.()
       return
     }
+    if (!playbackSource.src || playbackSource.switching || (!playbackSource.allowAutoplay && autoPlayback !== 'running')) return
     const playResult = video.play()
     playResult?.catch(() => {
-      if (cancelled) return
+      if (cancelled || (video.error && playbackSource.usingPlayback)) return
       if (video.muted) {
         callbacks.current.onPlaybackError?.()
         return
@@ -318,7 +328,16 @@ function SingleImageContent({
     return () => {
       cancelled = true
     }
-  }, [isActiveMedia, media.mediaType, media.url, publishVideoState, restorePlaybackPosition, autoPlayback, retryKey])
+  }, [
+    isActiveMedia,
+    media.mediaType,
+    media.url,
+    publishVideoState,
+    restorePlaybackPosition,
+    autoPlayback,
+    retryKey,
+    playbackSource.src
+  ])
   useEffect(() => {
     const video = videoRef.current
     return () => {
@@ -346,7 +365,7 @@ function SingleImageContent({
     )
   }
 
-  if (imageError) {
+  if (imageError || playbackSource.error) {
     return (
       <div className="relative flex h-full w-full items-center justify-center">
         <div className="absolute inset-0 flex items-center justify-center bg-neutral-900">
@@ -361,7 +380,9 @@ function SingleImageContent({
                 />
               </svg>
             </div>
-            <p className="mb-2 text-sm opacity-60">{media.mediaType === MediaType.IMAGE ? '图片' : '视频'}加载失败</p>
+            <p className="mb-2 text-sm opacity-60">
+              {playbackSource.error ?? `${media.mediaType === MediaType.IMAGE ? '图片' : '视频'}加载失败`}
+            </p>
             <button
               type="button"
               onClick={onRetry}
@@ -441,8 +462,10 @@ function SingleImageContent({
         <video
           key={`${media.key}-${retryKey}`}
           ref={setVideoElement}
-          src={withMediaVersion(media.url, media.updatedAt)}
-          autoPlay={isActiveMedia && autoPlayback !== 'paused'}
+          src={playbackSource.src}
+          autoPlay={
+            isActiveMedia && autoPlayback !== 'paused' && playbackSource.allowAutoplay && !playbackSource.switching
+          }
           controls={false}
           loop={!autoPlayback}
           muted={audioPreference.muted}
@@ -452,9 +475,13 @@ function SingleImageContent({
           style={{ scale: videoZoom }}
           preload={isActiveMedia ? 'auto' : preloadMode === 'metadata' ? 'metadata' : 'none'}
           onLoadedMetadata={(event) => {
+            const sourceRestored = playbackSource.restore(
+              event.currentTarget,
+              isActiveMedia && autoPlayback !== 'paused'
+            )
             event.currentTarget.defaultPlaybackRate = playbackRateRef.current
             event.currentTarget.playbackRate = playbackRateRef.current
-            restorePlaybackPosition(event.currentTarget)
+            if (!sourceRestored) restorePlaybackPosition(event.currentTarget)
             publishVideoState(event.currentTarget)
           }}
           onDurationChange={(event) => publishVideoState(event.currentTarget)}
@@ -462,7 +489,10 @@ function SingleImageContent({
             publishVideoState(event.currentTarget)
             onPlaybackPositionChange?.(event.currentTarget.currentTime)
           }}
-          onPlay={(event) => publishVideoState(event.currentTarget)}
+          onPlay={(event) => {
+            playingBeforeSourceError.current = true
+            publishVideoState(event.currentTarget)
+          }}
           onPlaying={(event) => {
             readingStartedRef.current = true
             publishVideoState(event.currentTarget)
@@ -477,10 +507,33 @@ function SingleImageContent({
             publishVideoState(event.currentTarget)
             onMediaReady?.()
           }}
-          onPause={(event) => publishVideoState(event.currentTarget)}
+          onPause={(event) => {
+            if (!event.currentTarget.error) playingBeforeSourceError.current = false
+            publishVideoState(event.currentTarget)
+          }}
           onWaiting={(event) => publishVideoState(event.currentTarget, true)}
-          onError={handleImageError}
+          onError={() => {
+            if (!playbackSource.handleError(videoRef.current, playingBeforeSourceError.current)) handleImageError()
+          }}
         />
+      )}
+      {media.mediaType === MediaType.VIDEO && playbackSource.hasPlayback && isActiveMedia && !chromeHidden && (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="absolute left-3 top-16"
+          data-viewer-control
+          disabled={sourceSwitchDisabled}
+          aria-label={playbackSource.usingPlayback ? '切换到原片' : '切换到流畅副本'}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation()
+            playbackSource.switchSource(videoRef.current)
+          }}
+        >
+          {playbackSource.usingPlayback ? '流畅' : '原片'}
+        </Button>
       )}
     </div>
   )
@@ -493,38 +546,6 @@ export function isViewerMediaPreloadEligible(media: ViewerMediaItem, environment
   return media.isAnimated !== true && !isApngFile(media.url) && !isGifFile(media.url)
 }
 
-function ViewerGestureFeedback({
-  feedback,
-  buffering
-}: {
-  feedback: VideoInteractionFeedback | null
-  buffering: boolean
-}) {
-  if (!feedback && !buffering) return null
-
-  return (
-    <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center" aria-live="polite">
-      <div className="flex min-h-16 min-w-16 flex-col items-center justify-center rounded-2xl bg-black/55 px-4 py-3 text-center text-white backdrop-blur-sm">
-        {buffering && !feedback ? (
-          <Loader2Icon className="size-7 animate-spin" />
-        ) : feedback?.kind === 'playback' ? (
-          feedback.title === '播放' ? (
-            <PlayIcon className="size-7 fill-current" />
-          ) : (
-            <PauseIcon className="size-7 fill-current" />
-          )
-        ) : (
-          <span className="text-sm font-semibold">{feedback?.title}</span>
-        )}
-        {feedback?.detail && <span className="mt-1 text-xs text-white/70">{feedback.detail}</span>}
-      </div>
-    </div>
-  )
-}
-
-/**
- * 图片滑块组件，支持作品间纵向切换及作品内部的横向媒体切换。
- */
 export default function ImageSlide({
   playbackRate,
   onPlaybackRateChange,
@@ -972,6 +993,7 @@ export default function ImageSlide({
     return {
       playbackRate,
       videoZoom: isActiveCurrent ? videoZoom : 1,
+      sourceSwitchDisabled: interactionLocked || chapterPanelOpen,
       shouldLoad,
       preloadMode,
       priority: isActiveCurrent && media.mediaType === MediaType.IMAGE,

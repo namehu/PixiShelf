@@ -29,6 +29,55 @@ vi.mock('../use-video-keyframes', () => ({
 }))
 
 describe('VideoPlayer component behavior', () => {
+  it('uses the published copy and preserves paused position, audio and rate when switching to the original', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          status: 'READY',
+          originalUrl: `/api/v1/media/7/playback?original=${'a'.repeat(24)}`,
+          playbackUrl: '/api/v1/media/7/playback?generation=11111111-1111-4111-8111-111111111111'
+        })
+      )
+    )
+    const art = setupArtplayerMock({ currentTime: 27, paused: true, volume: 0.4, muted: true, playbackRate: 1.5 })
+    art.destroy.mockImplementation(() => {
+      artplayerMock.handlers.clear()
+      return 0
+    })
+    render(<VideoPlayer imageId={7} src="/video.mp4" />)
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
+    expect(artplayerMock.constructor.mock.calls[0]?.[0].url).toContain('generation=')
+    await waitFor(() =>
+      expect(art.controls.add).toHaveBeenCalledWith(expect.objectContaining({ name: 'playback-source' }))
+    )
+    const control = document.createElement('div')
+    document.body.append(control)
+    act(() => art.controls.add.mock.calls.find(([option]) => option.name === 'playback-source')?.[0].mounted?.(control))
+    const pause = vi.fn(),
+      play = vi.fn().mockResolvedValue(undefined)
+    const next = setupArtplayerMock({ currentTime: 0, volume: 1, muted: false, playbackRate: 1, pause, play })
+    fireEvent.click(screen.getByRole('button', { name: '切换到原片' }))
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalledTimes(2))
+    expect(artplayerMock.constructor.mock.calls[1]?.[0].url).toContain('original=')
+    act(() => emitArtplayerEvent('video:loadedmetadata'))
+    expect(next.video).toMatchObject({ currentTime: 27, volume: 0.4, muted: true, playbackRate: 1.5 })
+    expect(pause).toHaveBeenCalled()
+    expect(play).not.toHaveBeenCalled()
+    control.remove()
+  })
+
+  it('does not remember a decoder error pause as a user pause before source fallback', async () => {
+    const art = setupArtplayerMock(),
+      intent = vi.fn()
+    render(<VideoPlayer src="/video.mp4" playbackActive onPlaybackIntent={intent} />)
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
+    intent.mockClear()
+    Object.defineProperty(art.video, 'error', { value: { code: 3 }, configurable: true })
+    act(() => emitArtplayerEvent('pause'))
+    expect(intent).not.toHaveBeenCalledWith(false)
+  })
+
   it('keeps zoom inside fullscreen without rebuilding playback and resets it for a new source', async () => {
     const art = setupArtplayerMock({}, false)
     const view = render(<VideoPlayer src="/video.mp4" />)
@@ -87,6 +136,7 @@ describe('VideoPlayer component behavior', () => {
   })
   afterEach(() => {
     cleanup()
+    vi.unstubAllGlobals()
     artplayerMock.constructor.mockReset()
     artplayerMock.handlers.clear()
     history.replaceState(null, '', window.location.href)
@@ -366,6 +416,34 @@ describe('VideoPlayer component behavior', () => {
     act(() => emitArtplayerEvent('control', false))
 
     expect(art.controls.show).toBe(true)
+  })
+
+  it.each([true, false])('restores an identified video after retry (playing=%s)', async (playing) => {
+    const resolved = {
+      status: 'READY',
+      originalUrl: `/api/v1/media/7/playback?original=${'a'.repeat(24)}`,
+      playbackUrl: null
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json(resolved))
+    )
+    const first = setupArtplayerMock({ paused: !playing })
+    first.destroy.mockImplementation(() => {
+      artplayerMock.handlers.clear()
+      return 0
+    })
+    render(<VideoPlayer imageId={7} src="/video.mp4" />)
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalledTimes(1))
+    first.currentTime = 27
+    if (playing) act(() => emitArtplayerEvent('play'))
+    act(() => emitArtplayerEvent('video:error'))
+    const retry = setupArtplayerMock({ paused: !playing })
+    fireEvent.click(screen.getByRole('button', { name: '重新加载' }))
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalledTimes(2))
+    act(() => emitArtplayerEvent('ready'))
+    expect(retry.currentTime).toBe(27)
+    expect(retry.play).toHaveBeenCalledTimes(playing ? 1 : 0)
   })
 
   it('offers current-position and from-start recovery after a video error', async () => {

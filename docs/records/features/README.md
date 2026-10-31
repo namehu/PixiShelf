@@ -36,6 +36,10 @@ sources:
 | [系列管理验证与发布记录](./series-management.md)                     | 原子成员编辑、并发、虚拟排序及浏览器验证     |
 | [创作者关系验证记录](./creator-relations.md)                         | 关系、来源证据、维护任务与浏览器验证         |
 
+[视频播放副本验证（2026-10-31）](./video-playback-2026-10-31.md)：隔离迁移、真实转码、源一致性、回收与 Chrome 限速播放。
+
+[视频播放副本独立复核（2026-10-31）](./video-playback-review-2026-10-31.md)：Sol 审查修复与 Terra 真实浏览器回归。
+
 [MP4 无损播放优化验证（2026-10-31）](./mp4-streaming-optimization-2026-10-31.md)：作品筛选、固定目标、真实 remux、部分成功与既有失败核对。
 
 [Android 验证版 2026-10-28](./android-app-2026-10-28.md)：独立工作区、Flutter 与原网页回归、模拟器及未覆盖项。

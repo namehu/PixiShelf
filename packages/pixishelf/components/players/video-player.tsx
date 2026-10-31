@@ -1,5 +1,7 @@
 'use client'
 
+import { useVideoPlaybackSource } from '@/hooks/use-video-playback-source'
+
 import {
   InfoIcon,
   ListVideoIcon,
@@ -94,6 +96,7 @@ export interface VideoPlayerSettingAction {
 }
 
 export interface VideoPlayerProps {
+  imageId?: number
   src: string
   chaptersUrl?: string | null
   chaptersCount?: number
@@ -120,6 +123,7 @@ export interface VideoPlayerProps {
 }
 
 export function VideoPlayer({
+  imageId,
   src,
   chaptersUrl,
   chaptersCount: chapterCountHint = 0,
@@ -181,7 +185,19 @@ export function VideoPlayer({
   const onReadyRef = useRef(onReady)
   const onReadingProgressRef = useRef(onReadingProgress)
   onReadingProgressRef.current = onReadingProgress
-  const mediaSrc = useMemo(() => combinationApiResource(src), [src])
+  const originalMediaSrc = useMemo(() => combinationApiResource(src), [src])
+  const source = useVideoPlaybackSource(imageId, originalMediaSrc, true, playerAttempt)
+  const sourceRef = useRef(source)
+  sourceRef.current = source
+  const mediaSrc = source.src
+  const [sourceControlTarget, setSourceControlTarget] = useState<HTMLElement | null>(null)
+  const preservingSourceAudioRef = useRef(false)
+  useEffect(() => {
+    preservingSourceAudioRef.current = false
+  }, [imageId, originalMediaSrc])
+  const mayRestorePlayRef = useRef(true)
+  mayRestorePlayRef.current = playbackActive !== false && !playbackPaused
+
   const longPressPlaybackRate = useVideoLongPressPlaybackRate()
   const seekStepSeconds = useVideoSeekStepSeconds()
   const isDesktop = useMediaQuery('(min-width: 1024px)')
@@ -243,6 +259,11 @@ export function VideoPlayer({
 
   const showVideoError = (message = '视频加载失败') => {
     const art = artRef.current
+    if (sourceRef.current.handleError(getArtVideo(art), wasPlayingBeforeErrorRef.current)) {
+      preservingSourceAudioRef.current = true
+      setLoading(true)
+      return
+    }
     if (art && Number.isFinite(art.currentTime)) {
       lastConfirmedTimeRef.current = Math.max(art.currentTime, 0)
     }
@@ -311,11 +332,14 @@ export function VideoPlayer({
     setTimelinePreviewChapterId(null)
     setGestureFeedback(null)
     controlsVisibleRef.current = true
+  }, [mediaSrc])
+
+  useEffect(() => {
     lastConfirmedTimeRef.current = 0
     wasPlayingBeforeErrorRef.current = false
     errorRetrySnapshotRef.current = { time: 0, shouldPlay: false }
     pendingRetryRef.current = null
-  }, [mediaSrc])
+  }, [imageId, originalMediaSrc])
 
   useEffect(() => {
     let active = true
@@ -325,7 +349,7 @@ export function VideoPlayer({
     let handleControl: ((visible: boolean) => void) | null = null
 
     async function initPlayer() {
-      if (!playerContainerRef.current) {
+      if (!playerContainerRef.current || !mediaSrc) {
         return
       }
 
@@ -337,7 +361,7 @@ export function VideoPlayer({
       instance = new Artplayer({
         container: playerContainerRef.current,
         url: mediaSrc,
-        autoplay: autoPlay,
+        autoplay: autoPlay && !sourceRef.current.switching && sourceRef.current.allowAutoplay,
         autoSize: false,
         loop,
         muted: showAudioControls ? muted : true,
@@ -469,7 +493,7 @@ export function VideoPlayer({
         if (!result.allowed) return
         // 默认播放行为来源于用户点击，不应沿用初始化时的 autoplay 静音策略
         // 否则首次手动播放时会出现“明明开始播放却听不到音频”的体验问题
-        if (showAudioControls && !autoPlay && !managed) {
+        if (showAudioControls && !autoPlay && !managed && !preservingSourceAudioRef.current) {
           art.muted = false
         }
 
@@ -483,11 +507,13 @@ export function VideoPlayer({
         if (!active) return
         readingPlaying = false
         publishReading()
-        playbackRef.current.onPause()
         const video = getArtVideo(art)
-        wasPlayingBeforeErrorRef.current = false
+        if (!video?.error) {
+          playbackRef.current.onPause()
+          wasPlayingBeforeErrorRef.current = false
+          onPauseRef.current?.()
+        }
         setIsPlaying(false)
-        onPauseRef.current?.()
         if (video?.readyState && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
           clearLoading()
         }
@@ -506,6 +532,8 @@ export function VideoPlayer({
       })
 
       art.on('video:loadedmetadata', () => {
+        const video = getArtVideo(art)
+        if (video) sourceRef.current.restore(video, !managed || mayRestorePlayRef.current)
         syncMetadata()
         updateRemainingTime()
       })
@@ -596,6 +624,28 @@ export function VideoPlayer({
     settingActions,
     showAudioControls
   ])
+
+  useEffect(() => {
+    if (!artInstance || !source.hasPlayback) return
+    artInstance.controls.add({
+      name: 'playback-source',
+      position: 'right',
+      index: 24,
+      html: '',
+      mounted: setSourceControlTarget
+    })
+    return () => {
+      artInstance.controls.remove('playback-source')
+      setSourceControlTarget(null)
+    }
+  }, [artInstance, source.hasPlayback])
+
+  useEffect(() => {
+    if (!source.error) return
+    setError(source.error)
+    setLoading(false)
+    onErrorRef.current?.(source.error)
+  }, [source.error])
 
   useEffect(() => {
     if (!artInstance) return
@@ -889,6 +939,24 @@ export function VideoPlayer({
     >
       <div ref={playerContainerRef} className="h-full w-full" />
 
+      {sourceControlTarget &&
+        createPortal(
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            aria-label={source.usingPlayback ? '切换到原片' : '切换到流畅副本'}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation()
+              preservingSourceAudioRef.current = true
+              source.switchSource(getArtVideo(artRef.current))
+            }}
+          >
+            {source.usingPlayback ? '流畅' : '原片'}
+          </Button>,
+          sourceControlTarget
+        )}
       {zoomControlTarget &&
         createPortal(<VideoZoomButton zoom={videoZoom} onZoomChange={setVideoZoom} />, zoomControlTarget)}
       {fullscreenControlTarget &&

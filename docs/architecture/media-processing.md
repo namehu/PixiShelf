@@ -68,6 +68,10 @@ sources:
 
 父 `VIDEO_KEYFRAME_DISCOVERY=COMPLETED` 只表示发现和子任务创建完成。每个视频是否成功必须继续查看 `parentJobId` 指向该父任务的 `VIDEO_KEYFRAME_GENERATION` 以及 `MediaVideoKeyframeSet`。
 
+## 视频播放副本
+
+2026-10-31 局部核验：`VIDEO_PLAYBACK_GENERATION` 以单视频进入串行维护队列，在派生根 `video/playback` 预登记 attempt GC 意图后编码，验证输出并在发布围栏内复核源版本／stat／目录快照，再发布 `MediaVideoPlayback`。旧版本换代、手动清理和 Image 级联删除由 SQL 触发器登记 `VIDEO_PLAYBACK` 回收意图；GC 验证当前发布引用，原片始终只读。档位、失效、暂停／取消与升级细则只维护在[视频播放副本](../features/video-playback.md)。
+
 ## 派生媒体 GC
 
 ![derived-media-gc](../diagrams/architecture/derived-media-gc.svg)
