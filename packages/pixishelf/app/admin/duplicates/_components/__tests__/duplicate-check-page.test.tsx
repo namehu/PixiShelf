@@ -639,7 +639,7 @@ describe('duplicate check page', () => {
     const run = createRun({ status: 'COMPLETED', allowedControls: [] })
     run.counts.groups = 2
     view.rerender(<DuplicateRunStatus run={run} pending={null} disabled={false} onControl={vi.fn()} />)
-    expect(screen.getByText('找到 2 组待处理作品')).toBeTruthy()
+    expect(screen.getByText('本次检查找到 2 组重复作品')).toBeTruthy()
     expect(screen.queryByText(/组内容相同的作品/)).toBeNull()
     expect(screen.queryByText(/此记录只检查了完全相同/)).toBeNull()
   })

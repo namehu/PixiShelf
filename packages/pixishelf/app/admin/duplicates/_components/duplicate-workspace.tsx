@@ -64,6 +64,7 @@ export function DuplicateWorkspace({
               key={`${userId}:${run.runId}`}
               userId={userId}
               runId={run.runId}
+              initialGroupCount={run.counts.groups}
               onOperation={newOperation}
             />
           ) : null}

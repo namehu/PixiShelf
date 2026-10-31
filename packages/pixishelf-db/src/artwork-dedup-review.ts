@@ -100,13 +100,13 @@ export async function saveArtworkDedupReview(
   if ((review?.reviewVersion ?? 0) !== input.expectedReviewVersion) throw new ArtworkDedupOperationError('STALE')
   await lockCreatorCatalog(tx)
   await tx.$queryRaw(
-    Prisma.sql`SELECT count(*) FROM (SELECT a.id FROM "Artwork" a JOIN "ArtworkDedupResultMember" m ON m."artworkId"=a.id WHERE m."runId"=${run.id} AND m."groupId"=${input.groupId} ORDER BY a.id FOR UPDATE OF a) locked`
+    Prisma.sql`SELECT count(*) FROM (SELECT a.id FROM "Artwork" a JOIN "ArtworkDedupPendingMember" m ON m."artworkId"=a.id WHERE m."runId"=${run.id} AND m."groupId"=${input.groupId} ORDER BY a.id FOR UPDATE OF a) locked`
   )
   const choice = (
     await readArtworkDedupGroupChoices(tx, { runId: run.id, userId: input.userId, groupId: input.groupId })
   )[0]
   const [member] = await tx.$queryRaw<{ artworkId: number }[]>(Prisma.sql`
-    SELECT "artworkId" FROM "ArtworkDedupResultMember" WHERE "runId"=${run.id} AND "groupId"=${input.groupId} AND "artworkId"=${input.keeperArtworkId}`)
+    SELECT "artworkId" FROM "ArtworkDedupPendingMember" WHERE "runId"=${run.id} AND "groupId"=${input.groupId} AND "artworkId"=${input.keeperArtworkId}`)
   if (!choice?.eligible || !member) throw new ArtworkDedupOperationError('STALE')
   if (choice.relationKind === 'CONTAINS' && choice.containerArtworkId !== input.keeperArtworkId)
     throw new ArtworkDedupOperationError('CONTAINMENT_DIRECTION_REQUIRED')

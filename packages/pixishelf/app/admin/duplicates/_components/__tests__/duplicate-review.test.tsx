@@ -13,12 +13,17 @@ const mocks = vi.hoisted(() => ({
   onOperation: vi.fn()
 }))
 vi.mock('../duplicate-batch-delete', () => ({
-  DuplicateBatchProgress: () => null,
+  DuplicateBatchProgress: ({ onResultsChanged }: { onResultsChanged: () => void }) => (
+    <button onClick={onResultsChanged}>收到回收完成</button>
+  ),
   DuplicateBatchConfirmation: ({ onSubmitted }: { onSubmitted: () => void }) => (
     <div role="dialog" aria-label="普通删除确认">
       <button onClick={onSubmitted}>提交已确认删除</button>
     </div>
   )
+}))
+vi.mock('../duplicate-members-sheet', () => ({
+  DuplicateMembersSheet: () => <div role="dialog" aria-label="作品对照" />
 }))
 vi.mock('@/lib/trpc', () => {
   const api = {
@@ -54,10 +59,15 @@ function page(
     ...overrides
   }
 }
-function mount() {
+function mount(initialGroupCount = 2) {
   return render(
     <QueryClientProvider client={client}>
-      <DuplicateReview userId="user-a" runId="run-1" onOperation={mocks.onOperation} />
+      <DuplicateReview
+        userId="user-a"
+        runId="run-1"
+        initialGroupCount={initialGroupCount}
+        onOperation={mocks.onOperation}
+      />
     </QueryClientProvider>
   )
 }
@@ -74,6 +84,49 @@ afterEach(() => {
 })
 
 describe('unified duplicate deletion selection', () => {
+  it('returns from page two and clears selected work and the open comparison when physical deletion updates the result', async () => {
+    let processed = false
+    mocks.list.mockImplementation((input: { cursor?: string }) =>
+      input.cursor
+        ? page({ items: [group('second')], nextCursor: null })
+        : page({
+            items: [
+              group('remaining', {
+                keeper: member(processed ? 3 : 1),
+                recommendedKeeperArtworkId: processed ? 3 : 1,
+                previewMembers: [member(processed ? 3 : 1), member(4)]
+              })
+            ],
+            nextCursor: processed ? null : 'second',
+            totalGroups: processed ? 1 : 2
+          })
+    )
+    mount()
+    const next = await screen.findByRole('button', { name: '下一页' })
+    fireEvent.click(next)
+    await waitFor(() => expect(screen.getByText('2', { selector: '[aria-current=page]' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: '比较作品' }))
+    await screen.findByRole('dialog', { name: '作品对照' })
+    processed = true
+    fireEvent.click(screen.getByRole('button', { name: '收到回收完成' }))
+    await screen.findByText('待处理结果 · 1 组')
+    await screen.findByRole('radio', { name: '保留 作品 3' })
+    expect(screen.queryByRole('dialog', { name: '作品对照' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '删除所选' })).toBeNull()
+    expect(screen.queryByRole('radio', { name: '保留 作品 1' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '上一页' })).toBeNull()
+  })
+
+  it.each([
+    [0, '没有找到重复作品'],
+    [2, '本次重复结果已处理完']
+  ] as const)('distinguishes an originally empty run from completed results (%s)', async (initial, title) => {
+    mocks.list.mockResolvedValue(page({ items: [], totalGroups: 0, recommendedGroupCount: 0 }))
+    mount(initial)
+    await screen.findByText(title)
+    expect(screen.queryByText('按推荐选择', { exact: false })).toBeNull()
+  })
   it('requires a saved manual keeper and never selects that pair just by saving it', async () => {
     let saved = false
     mocks.list.mockImplementation(() =>

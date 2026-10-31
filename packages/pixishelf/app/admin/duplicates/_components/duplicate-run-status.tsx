@@ -59,7 +59,7 @@ function runHeading(run: ArtworkDedupRunDto) {
         return '检查完成，有未检查项'
       }
       return run.counts.groups > 0
-        ? `找到 ${run.counts.groups.toLocaleString('zh-CN')} 组待处理作品`
+        ? `本次检查找到 ${run.counts.groups.toLocaleString('zh-CN')} 组重复作品`
         : '没有找到重复作品'
   }
 }

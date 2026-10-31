@@ -2,10 +2,10 @@
 
 import type { ArtworkDedupGroupDto, ArtworkDedupOperationDto, ArtworkDedupReviewDto } from '@pixishelf/job-contracts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { useTRPC } from '@/lib/trpc'
 import { DuplicateGroupRow } from './duplicate-group-row'
 import { DuplicateMembersSheet } from './duplicate-members-sheet'
@@ -26,16 +26,19 @@ type Draft = { group: ArtworkDedupGroupDto; keeperId: number }
 export function DuplicateReview(props: {
   userId: string
   runId: string
+  initialGroupCount?: number
   onOperation: (operation: ArtworkDedupOperationDto) => void
 }) {
   return <AccountDuplicateReview key={`${props.userId}:${props.runId}`} {...props} />
 }
 function AccountDuplicateReview({
   userId,
-  runId
+  runId,
+  initialGroupCount = 0
 }: {
   userId: string
   runId: string
+  initialGroupCount?: number
   onOperation: (operation: ArtworkDedupOperationDto) => void
 }) {
   const trpc = useTRPC()
@@ -49,12 +52,27 @@ function AccountDuplicateReview({
   const [drafts, setDrafts] = useState<Record<string, Draft>>({})
   const [saved, setSaved] = useState<Record<string, ArtworkDedupReviewDto>>({})
   const [savedRevision, setSavedRevision] = useState(0)
+  const refreshResults = useCallback(() => {
+    setCursors([undefined])
+    setSelection(emptyDuplicateSelection())
+    setManualSelectedGroups([])
+    setDetailGroup(null)
+    setDrafts({})
+    setSaved({})
+    void queryClient.refetchQueries({
+      queryKey: trpc.artworkDedup.listGroups.queryOptions({ runId, expectedUserId: userId, limit: 20 }).queryKey,
+      exact: true
+    })
+  }, [queryClient, trpc, runId, userId])
   const query = useQuery({
     ...trpc.artworkDedup.listGroups.queryOptions({ runId, expectedUserId: userId, cursor: cursors.at(-1), limit: 20 }),
     retry: false,
     gcTime: 0
   })
   const page = query.data?.kind === 'GROUPS' ? query.data : null
+  useEffect(() => {
+    if (page?.items.length === 0 && cursors.length > 1) setCursors([undefined])
+  }, [page, cursors.length])
   const save = useMutation(trpc.artworkDedup.saveReview.mutationOptions())
   const prepare = useMutation(trpc.artworkDedup.previewDeleteSelection.mutationOptions())
   const [confirmation, setConfirmation] = useState<DeleteBatch | null>(null)
@@ -163,7 +181,13 @@ function AccountDuplicateReview({
   }
   return (
     <div className={hasSelection ? 'pb-[calc(var(--app-mobile-navigation-offset)+1.5rem)] lg:pb-6' : 'pb-6'}>
-      <DuplicateBatchProgress userId={userId} runId={runId} onConfirm={setConfirmation} />
+      <DuplicateBatchProgress
+        userId={userId}
+        runId={runId}
+        onConfirm={setConfirmation}
+        pendingOnly
+        onResultsChanged={refreshResults}
+      />
       {query.isError ? (
         <DuplicateQueryError
           onRetry={() => {
@@ -178,7 +202,7 @@ function AccountDuplicateReview({
       ) : page ? (
         <>
           <header className="flex flex-wrap items-center justify-between gap-2 py-2">
-            <h2 className="text-sm font-medium">选择保留作品</h2>
+            <h2 className="text-sm font-medium">待处理结果 · {page.totalGroups} 组</h2>
             {page.allowedActions.includes('PREPARE_CLEANUP') && page.recommendedGroupCount > 0 ? (
               <Button
                 type="button"
@@ -202,10 +226,15 @@ function AccountDuplicateReview({
               可检查和保存保留选择。直接删除尚未开放。
             </p>
           ) : null}
-          {page.items.length === 0 ? (
+          {page.items.length === 0 && page.totalGroups > 0 ? (
+            <DuplicateLoading label="结果已更新，正在返回第一页" />
+          ) : page.items.length === 0 ? (
             <Empty>
               <EmptyHeader>
-                <EmptyTitle>没有需要处理的重复作品</EmptyTitle>
+                <EmptyTitle>{initialGroupCount > 0 ? '本次重复结果已处理完' : '没有找到重复作品'}</EmptyTitle>
+                {initialGroupCount > 0 ? (
+                  <EmptyDescription>可在“删除记录”查看已保留的处理记录。</EmptyDescription>
+                ) : null}
               </EmptyHeader>
             </Empty>
           ) : (

@@ -202,12 +202,16 @@ export function DuplicateBatchProgress({
   userId,
   runId,
   artistId,
-  onConfirm
+  onConfirm,
+  pendingOnly = false,
+  onResultsChanged
 }: {
   userId: string
   runId?: string
   artistId?: number
   onConfirm: (batch: DeleteBatch) => void
+  pendingOnly?: boolean
+  onResultsChanged?: () => void
 }) {
   const trpc = useTRPC()
   const queryClient = useQueryClient()
@@ -243,178 +247,196 @@ export function DuplicateBatchProgress({
       ?.flatMap((batch) =>
         batch.items
           .filter((item) => item.status === 'DELETED' || item.status === 'TRASH_SUBMITTED')
-          .map((item) => `${batch.jobId}:${item.artworkId}`)
+          .map((item) => `${batch.jobId}:${item.artworkId}:${item.archiveStatus ?? item.archiveLifecycleState ?? ''}`)
       )
       .join(',') ?? ''
   const previousKey = useRef('')
   useEffect(() => {
     if (!completedKey || previousKey.current === completedKey) return
     previousKey.current = completedKey
-    void queryClient.invalidateQueries({ queryKey: trpc.artworkDedup.listGroups.queryKey() })
-  }, [completedKey, queryClient, trpc])
+    void queryClient.invalidateQueries({ queryKey: trpc.artworkDedup.listGroups.queryKey(), refetchType: 'none' })
+    void queryClient.invalidateQueries({
+      queryKey: trpc.artworkDedup.resolveDeleteSelection.queryKey(),
+      refetchType: 'none'
+    })
+    onResultsChanged?.()
+  }, [completedKey, queryClient, trpc, onResultsChanged])
   async function detail(jobId: string) {
     setDetailError('')
     return queryClient.fetchQuery(trpc.artwork.batchDeleteGet.queryOptions({ expectedUserId: userId, jobId }))
   }
-  if (!query.data?.length) return null
+  const visibleBatches = query.data
+    ?.filter((batch) => batch.confirmed || batch.status === 'PAUSED')
+    .filter(
+      (batch) =>
+        !pendingOnly ||
+        !['COMPLETED', 'FAILED', 'CANCELLED'].includes(batch.status) ||
+        batch.items.some(
+          (item) =>
+            ['PENDING', 'PROCESSING', 'FAILED'].includes(item.status) ||
+            (item.status === 'TRASH_SUBMITTED' &&
+              item.archiveStatus !== 'COMPLETED' &&
+              item.archiveLifecycleState !== 'TRASHED')
+        )
+    )
+
+  if (!visibleBatches?.length) return null
   return (
     <div className="my-4 flex flex-col gap-3" aria-live="polite">
-      {query.data
-        .filter((batch) => batch.confirmed || batch.status === 'PAUSED')
-        .map((batch, batchIndex) => {
-          const finished = ['COMPLETED', 'FAILED', 'CANCELLED'].includes(batch.status)
-          const failed = batch.items.filter((item) => item.status === 'FAILED')
-          const pendingArchives = batch.items.filter(
-            (item) =>
-              item.status === 'TRASH_SUBMITTED' &&
-              item.archiveJobId &&
-              !['COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED'].includes(item.archiveStatus ?? '')
-          )
-          const failedArchives = batch.items.filter(
-            (item) => item.archiveJobId && ['FAILED', 'CANCELLED', 'SKIPPED'].includes(item.archiveStatus ?? '')
-          )
-          const card = (
-            <Alert key={batch.jobId}>
-              <AlertTitle>{batch.status === 'PAUSED' ? '删除尚未确认' : (batch.message ?? '删除任务')}</AlertTitle>
-              <AlertDescription className="flex flex-col gap-2">
-                <p>
-                  共 {batch.total} 部 · 已处理{' '}
-                  {batch.items.filter((item) => ['DELETED', 'TRASH_SUBMITTED', 'FAILED'].includes(item.status)).length}{' '}
-                  部{batch.stopAfterCurrent && !finished ? ' · 当前作品结束后停止' : ''}
+      {visibleBatches.map((batch, batchIndex) => {
+        const finished = ['COMPLETED', 'FAILED', 'CANCELLED'].includes(batch.status)
+        const failed = batch.items.filter((item) => item.status === 'FAILED')
+        const pendingArchives = batch.items.filter(
+          (item) =>
+            item.status === 'TRASH_SUBMITTED' &&
+            item.archiveJobId &&
+            !['COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED'].includes(item.archiveStatus ?? '')
+        )
+        const failedArchives = batch.items.filter(
+          (item) => item.archiveJobId && ['FAILED', 'CANCELLED', 'SKIPPED'].includes(item.archiveStatus ?? '')
+        )
+        const card = (
+          <Alert key={batch.jobId}>
+            <AlertTitle>{batch.status === 'PAUSED' ? '删除尚未确认' : (batch.message ?? '删除任务')}</AlertTitle>
+            <AlertDescription className="flex flex-col gap-2">
+              <p>
+                共 {batch.total} 部 · 已处理{' '}
+                {batch.items.filter((item) => ['DELETED', 'TRASH_SUBMITTED', 'FAILED'].includes(item.status)).length} 部
+                {batch.stopAfterCurrent && !finished ? ' · 当前作品结束后停止' : ''}
+              </p>
+              {pendingArchives.length ? <p>回收已提交，{pendingArchives.length} 部等待文件移动。</p> : null}
+              {failedArchives.length ? (
+                <p role="alert" className="text-destructive">
+                  {failedArchives.length} 部回收文件移动失败，请查看回收任务。
                 </p>
-                {pendingArchives.length ? <p>回收已提交，{pendingArchives.length} 部等待文件移动。</p> : null}
-                {failedArchives.length ? (
-                  <p role="alert" className="text-destructive">
-                    {failedArchives.length} 部回收文件移动失败，请查看回收任务。
+              ) : null}
+              {[...pendingArchives, ...failedArchives].map((item) => (
+                <Button key={item.artworkId} variant="link" asChild className="w-fit">
+                  <Link href={`/admin/tasks?jobId=${encodeURIComponent(item.archiveJobId!)}`}>
+                    查看作品 #{item.artworkId} 的回收任务
+                  </Link>
+                </Button>
+              ))}
+              {batch.items
+                .filter((item) => item.status === 'FAILED' || item.status === 'PROCESSING')
+                .map((item) => (
+                  <p key={item.artworkId}>
+                    #{item.artworkId} <PrivacySensitiveText>{item.title}</PrivacySensitiveText> · {item.message}
                   </p>
-                ) : null}
-                {[...pendingArchives, ...failedArchives].map((item) => (
-                  <Button key={item.artworkId} variant="link" asChild className="w-fit">
-                    <Link href={`/admin/tasks?jobId=${encodeURIComponent(item.archiveJobId!)}`}>
-                      查看作品 #{item.artworkId} 的回收任务
-                    </Link>
-                  </Button>
                 ))}
-                {batch.items
-                  .filter((item) => item.status === 'FAILED' || item.status === 'PROCESSING')
-                  .map((item) => (
-                    <p key={item.artworkId}>
-                      #{item.artworkId} <PrivacySensitiveText>{item.title}</PrivacySensitiveText> · {item.message}
-                    </p>
-                  ))}
-                <details
-                  onToggle={(event) => {
-                    const open = event.currentTarget.open
-                    setExpanded((ids) =>
-                      open ? [...new Set([...ids, batch.jobId])] : ids.filter((id) => id !== batch.jobId)
-                    )
-                  }}
-                >
-                  <summary className="cursor-pointer py-2">查看全部 {batch.total} 部作品的处理结果</summary>
-                  {expanded.includes(batch.jobId)
-                    ? batch.items.map((item) => {
-                        const archive = batch.archives.find((job) => job.id === item.archiveJobId)
-                        return (
-                          <p key={item.artworkId}>
-                            #{item.artworkId} <PrivacySensitiveText>{item.title}</PrivacySensitiveText> ·{' '}
-                            {archive?.status === 'COMPLETED'
-                              ? '文件已移入回收站'
-                              : archive?.status === 'FAILED'
-                                ? '回收文件移动失败，请查看回收任务'
-                                : item.message}
-                          </p>
-                        )
-                      })
-                    : null}
-                </details>
-                <div className="flex flex-wrap gap-2">
-                  {batch.status === 'PAUSED' && batch.stage === 'CONFIRMATION' ? (
-                    <Button
-                      variant="outline"
-                      onClick={() =>
-                        void detail(batch.jobId)
-                          .then(onConfirm)
-                          .catch(() => setDetailError('未能读取确认范围，请重试。'))
-                      }
-                    >
-                      继续确认
-                    </Button>
-                  ) : null}
-                  {!finished ? (
-                    <Button
-                      variant="outline"
-                      disabled={stop.isPending || batch.stopAfterCurrent}
-                      onClick={() => stop.mutate({ expectedUserId: userId, jobId: batch.jobId })}
-                    >
-                      停止后续删除
-                    </Button>
-                  ) : null}
-                  {finished &&
-                  batch.confirmed &&
-                  (failed.length > 0 ||
-                    batch.items.some((item) => item.status === 'PENDING') ||
-                    batch.items.some((item) => item.status === 'PROCESSING')) ? (
-                    <Button
-                      variant="outline"
-                      disabled={retry.isPending}
-                      onClick={() => retry.mutate({ expectedUserId: userId, jobId: batch.jobId })}
-                    >
-                      按原范围重试未完成作品
-                    </Button>
-                  ) : null}
-                  {batch.items.some((item) => item.status !== 'PENDING' && item.status !== 'PROCESSING') ? (
-                    <Button
-                      variant="ghost"
-                      onClick={() =>
-                        void detail(batch.jobId)
-                          .then((full) => {
-                            const url = URL.createObjectURL(
-                              new Blob(
-                                [
-                                  full.result.items
-                                    .flatMap((item) => (item.report ? [formatArtworkDeleteReport(item.report)] : []))
-                                    .join('\n\n')
-                                ],
-                                { type: 'text/plain;charset=utf-8' }
-                              )
+              <details
+                onToggle={(event) => {
+                  const open = event.currentTarget.open
+                  setExpanded((ids) =>
+                    open ? [...new Set([...ids, batch.jobId])] : ids.filter((id) => id !== batch.jobId)
+                  )
+                }}
+              >
+                <summary className="cursor-pointer py-2">查看全部 {batch.total} 部作品的处理结果</summary>
+                {expanded.includes(batch.jobId)
+                  ? batch.items.map((item) => {
+                      const archive = batch.archives.find((job) => job.id === item.archiveJobId)
+                      return (
+                        <p key={item.artworkId}>
+                          #{item.artworkId} <PrivacySensitiveText>{item.title}</PrivacySensitiveText> ·{' '}
+                          {archive?.status === 'COMPLETED'
+                            ? '文件已移入回收站'
+                            : archive?.status === 'FAILED'
+                              ? '回收文件移动失败，请查看回收任务'
+                              : item.message}
+                        </p>
+                      )
+                    })
+                  : null}
+              </details>
+              <div className="flex flex-wrap gap-2">
+                {batch.status === 'PAUSED' && batch.stage === 'CONFIRMATION' ? (
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      void detail(batch.jobId)
+                        .then(onConfirm)
+                        .catch(() => setDetailError('未能读取确认范围，请重试。'))
+                    }
+                  >
+                    继续确认
+                  </Button>
+                ) : null}
+                {!finished ? (
+                  <Button
+                    variant="outline"
+                    disabled={stop.isPending || batch.stopAfterCurrent}
+                    onClick={() => stop.mutate({ expectedUserId: userId, jobId: batch.jobId })}
+                  >
+                    停止后续删除
+                  </Button>
+                ) : null}
+                {finished &&
+                batch.confirmed &&
+                (failed.length > 0 ||
+                  batch.items.some((item) => item.status === 'PENDING') ||
+                  batch.items.some((item) => item.status === 'PROCESSING')) ? (
+                  <Button
+                    variant="outline"
+                    disabled={retry.isPending}
+                    onClick={() => retry.mutate({ expectedUserId: userId, jobId: batch.jobId })}
+                  >
+                    按原范围重试未完成作品
+                  </Button>
+                ) : null}
+                {batch.items.some((item) => item.status !== 'PENDING' && item.status !== 'PROCESSING') ? (
+                  <Button
+                    variant="ghost"
+                    onClick={() =>
+                      void detail(batch.jobId)
+                        .then((full) => {
+                          const url = URL.createObjectURL(
+                            new Blob(
+                              [
+                                full.result.items
+                                  .flatMap((item) => (item.report ? [formatArtworkDeleteReport(item.report)] : []))
+                                  .join('\n\n')
+                              ],
+                              { type: 'text/plain;charset=utf-8' }
                             )
-                            const link = document.createElement('a')
-                            link.href = url
-                            link.download = `artwork-delete-${batch.jobId}.txt`
-                            link.click()
-                            URL.revokeObjectURL(url)
-                          })
-                          .catch(() => setDetailError('未能读取删除报告，请重试。'))
-                      }
-                    >
-                      下载删除报告
-                    </Button>
-                  ) : null}
-                </div>
-              </AlertDescription>
-            </Alert>
-          )
-          return batchIndex === 0 || !finished ? (
-            card
-          ) : (
-            <details
-              key={batch.jobId}
-              onToggle={(event) => {
-                const open = event.currentTarget.open
-                setExpanded((ids) =>
-                  open
-                    ? [...new Set([...ids, `history:${batch.jobId}`])]
-                    : ids.filter((id) => id !== `history:${batch.jobId}`)
-                )
-              }}
-            >
-              <summary className="cursor-pointer py-2 text-sm text-muted-foreground">
-                历史批次 · {batch.total} 部 · {batch.message}
-              </summary>
-              {expanded.includes(`history:${batch.jobId}`) ? card : null}
-            </details>
-          )
-        })}
+                          )
+                          const link = document.createElement('a')
+                          link.href = url
+                          link.download = `artwork-delete-${batch.jobId}.txt`
+                          link.click()
+                          URL.revokeObjectURL(url)
+                        })
+                        .catch(() => setDetailError('未能读取删除报告，请重试。'))
+                    }
+                  >
+                    下载删除报告
+                  </Button>
+                ) : null}
+              </div>
+            </AlertDescription>
+          </Alert>
+        )
+        return batchIndex === 0 || !finished ? (
+          card
+        ) : (
+          <details
+            key={batch.jobId}
+            onToggle={(event) => {
+              const open = event.currentTarget.open
+              setExpanded((ids) =>
+                open
+                  ? [...new Set([...ids, `history:${batch.jobId}`])]
+                  : ids.filter((id) => id !== `history:${batch.jobId}`)
+              )
+            }}
+          >
+            <summary className="cursor-pointer py-2 text-sm text-muted-foreground">
+              历史批次 · {batch.total} 部 · {batch.message}
+            </summary>
+            {expanded.includes(`history:${batch.jobId}`) ? card : null}
+          </details>
+        )
+      })}
       {detailError ? (
         <p role="alert" className="text-sm text-destructive">
           {detailError}

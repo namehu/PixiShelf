@@ -259,6 +259,7 @@ export async function listArtworkBatchDeletes(
     message: string
     archiveJobId: string | null
     archiveStatus: import('@pixishelf/job-contracts').JobStatus | null
+    archiveLifecycleState: Prisma.ArtworkGetPayload<Record<string, never>>['archiveLifecycleState'] | null
   }
   type Summary = {
     jobId: string
@@ -293,6 +294,7 @@ export async function listArtworkBatchDeletes(
         'status',COALESCE(p.outcomes->(i->>'artworkId')->>'status','PENDING'),
         'message',COALESCE(p.outcomes->(i->>'artworkId')->>'message','尚未开始'),
         'archiveJobId',p.outcomes->(i->>'artworkId')#>>'{report,archive,jobId}',
+        'archiveLifecycleState',p.outcomes->(i->>'artworkId')#>>'{report,archive,lifecycleState}',
         'archiveStatus',(SELECT a.status FROM system_jobs a WHERE a.id=p.outcomes->(i->>'artworkId')#>>'{report,archive,jobId}')
       ) ORDER BY ordinal) FROM jsonb_array_elements(payload->'items') WITH ORDINALITY entries(i,ordinal)) items
     FROM prepared p`)

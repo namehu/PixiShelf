@@ -76,7 +76,7 @@ export async function resolveArtworkDedupDeleteSelection(userId: string, input: 
     }
     const members = groups.length
       ? await tx.$queryRaw<{ groupId: string; artworkId: number }[]>(
-          Prisma.sql`SELECT "groupId","artworkId" FROM "ArtworkDedupResultMember" WHERE "runId"=${input.runId} AND "groupId" IN (${Prisma.join(groups.map((group) => group.groupId))})`
+          Prisma.sql`SELECT "groupId","artworkId" FROM "ArtworkDedupPendingMember" WHERE "runId"=${input.runId} AND "groupId" IN (${Prisma.join(groups.map((group) => group.groupId))})`
         )
       : []
     const keepers = [...new Set(groups.map((group) => group.keeperArtworkId!))]

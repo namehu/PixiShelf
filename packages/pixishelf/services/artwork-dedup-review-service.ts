@@ -202,7 +202,7 @@ export async function listArtworkDedupReviewGroups(
         const choice = (await readArtworkDedupGroupChoices(tx, { runId: run.id, userId, groupId: input.groupId }))[0]
         if (!choice) conflict('NOT_FOUND')
         const rows = await tx.$queryRaw<{ artworkId: number }[]>(Prisma.sql`
-          SELECT "artworkId" FROM "ArtworkDedupResultMember" WHERE "runId"=${run.id} AND "groupId"=${input.groupId} AND "artworkId">${after ?? 0}
+          SELECT "artworkId" FROM "ArtworkDedupPendingMember" WHERE "runId"=${run.id} AND "groupId"=${input.groupId} AND "artworkId">${after ?? 0}
           ORDER BY "artworkId" LIMIT ${input.limit + 1}`)
         const page = rows.slice(0, input.limit),
           ids = page.map((row) => row.artworkId)
@@ -235,7 +235,7 @@ export async function listArtworkDedupReviewGroups(
       const page = choices.slice(0, input.limit)
       const previews = page.length
         ? await tx.$queryRaw<{ groupId: string; artworkId: number }[]>(
-            Prisma.sql`SELECT g.id "groupId",m."artworkId" FROM "ArtworkDedupResult" g CROSS JOIN LATERAL(SELECT "artworkId" FROM "ArtworkDedupResultMember" WHERE "groupId"=g.id ORDER BY "artworkId" LIMIT 3)m WHERE g.id IN(${Prisma.join(page.map((c) => c.groupId))})`
+            Prisma.sql`SELECT g.id "groupId",m."artworkId" FROM "ArtworkDedupResult" g CROSS JOIN LATERAL(SELECT "artworkId" FROM "ArtworkDedupPendingMember" WHERE "groupId"=g.id ORDER BY "artworkId" LIMIT 3)m WHERE g.id IN(${Prisma.join(page.map((c) => c.groupId))})`
           )
         : []
       const members = await artworkDedupMembers(tx, userId, [
