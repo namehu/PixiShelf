@@ -1,3 +1,4 @@
+import { assertLegacyDedupDeletionSettled } from './dedup-deletion-upgrade-gate.js'
 import { hostname } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { assertBackgroundQueueSchema, createDatabaseClient, disconnectDatabase } from '@pixishelf/db'
@@ -99,7 +100,10 @@ export async function runWorkerMain(environment: NodeJS.ProcessEnv = process.env
         config,
         {
           ...defaultPreflightDependencies,
-          checkDatabaseSchema: () => assertBackgroundQueueSchema(database)
+          checkDatabaseSchema: async () => {
+            await assertBackgroundQueueSchema(database)
+            await assertLegacyDedupDeletionSettled(database)
+          }
         },
         host.signal
       ),

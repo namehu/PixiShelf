@@ -1,15 +1,12 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { PrismaClient } from '@pixishelf/db'
-import {
-  ARTWORK_DEDUP_DIRECT_DELETE_DEFINITION_VERSION,
-  ARTWORK_DEDUP_SCAN_DEFINITION_VERSION
-} from '@pixishelf/job-contracts'
+import { ARTWORK_DEDUP_SCAN_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import {
   createArchiveExecutorRegistrations,
   createArtworkSummaryExecutor,
   createArtworkDedupExecutor,
-  createArtworkDedupMaintenanceExecutor,
+  createArtworkBatchDeleteExecutor,
   DedupReaderSupervisor,
   createDiscoveryBatchExecutorRegistration,
   createArchiveTitleRulePreviewRegistration,
@@ -82,13 +79,12 @@ export function createWorkerExecutorRegistry(input: {
     supervisor: new DedupReaderSupervisor(readerOptions)
   }
   registry.register(createArtworkDedupExecutor(dedupDependencies, ARTWORK_DEDUP_SCAN_DEFINITION_VERSION))
-  registry.register(createArtworkDedupMaintenanceExecutor(dedupDependencies))
-  registry.register(createArtworkDedupMaintenanceExecutor(dedupDependencies, 2))
-  registry.register(createArtworkDedupMaintenanceExecutor(dedupDependencies, 3))
-  registry.register(createArtworkDedupMaintenanceExecutor(dedupDependencies, 4))
-  registry.register(createArtworkDedupMaintenanceExecutor(dedupDependencies, 5))
   registry.register(
-    createArtworkDedupMaintenanceExecutor(dedupDependencies, ARTWORK_DEDUP_DIRECT_DELETE_DEFINITION_VERSION)
+    createArtworkBatchDeleteExecutor({
+      database: input.database,
+      sourceRoot: resolved.sourceMediaRoot,
+      archiveRoot: resolved.archiveRoot
+    })
   )
   const archiveProviders = new GovernedArchiveProviderRegistry(
     createDefaultArchiveMediaProviderRegistry(),

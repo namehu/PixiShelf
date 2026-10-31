@@ -316,7 +316,7 @@ function PreviewContent({
   )
 }
 
-function DeleteFileList({
+export function DeleteFileList({
   entries,
   optional,
   selected,

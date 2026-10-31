@@ -1,0 +1,136 @@
+[
+  {
+    "timestamp": "2026-10-31T03:11:02.955Z",
+    "level": "info",
+    "event": "worker.job_started",
+    "jobId": "068ccf04-d50b-4781-b1cb-c2b4cf31582d",
+    "jobType": "ARTWORK_BATCH_DELETE",
+    "definitionVersion": 1,
+    "attempt": 1
+  },
+  {
+    "timestamp": "2026-10-31T03:11:02.963Z",
+    "level": "info",
+    "event": "worker.job_info",
+    "jobId": "068ccf04-d50b-4781-b1cb-c2b4cf31582d",
+    "jobType": "ARTWORK_BATCH_DELETE",
+    "attempt": 1,
+    "message": "[ArtworkBatchDelete] Started",
+    "data": {
+      "artworks": 1,
+      "attempt": 1,
+      "queueMs": 23021
+    }
+  },
+  {
+    "timestamp": "2026-10-31T03:11:04.971Z",
+    "level": "info",
+    "event": "worker.draining",
+    "reason": "SIGTERM"
+  },
+  {
+    "timestamp": "2026-10-31T03:11:05.971Z",
+    "level": "warn",
+    "event": "worker.dispatch_drain_grace_expired",
+    "graceMs": 1000
+  },
+  {
+    "timestamp": "2026-10-31T03:11:06.294Z",
+    "level": "info",
+    "event": "worker.job_settled",
+    "jobId": "068ccf04-d50b-4781-b1cb-c2b4cf31582d",
+    "jobType": "ARTWORK_BATCH_DELETE",
+    "attempt": 1,
+    "outcome": "released"
+  },
+  {
+    "timestamp": "2026-10-31T03:11:06.307Z",
+    "level": "info",
+    "event": "worker.stopped"
+  },
+  {
+    "timestamp": "2026-10-31T03:11:14.224Z",
+    "level": "info",
+    "event": "worker.job_started",
+    "jobId": "068ccf04-d50b-4781-b1cb-c2b4cf31582d",
+    "jobType": "ARTWORK_BATCH_DELETE",
+    "definitionVersion": 1,
+    "attempt": 2
+  },
+  {
+    "timestamp": "2026-10-31T03:11:14.226Z",
+    "level": "info",
+    "event": "worker.job_info",
+    "jobId": "068ccf04-d50b-4781-b1cb-c2b4cf31582d",
+    "jobType": "ARTWORK_BATCH_DELETE",
+    "attempt": 2,
+    "message": "[ArtworkBatchDelete] Started",
+    "data": {
+      "artworks": 1,
+      "attempt": 2,
+      "queueMs": 7879
+    }
+  },
+  {
+    "timestamp": "2026-10-31T03:11:32.895Z",
+    "level": "info",
+    "event": "worker.job_info",
+    "jobId": "068ccf04-d50b-4781-b1cb-c2b4cf31582d",
+    "jobType": "ARTWORK_BATCH_DELETE",
+    "attempt": 2,
+    "message": "[DeleteArtwork] Result",
+    "data": {
+      "reportId": "b7d1ce5a-9a63-457d-afda-6a36e40299ed",
+      "artworkId": 568,
+      "outcome": "COMPLETED",
+      "counts": {
+        "media": 1,
+        "sidecars": 1001,
+        "directories": 1,
+        "missing": 0,
+        "retained": 0,
+        "failed": 0,
+        "notAttempted": 0
+      }
+    }
+  },
+  {
+    "timestamp": "2026-10-31T03:11:33.006Z",
+    "level": "info",
+    "event": "worker.job_info",
+    "jobId": "068ccf04-d50b-4781-b1cb-c2b4cf31582d",
+    "jobType": "ARTWORK_BATCH_DELETE",
+    "attempt": 2,
+    "message": "[ArtworkBatchDelete] Item",
+    "data": {
+      "artworkId": 568,
+      "outcome": "DELETED",
+      "elapsedMs": 18713,
+      "phasesMs": {
+        "PREPARATION": null,
+        "FILES": 18082.802292,
+        "DATABASE": 437.53616800000054
+      }
+    }
+  },
+  {
+    "timestamp": "2026-10-31T03:11:33.045Z",
+    "level": "info",
+    "event": "worker.job_settled",
+    "jobId": "068ccf04-d50b-4781-b1cb-c2b4cf31582d",
+    "jobType": "ARTWORK_BATCH_DELETE",
+    "attempt": 2,
+    "outcome": "completed"
+  },
+  {
+    "timestamp": "2026-10-31T03:14:18.976Z",
+    "level": "info",
+    "event": "worker.draining",
+    "reason": "SIGTERM"
+  },
+  {
+    "timestamp": "2026-10-31T03:14:18.990Z",
+    "level": "info",
+    "event": "worker.stopped"
+  }
+]

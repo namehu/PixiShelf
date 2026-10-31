@@ -1,0 +1,29 @@
+{
+  "environment": "isolated PostgreSQL; local SSD; synthetic 4-source/4-relation equivalent fixtures",
+  "normal": {
+    "previewMs": 57.04883300000074,
+    "executionMs": 1082.8723330000012,
+    "transactions": 7,
+    "phasesMs": {
+      "PREPARATION": 65.9879159999964,
+      "FILES": 314.62687500000175,
+      "DATABASE": 566.6465000000007
+    },
+    "imageContentReads": 0,
+    "unlinks": 15
+  },
+  "batch": {
+    "previewMs": 78.01095800000076,
+    "executionMs": 1076.2553750000006,
+    "transactions": 15,
+    "phasesMs": {
+      "PREPARATION": 51.452415999998266,
+      "FILES": 280.47504200000185,
+      "DATABASE": 418.91479400000026
+    },
+    "imageContentReads": 0,
+    "unlinks": 15,
+    "queueMs": 66
+  },
+  "note": "No NAS latency claim; queue delay is local test dispatch. File phase retains ordinary per-file fsync/manifest behavior."
+}

@@ -2,11 +2,10 @@
 
 import type { ArtworkDedupOperationDto, ArtworkDedupOperationResponseDto } from '@pixishelf/job-contracts'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useRef } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { useTRPC } from '@/lib/trpc'
-import { DuplicateOperationActions } from './duplicate-operation-actions'
 import { DuplicateOperationSummary } from './duplicate-operation-summary'
 import { DuplicateOperationPreview } from './duplicate-operation-preview'
 import { isDuplicateOperationActive, newerDuplicateOperation } from './duplicate-operation-state'
@@ -15,8 +14,7 @@ import { DuplicateLoading, DuplicateQueryError } from './duplicate-query-feedbac
 export function DuplicateOperationSheet({
   operationId,
   userId,
-  onClose,
-  onNewOperation
+  onClose
 }: {
   operationId: string
   userId: string
@@ -41,8 +39,7 @@ export function DuplicateOperationSheet({
         : incoming
     }
   })
-  const [previewVersion, setPreviewVersion] = useState<number | null>(null)
-  const previewReady = useCallback((version: number | null) => setPreviewVersion(version), [])
+  const previewReady = useCallback(() => {}, [])
   const operation = query.data?.operation
   const refresh = () => {
     void query.refetch()
@@ -72,7 +69,7 @@ export function DuplicateOperationSheet({
       >
         <SheetHeader className="shrink-0 gap-1 border-b px-4 py-3 pr-14">
           <SheetTitle className="text-lg">
-            {operation?.mode === 'PREPARE' ? '确认删除' : '删除记录'}
+            历史删除记录
             {operation?.protocolVersion === 4 ? ' · 部分重复' : operation?.protocolVersion === 3 ? ' · 疑似版本' : ''}
           </SheetTitle>
           <SheetDescription className="text-xs">
@@ -109,15 +106,9 @@ export function DuplicateOperationSheet({
                 onRefresh={refresh}
                 onReady={previewReady}
               />
-              <DuplicateOperationActions
-                operation={operation}
-                userId={userId}
-                disabled={query.isError || query.isFetching}
-                previewReady={previewVersion === operation.version}
-                onUpdate={update}
-                onNewOperation={onNewOperation}
-                onRefresh={refresh}
-              />
+              <p className="text-sm text-muted-foreground">
+                历史去重删除记录仅供查看。新的删除请返回检查结果选择作品。
+              </p>
             </>
           ) : null}
         </div>

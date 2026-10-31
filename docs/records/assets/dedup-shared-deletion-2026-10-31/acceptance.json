@@ -1,0 +1,101 @@
+{
+  "verifiedAt": "2026-10-31T03:21:42.723Z",
+  "environment": "Isolated synthetic data only; loopback PostgreSQL and media",
+  "desktop": {
+    "runId": "86d69d03-f8e7-4412-b770-dd8a6cdc207b",
+    "artistId": 49,
+    "jobId": "dd4fd03d-a9fa-4dbb-8b04-9640c5c7bb0a",
+    "status": "COMPLETED",
+    "items": [
+      {
+        "artworkId": 400,
+        "status": "DELETED",
+        "operationId": "ab91282f-bb81-40aa-8ecc-41de8e8a64d6",
+        "counts": {
+          "media": 1,
+          "failed": 0,
+          "missing": 0,
+          "retained": 0,
+          "sidecars": 1,
+          "directories": 1,
+          "notAttempted": 0
+        }
+      },
+      {
+        "artworkId": 402,
+        "status": "DELETED",
+        "operationId": "62816b06-c20a-4870-a6e9-8d25942b4464",
+        "counts": {
+          "media": 1,
+          "failed": 0,
+          "missing": 0,
+          "retained": 0,
+          "sidecars": 1,
+          "directories": 1,
+          "notAttempted": 0
+        }
+      },
+      {
+        "artworkId": 404,
+        "status": "TRASH_SUBMITTED",
+        "operationId": "c3d86462-cef3-4281-b22c-fcf47a0d42c8",
+        "counts": {
+          "media": 0,
+          "failed": 0,
+          "missing": 0,
+          "retained": 0,
+          "sidecars": 0,
+          "directories": 0,
+          "notAttempted": 0
+        },
+        "archive": {
+          "lifecycleState": "TRASHED",
+          "retentionDays": 7,
+          "physicalDirectoryExists": true,
+          "maintenanceJobId": "cdb0ebd8-4218-4281-9b47-9ac5de64df99",
+          "maintenanceStatus": "COMPLETED"
+        }
+      },
+      {
+        "artworkId": 406,
+        "status": "DELETED",
+        "operationId": "e7cec10c-2c83-45f1-a1c4-7d79cc928053",
+        "counts": {
+          "media": 10,
+          "failed": 0,
+          "missing": 0,
+          "retained": 0,
+          "sidecars": 301,
+          "directories": 1,
+          "notAttempted": 0
+        }
+      }
+    ],
+    "keeperArtworks": 24,
+    "keeperMediaSha256Verified": 39,
+    "unselectedArtworks": 20,
+    "unselectedMediaSha256Verified": 20
+  },
+  "actualWorkerRestart": {
+    "jobId": "068ccf04-d50b-4781-b1cb-c2b4cf31582d",
+    "artworkId": 568,
+    "operationId": "c43e9581-00cd-46a3-ada2-6fd721997db4",
+    "signal": "SIGTERM",
+    "verificationDrainGraceMs": 1000,
+    "filesAbsentAtSignal": 46,
+    "filesInOriginalManifest": 1002,
+    "finalStatus": "COMPLETED",
+    "attempt": 2,
+    "originalOperationIdPreserved": true,
+    "lockReleased": true,
+    "counts": {
+      "media": 1,
+      "failed": 0,
+      "missing": 0,
+      "retained": 0,
+      "sidecars": 1001,
+      "directories": 1,
+      "notAttempted": 0
+    }
+  }
+}

@@ -1,10 +1,10 @@
+import { createArtworkDedupMaintenanceExecutor } from '../../../pixishelf-job-executors/src/artwork-dedup/maintenance-executor.ts'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import type { PrismaClient } from '@pixishelf/db'
 import {
   createArtworkDedupExecutor,
-  createArtworkDedupMaintenanceExecutor,
   createPixivArtistExecutorRegistrations,
   createPixivArtworkExecutorRegistrations,
   createPixivSeriesExecutorRegistrations,
@@ -19,7 +19,6 @@ vi.mock('@pixishelf/job-executors', async (importOriginal) => {
   return {
     ...actual,
     createArtworkDedupExecutor: vi.fn(actual.createArtworkDedupExecutor),
-    createArtworkDedupMaintenanceExecutor: vi.fn(actual.createArtworkDedupMaintenanceExecutor),
     createPixivArtistExecutorRegistrations: vi.fn(actual.createPixivArtistExecutorRegistrations),
     createPixivArtworkExecutorRegistrations: vi.fn(actual.createPixivArtworkExecutorRegistrations),
     createPixivSeriesExecutorRegistrations: vi.fn(actual.createPixivSeriesExecutorRegistrations),
@@ -292,16 +291,15 @@ describe('ExecutorRegistry', () => {
       expect(register).toHaveBeenCalledWith(expect.objectContaining({ fetchImpl }))
     }
     expect(fetchImpl).not.toHaveBeenCalled()
-    expect(vi.mocked(createArtworkDedupExecutor).mock.lastCall?.[0].supervisor).toBe(
-      vi.mocked(createArtworkDedupMaintenanceExecutor).mock.lastCall?.[0].supervisor
-    )
-    expect(capabilities.find((row) => row.jobType === 'ARTWORK_DEDUP_MAINTENANCE')).toEqual({
-      jobType: 'ARTWORK_DEDUP_MAINTENANCE',
+    expect(vi.mocked(createArtworkDedupExecutor).mock.lastCall?.[0].supervisor).toBeDefined()
+    expect(capabilities.find((row) => row.jobType === 'ARTWORK_DEDUP_MAINTENANCE')).toBeUndefined()
+    expect(capabilities.find((row) => row.jobType === 'ARTWORK_BATCH_DELETE')).toEqual({
+      jobType: 'ARTWORK_BATCH_DELETE',
       executionLane: 'BACKGROUND_WRITER',
-      definitionVersions: [1, 2, 3, 4, 5, 6]
+      definitionVersions: [1]
     })
     expect(capabilities).toHaveLength(39)
-    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(56)
+    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(51)
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_SEARCH_SCAN')?.definitionVersions).toEqual(
       [1, 2, 3, 4, 5]
     )
@@ -310,8 +308,16 @@ describe('ExecutorRegistry', () => {
       capabilities.find((capability) => capability.jobType === 'ARCHIVE_TITLE_RULE_PREVIEW')?.definitionVersions
     ).toEqual([1, 2])
     expect(capabilities.find((capability) => capability.jobType === 'SCAN')?.definitionVersions).toEqual([1, 2, 3])
-    expect(capabilities.find((capability) => capability.jobType === 'ARTWORK_DEDUP_SCAN')?.definitionVersions).toEqual([9])
-    expect(registry.resolve({ type: 'ARTWORK_DEDUP_SCAN', definitionVersion: 8, payload: { runId: 'old', executionVersion: 1 } })).toBeNull()
+    expect(capabilities.find((capability) => capability.jobType === 'ARTWORK_DEDUP_SCAN')?.definitionVersions).toEqual([
+      9
+    ])
+    expect(
+      registry.resolve({
+        type: 'ARTWORK_DEDUP_SCAN',
+        definitionVersion: 8,
+        payload: { runId: 'old', executionVersion: 1 }
+      })
+    ).toBeNull()
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_IMPORT')?.definitionVersions).toEqual([
       1, 2
     ])

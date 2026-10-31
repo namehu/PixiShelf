@@ -1,3 +1,4 @@
+import { artworkBatchDeletePayloadSchema } from './artwork-batch-delete.ts'
 import { artworkDedupMaintenancePayloadSchema } from './artwork-dedup-maintenance.ts'
 import { artworkDedupScanPayloadSchema } from './artwork-dedup.ts'
 import { artworkSummaryPayloadSchema } from './artwork-summary.ts'
@@ -516,6 +517,7 @@ export const creatorMaintenancePayloadSchema = z
 export type CreatorMaintenancePayload = z.infer<typeof creatorMaintenancePayloadSchema>
 
 export const JOB_PAYLOAD_SCHEMAS = {
+  ARTWORK_BATCH_DELETE: artworkBatchDeletePayloadSchema,
   ARTWORK_DEDUP_SCAN: artworkDedupScanPayloadSchema,
   ARTWORK_DEDUP_MAINTENANCE: artworkDedupMaintenancePayloadSchema,
   ARTWORK_SUMMARY_GENERATE: artworkSummaryPayloadSchema,

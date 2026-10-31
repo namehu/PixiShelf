@@ -24,3 +24,7 @@ export * from './artwork-dedup.ts'
 export * from './artwork-dedup-performance.ts'
 export * from './artwork-dedup-maintenance.ts'
 export * from './artwork-dedup-source-snapshot.ts'
+
+export * from './artwork-delete.ts'
+export * from './content-write-authorization.ts'
+export * from './artwork-batch-delete.ts'

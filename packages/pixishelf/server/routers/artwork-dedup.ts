@@ -1,5 +1,9 @@
+import {
+  resolveArtworkDedupDeleteSelection,
+  previewArtworkDedupBatchDelete
+} from '@/services/artwork-dedup-delete-adapter'
 import * as schemas from '@pixishelf/job-contracts'
-import { authProcedure, router } from '@/server/trpc'
+import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import { startArtworkDedup, getArtworkDedupRun, controlArtworkDedup } from '@/services/artwork-dedup-service'
 import {
   listArtworkDedupReviewGroups,
@@ -14,6 +18,15 @@ import {
   artworkDedupAdvancedOperation
 } from '@/services/artwork-dedup-review-service'
 export const artworkDedupRouter = router({
+  resolveDeleteSelection: adminProcedure.input(schemas.artworkDedupDeleteSelectionInputSchema).query(({ ctx, input }) =>
+    resolveArtworkDedupDeleteSelection(ctx.userId, input).then(({ groups, ...selection }) => {
+      void groups
+      return selection
+    })
+  ),
+  previewDeleteSelection: adminProcedure
+    .input(schemas.artworkDedupDeletePreviewInputSchema)
+    .mutation(({ ctx, input }) => previewArtworkDedupBatchDelete(ctx.userId, input)),
   start: authProcedure
     .input(schemas.artworkDedupStartInputSchema)
     .mutation(({ ctx, input }) => startArtworkDedup(ctx.userId, input)),

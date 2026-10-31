@@ -5,8 +5,8 @@ import { DuplicateComparisonSheet } from '../duplicate-comparison-sheet'
 import { member, partialGroup, partialSummary, visualGroup, visualSummary } from './duplicate-maintenance-fixtures'
 
 const mocks = vi.hoisted(() => ({ comparisons: vi.fn(), members: vi.fn(), keep: vi.fn(), prepare: vi.fn() }))
-vi.mock('@/lib/trpc', () => ({
-  useTRPC: () => ({
+vi.mock('@/lib/trpc', () => {
+  const api = {
     artworkDedup: {
       listComparisons: {
         queryOptions: (input: unknown) => ({
@@ -18,8 +18,9 @@ vi.mock('@/lib/trpc', () => ({
         queryOptions: (input: unknown) => ({ queryKey: ['members', input], queryFn: () => mocks.members(input) })
       }
     }
-  })
-}))
+  }
+  return { useTRPC: () => api }
+})
 let client: QueryClient
 const result = (overrides = {}) => ({
   runId: 'run-1',
@@ -117,7 +118,7 @@ describe('visual image comparison', () => {
     const right = screen.getByRole('button', { name: '保留此版本：作品 2' })
     expect(left.getAttribute('aria-pressed')).toBe('false')
     expect(right.getAttribute('aria-pressed')).toBe('false')
-    expect((screen.getByRole('button', { name: '确认删除' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '加入批量选择' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(left)
     expect(mocks.keep).toHaveBeenLastCalledWith(partialGroup(), 1)
     fireEvent.click(right)
@@ -167,18 +168,29 @@ describe('visual image comparison', () => {
       const group = visualGroup({ visual: summary, eligibility: 'ELIGIBLE', reasons: [] })
       const keeperId = side === 'left' ? 1 : 2
       mocks.members.mockResolvedValue({
-        kind: 'MEMBERS', group, items: [member(1), member(2)], allowedActions: ['SAVE_REVIEW']
+        kind: 'MEMBERS',
+        group,
+        items: [member(1), member(2)],
+        allowedActions: ['SAVE_REVIEW']
       })
-      mocks.comparisons.mockResolvedValue(result({
-        visual: summary,
-        items: [{
-          id: 51,
-          kind: 'UNCHECKED',
-          left: side === 'left' ? { artworkId: 1, imageId: 11, index: 4, thumbnailUrl: '/unsafe-animation.gif' } : null,
-          right: side === 'right' ? { artworkId: 2, imageId: 22, index: 12, thumbnailUrl: '/unsafe-animation.gif' } : null
-        }],
-        nextCursor: null
-      }))
+      mocks.comparisons.mockResolvedValue(
+        result({
+          visual: summary,
+          items: [
+            {
+              id: 51,
+              kind: 'UNCHECKED',
+              left:
+                side === 'left' ? { artworkId: 1, imageId: 11, index: 4, thumbnailUrl: '/unsafe-animation.gif' } : null,
+              right:
+                side === 'right'
+                  ? { artworkId: 2, imageId: 22, index: 12, thumbnailUrl: '/unsafe-animation.gif' }
+                  : null
+            }
+          ],
+          nextCursor: null
+        })
+      )
       const view = mount(group, keeperId, keeperId)
       await screen.findByText('此项未参与图片比较，请打开作品核对原件。')
       expect(mocks.comparisons.mock.calls[0]![0]).toMatchObject({ filter: 'DIFFERENT' })
@@ -190,9 +202,11 @@ describe('visual image comparison', () => {
       expect(screen.queryByText('图片暂不可用')).toBeNull()
       expect(screen.queryByText('未配对图片')).toBeNull()
       expect(view.container.querySelector('img[src="/unsafe-animation.gif"]')).toBeNull()
-      expect(screen.getByRole('button', { name: `保留此版本：作品 ${keeperId}` }).getAttribute('aria-pressed')).toBe('true')
+      expect(screen.getByRole('button', { name: `保留此版本：作品 ${keeperId}` }).getAttribute('aria-pressed')).toBe(
+        'true'
+      )
       await waitFor(() =>
-        expect((screen.getByRole('button', { name: '确认删除' }) as HTMLButtonElement).disabled).toBe(false)
+        expect((screen.getByRole('button', { name: '加入批量选择' }) as HTMLButtonElement).disabled).toBe(false)
       )
       fireEvent.click(screen.getByRole('radio', { name: '未核对' }))
       await waitFor(() =>
@@ -221,6 +235,6 @@ describe('visual image comparison', () => {
       await client.invalidateQueries({ queryKey: ['comparisons'] })
     })
     await screen.findByText('此筛选没有图片')
-    expect((screen.getByRole('button', { name: '确认删除' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '加入批量选择' }) as HTMLButtonElement).disabled).toBe(true)
   })
 })
