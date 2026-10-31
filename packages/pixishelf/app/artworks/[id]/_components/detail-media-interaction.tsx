@@ -64,6 +64,7 @@ export function DetailMediaInteraction({
             artworkId={artworkId}
             mediaId={mediaId}
             showBookmark={false}
+            likeAppearance="bare"
             overlay
             onAction={() => {
               cancel()

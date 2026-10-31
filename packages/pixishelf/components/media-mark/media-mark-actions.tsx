@@ -15,6 +15,7 @@ export function MediaMarkActions({
   overlay = false,
   showBookmark = true,
   hideInactiveLike = false,
+  likeAppearance = 'button',
   onAction,
   children
 }: {
@@ -25,6 +26,7 @@ export function MediaMarkActions({
   overlay?: boolean
   showBookmark?: boolean
   hideInactiveLike?: boolean
+  likeAppearance?: 'button' | 'bare'
   onAction?: (kind: 'bookmark' | 'like', value: boolean) => void
   /** Preview controls between the stable bookmark and like buttons. */
   children?: ReactNode
@@ -74,6 +76,7 @@ export function MediaMarkActions({
               aria-label={active ? remove : add}
               aria-pressed={active}
               data-media-mark={kind}
+              data-like-appearance={kind === 'like' ? likeAppearance : undefined}
               aria-busy={mark.isLoading || mark.isSaving}
               disabled={mark.isLoading || !mark.available}
               title={active ? remove : add}
