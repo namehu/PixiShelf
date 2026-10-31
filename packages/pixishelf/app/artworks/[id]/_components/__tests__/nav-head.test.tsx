@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { useArtworkStore } from '@/store/use-artwork-store'
+import { useMediaQuery } from '@/hooks/use-media-query'
 import NavHead from '../nav-head'
 import { ArtworkSummaryProvider } from '../artwork-summary-context'
 
@@ -29,7 +30,7 @@ vi.mock('@/hooks/use-safe-back', () => ({
 }))
 
 vi.mock('@/hooks/use-media-query', () => ({
-  useMediaQuery: () => false
+  useMediaQuery: vi.fn(() => false)
 }))
 
 vi.mock('@/components/ui/dropdown-menu', () => ({
@@ -73,6 +74,7 @@ const data = {
 describe('NavHead', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(useMediaQuery).mockReturnValue(false)
     vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined)
     vi.stubGlobal(
       'IntersectionObserver',
@@ -129,7 +131,11 @@ describe('NavHead', () => {
     expect(screen.getByRole('status').textContent).toBe('mark-all')
   })
 
-  it('shows the scrolled title even when the reading mode provider is mounted', () => {
+  it.each([
+    ['mobile', false, 56],
+    ['desktop', true, 64]
+  ] as const)('shows the scrolled title below the %s toolbar with the reading mode provider mounted', (_, isDesktop, toolbarBottom) => {
+    vi.mocked(useMediaQuery).mockReturnValue(isDesktop)
     render(
       <ArtworkSummaryProvider artworkId={data.id}>
         <div id="artwork-media-start-7" />
@@ -142,7 +148,7 @@ describe('NavHead', () => {
 
     act(() => {
       intersectionCallback?.(
-        [{ boundingClientRect: { top: 57 } } as IntersectionObserverEntry],
+        [{ boundingClientRect: { top: toolbarBottom + 1 } } as IntersectionObserverEntry],
         {} as IntersectionObserver
       )
     })
@@ -150,7 +156,7 @@ describe('NavHead', () => {
 
     act(() => {
       intersectionCallback?.(
-        [{ boundingClientRect: { top: 56 } } as IntersectionObserverEntry],
+        [{ boundingClientRect: { top: toolbarBottom } } as IntersectionObserverEntry],
         {} as IntersectionObserver
       )
     })

@@ -62,7 +62,7 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
     const marker = document.getElementById(`artwork-media-start-${data.id}`)
     if (!marker || typeof IntersectionObserver === 'undefined') return
 
-    const toolbarBottom = isDesktop ? 128 : 56
+    const toolbarBottom = isDesktop ? 64 : 56
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (!entry) return
@@ -78,7 +78,7 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
   return (
     <>
       <PageToolbar
-        className="artwork-detail-toolbar"
+        className="artwork-detail-toolbar lg:top-0"
         containerSize="reading"
         contentClassName="relative"
         leading={

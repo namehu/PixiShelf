@@ -44,20 +44,21 @@ describe('isHeaderlessPath', () => {
 })
 
 describe('AppShell', () => {
-  it('hides mobile navigation while reading an artwork and restores it on the list', () => {
-    vi.mocked(usePathname).mockReturnValue('/artworks/42')
+  it.each(['/artworks/42', '/artworks/42/'])('hides global navigation on %s and restores it on the list', (pathname) => {
+    vi.mocked(usePathname).mockReturnValue(pathname)
     vi.mocked(useAuthUser).mockReturnValue({ id: '1', name: 'User', email: null, image: null })
 
     const { rerender } = render(<AppShell>作品详情</AppShell>)
 
     expect(screen.queryByTestId('mobile-bottom-navigation')).toBeNull()
-    expect(screen.getByTestId('app-header')).toBeTruthy()
+    expect(screen.queryByTestId('app-header')).toBeNull()
     expect(screen.getByText('作品详情')).toBeTruthy()
 
     vi.mocked(usePathname).mockReturnValue('/artworks')
     rerender(<AppShell>作品列表</AppShell>)
 
     expect(screen.getByTestId('mobile-bottom-navigation')).toBeTruthy()
+    expect(screen.getByTestId('app-header')).toBeTruthy()
     expect(screen.getByText('作品列表')).toBeTruthy()
   })
 

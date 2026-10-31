@@ -18,16 +18,16 @@ export function isHeaderlessPath(pathname: string) {
 export default function AppShell({ children }: PropsWithChildren) {
   const pathname = usePathname()
   const user = useAuthUser()
-  const showHeader = Boolean(user) && !isHeaderlessPath(pathname)
+  const showChrome = Boolean(user) && !isHeaderlessPath(pathname)
   const isArtworkDetail = /^\/artworks\/\d+\/?$/.test(pathname)
-  const showMobileNavigation = showHeader && !isArtworkDetail
+  const showNavigation = showChrome && !isArtworkDetail
 
   return (
     <>
       <Suspense fallback={null}>
         <ContentWarningGate />
       </Suspense>
-      {showHeader && (
+      {showChrome && (
         <a
           href="#main-content"
           className="fixed top-2 left-4 z-[100] -translate-y-16 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-floating outline-none transition-transform focus:translate-y-0"
@@ -35,18 +35,18 @@ export default function AppShell({ children }: PropsWithChildren) {
           跳到主要内容
         </a>
       )}
-      {showHeader && <AppHeader />}
+      {showNavigation && <AppHeader />}
       <div
         id="main-content"
         tabIndex={-1}
         className={cn(
-          showHeader && 'pb-[var(--app-mobile-navigation-offset)] outline-none lg:pb-0',
+          showChrome && 'pb-[var(--app-mobile-navigation-offset)] outline-none lg:pb-0',
           isArtworkDetail && 'max-lg:[--app-mobile-navigation-offset:env(safe-area-inset-bottom)]'
         )}
       >
         {children}
       </div>
-      {showMobileNavigation && <MobileBottomNavigation />}
+      {showNavigation && <MobileBottomNavigation />}
     </>
   )
 }
