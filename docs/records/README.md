@@ -51,6 +51,8 @@ Android：[2026-10-28 核心阅读页面迁移](./features/android-core-parity-2
 
 ## 发布、迁移与事故
 
+MP4 优化与主线迁移：[2026-10-31 v0.55.11 发布交接](./operations/mp4-streaming-optimization-release-2026-10-31.md)。
+
 作品详情：[2026-10-31 v0.55.10 喜欢筛选与视频评分层叠修复交接](./operations/detail-liked-filter-release-2026-10-31.md)。
 
 去重删除改造：[2026-10-31 v0.55.9 发布交接](./operations/dedup-shared-deletion-release-2026-10-31.md) · [实施与桌面验收](./dedup-shared-deletion-2026-10-31.md)。
