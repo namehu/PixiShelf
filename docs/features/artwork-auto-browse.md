@@ -6,6 +6,7 @@ sources:
   - packages/pixishelf/store/use-artwork-auto-browse-store.ts
   - packages/pixishelf/app/artworks/[id]/_components/artwork-images.tsx
   - packages/pixishelf/app/artworks/[id]/_components/adaptive-media-preview.tsx
+  - packages/pixishelf/app/artworks/[id]/_components/artwork-summary-context.tsx
 ---
 
 # 作品详情页自动浏览
@@ -61,6 +62,8 @@ WebP 手动播放和自动浏览默认通过 WASM/Canvas 流式播放，无需�
 
 执行 hook 持有 DOM、Swiper、帧与定时器；WebP 单轮完成由播放器统一报告，详情不再轮询 DOM 时长。连续滚动按帧时间差推进，保留小数累积并限制单帧最大增量；轮播使用可取消的单次定时器。用户输入与程序产生的滚动/翻页事件分开处理。媒体加载结果按资源版本区分，卸载或重试前的解码回调不能解除新一轮等待。
 
+适配预览只在打开时初始化位置与解码状态；首批媒体补为完整索引时，保留当前图片与已经解码的资源，不回到打开时的页码。首次建立堆叠索引也不暂停用户已经启动的轮播；已有索引指纹发生变化时仍暂停并按真实媒体重新定位。
+
 自动滚动保持恒速，等待期间不累计补偿位移；每帧先确定最终当前媒体，再提交状态，避免中心媒体与等待媒体之间反复切换。控制条只订阅展示字段和动作。详情普通图片及 APNG 海报的 `sizes` 对应最大 `45rem` 阅读宽度，浏览器仍根据 DPR 选图；WebP/GIF 海报沿用固定 1200px 地址，图片质量设置不变。
 
 兼容路径完整加载原文件，在内存中播放单轮，不写回归档文件；停止或卸载取消请求并释放临时资源。流式与兼容路径的解码、短帧时长、回退门禁及资源预算统一见[WebP 播放器架构](../architecture/webp-player.md)。
@@ -74,6 +77,8 @@ WebP 手动播放和自动浏览默认通过 WASM/Canvas 流式播放，无需�
 状态测试覆盖互斥、持久化白名单、异常设置、视频继续、会话重置。执行 hook 测试使用可控时钟和布局，覆盖加载/动画等待、暂停恢复、末页与循环、低速小数累积、长帧限制及清理。原有详情测试继续保护折叠/虚拟化、媒体过滤、长按和关闭回定位。
 
 历史验证与限制见[自动浏览初始交付与流畅度验证](../records/features/artwork-auto-browse.md)；详情点赞暂停、媒体键盘菜单与独立 GIF/APNG 按钮见[详情交互验证记录](../records/features/detail-media-interactions-2026-10-30.md)；预览停靠、共享浮心及本轮合并检查见[预览工具栏与筛选联合验证](../records/features/preview-controls-and-filters-2026-10-31.md)。
+
+首开预览的索引补全回归与普通续读入口排查见[全屏轮播与详情续读入口排查](../records/features/preview-slideshow-resume-2026-10-31.md)。
 
 ## WebP 与自动浏览协同交互
 

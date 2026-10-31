@@ -109,6 +109,8 @@ function AdaptiveMediaPreviewContent({
   })
   const swiperRef = useRef<VerticalMediaPreviewController | null>(null)
 
+  // The reader can replace the SSR batch with its full index during this preview session.
+  // Only opening a preview resets its position and decoded media.
   useEffect(() => {
     if (!open || typeof window === 'undefined') return
 
@@ -125,7 +127,7 @@ function AdaptiveMediaPreviewContent({
       loadGeneration.current += 1
       progressGeneration.current += 1
     }
-  }, [images.length, initialIndex, open])
+  }, [open])
 
   useReaderMediaWindow(
     'adaptive',

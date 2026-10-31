@@ -85,7 +85,7 @@ function useStackSession(artworkId: number, suppressRecoveryNavigation: boolean)
     if (!changingSnapshot) return
     // Loading the first index must not turn an ordinary detail entry into a media jump.
     const id = snapshot ? visibleMediaId() : undefined
-    useArtworkAutoBrowseStore.getState().pause('manual')
+    if (snapshot) useArtworkAutoBrowseStore.getState().pause('manual')
     setSnapshot(index)
     const nextGroups = index ? buildArtworkStacks(index.items) : []
     const nextGroup = nextGroups.find((group) => group.mediaIds.includes(id ?? -1))
