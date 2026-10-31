@@ -35,6 +35,7 @@ export function useBackgroundHistory(open: boolean, refreshVersion: number) {
     search: filters.search || undefined,
     statuses: filters.statuses,
     types: filters.types,
+    artworkId: filters.artworkId,
     triggerSources: filters.triggerSources,
     createdFrom: historyDateBoundary(filters.from),
     createdTo: historyDateBoundary(filters.to, true),

@@ -13,7 +13,7 @@ import { toast } from 'sonner'
 import { useBackgroundJobEventSubscription } from '../../_components/background-job-event-provider'
 import { AnimationDurationProbeSection } from './animation-duration-probe-section'
 import { AnimationScanLiveFeedback } from './animation-scan-live-feedback'
-import { BackgroundTaskConsole } from './background-task-console'
+import { BackgroundTaskConsole, type VideoOptimizationHistoryRequest } from './background-task-console'
 import {
   collectUnseenLiveEvents,
   mergeLiveJobSnapshot,
@@ -186,6 +186,9 @@ export function MaintenanceCard() {
   const [triggeringTaskKey, setTriggeringTaskKey] = useState<string | null>(null)
   const [videoReprobePath, setVideoReprobePath] = useState('')
   const [trackedWebpJobId, setTrackedWebpJobId] = useState<string>()
+  const [videoOptimizationHistoryRequest, setVideoOptimizationHistoryRequest] =
+    useState<VideoOptimizationHistoryRequest>()
+  const [backgroundRefreshVersion, setBackgroundRefreshVersion] = useState(0)
   const requestedWebpJobId = useRef<string | null>(null)
   const liveEventCursor = useRef<LiveEventCursor>({ resetVersion: 0, eventId: null })
   const scheduledLiveEventCursor = useRef<LiveEventCursor>({ resetVersion: 0, eventId: null })
@@ -999,7 +1002,12 @@ export function MaintenanceCard() {
             {videoScheduledTask && renderScheduleSettings(videoScheduledTask)}
           </TaskSection>
 
-          <VideoStreamingOptimizationSection />
+          <VideoStreamingOptimizationSection
+            onViewTasks={(artworkId) =>
+              setVideoOptimizationHistoryRequest((previous) => ({ requestId: (previous?.requestId ?? 0) + 1, artworkId }))
+            }
+            onSubmitted={() => setBackgroundRefreshVersion((value) => value + 1)}
+          />
 
           <VideoKeyframeSection />
 
@@ -1185,7 +1193,7 @@ export function MaintenanceCard() {
           </TaskGroup>
         ) : null}
       </TaskAccordion>
-      <BackgroundTaskConsole />
+      <BackgroundTaskConsole videoOptimizationHistoryRequest={videoOptimizationHistoryRequest} refreshVersion={backgroundRefreshVersion} />
     </div>
   )
 }

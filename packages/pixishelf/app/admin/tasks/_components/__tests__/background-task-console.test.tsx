@@ -276,6 +276,111 @@ describe('background task console', () => {
 
   afterEach(cleanup)
 
+  it('opens optimization history with a clean scope and reopens it for every request', () => {
+    mocks.dashboardQuery.data = createDashboard()
+    const view = render(<BackgroundTaskConsole videoOptimizationHistoryRequest={{ requestId: 1, artworkId: 42 }} />)
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(mocks.changeFilters).toHaveBeenLastCalledWith({
+      search: '',
+      statuses: [],
+      types: ['VIDEO_STREAMING_OPTIMIZATION'],
+      triggerSources: [],
+      from: '',
+      to: '',
+      includeBatchChildren: false,
+      artworkId: 42
+    })
+    fireEvent.mouseDown(screen.getByRole('tab', { name: '失败（0）' }), { button: 0 })
+    fireEvent.click(screen.getByRole('button', { name: '查看旧失败' }))
+    expect(mocks.detailRequested).toHaveBeenLastCalledWith('old-failure')
+    view.rerender(<BackgroundTaskConsole videoOptimizationHistoryRequest={{ requestId: 2, artworkId: 42 }} />)
+    expect(mocks.detailRequested).toHaveBeenLastCalledWith(null)
+    expect(screen.getByRole('tab', { name: '任务' }).getAttribute('data-state')).toBe('active')
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    view.rerender(<BackgroundTaskConsole videoOptimizationHistoryRequest={{ requestId: 3 }} />)
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(mocks.changeFilters).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        types: ['VIDEO_STREAMING_OPTIMIZATION'],
+        artworkId: undefined,
+        statuses: [],
+        search: ''
+      })
+    )
+  })
+
+  it.each([
+    [2048, 1024, '−1 KB'],
+    [1024, 2048, '+1 KB'],
+    [1024, 1024, '0 B']
+  ])('shows optimization media and signed byte changes %s to %s', (originalSize, optimizedSize, change) => {
+    const job = {
+      ...createJob('COMPLETED'),
+      type: 'VIDEO_STREAMING_OPTIMIZATION' as const,
+      result: { originalSize, optimizedSize }
+    }
+    render(
+      <BackgroundTaskConsoleView
+        dashboard={createDashboard()}
+        selectedJob={job}
+        videoOptimizationTarget={{ artworkId: 42, imageId: 7, title: '目标作品标题', filename: 'video.mp4' }}
+        selectedJobLoading={false}
+        onSelectJob={vi.fn()}
+        onRefresh={vi.fn()}
+        refreshing={false}
+        controls={createControls()}
+      />
+    )
+    expect(screen.getByRole('link', { name: '目标作品标题' }).getAttribute('href')).toBe('/artworks/42')
+    expect(screen.getByText('video.mp4').closest('dd')?.textContent).toContain('· #7')
+    expect(screen.getByText('优化前体积')).toBeTruthy()
+    expect(screen.getByText('优化后体积')).toBeTruthy()
+    expect(screen.getByText(change)).toBeTruthy()
+  })
+
+  it('does not invent optimization sizes or targets when detail data is absent', () => {
+    const job = { ...createJob('COMPLETED'), type: 'VIDEO_STREAMING_OPTIMIZATION' as const, result: null }
+    render(
+      <BackgroundTaskConsoleView
+        dashboard={createDashboard()}
+        selectedJob={job}
+        selectedJobLoading={false}
+        onSelectJob={vi.fn()}
+        onRefresh={vi.fn()}
+        refreshing={false}
+        controls={createControls()}
+      />
+    )
+    expect(screen.queryByText('优化前体积')).toBeNull()
+    expect(screen.queryByText('体积变化')).toBeNull()
+    expect(screen.queryByText('目标作品')).toBeNull()
+  })
+
+  it.each(['FAILED', 'CANCELLED', 'RUNNING'] as const)(
+    'does not display retained result sizes for %s optimization',
+    (status) => {
+      const job = {
+        ...createJob(status),
+        type: 'VIDEO_STREAMING_OPTIMIZATION' as const,
+        result: { originalSize: 2048, optimizedSize: 1024 }
+      }
+      render(
+        <BackgroundTaskConsoleView
+          dashboard={createDashboard()}
+          selectedJob={job}
+          selectedJobLoading={false}
+          onSelectJob={vi.fn()}
+          onRefresh={vi.fn()}
+          refreshing={false}
+          controls={createControls()}
+        />
+      )
+      expect(screen.queryByText('优化前体积')).toBeNull()
+      expect(screen.queryByText('优化后体积')).toBeNull()
+    }
+  )
+
   it('keeps normal completion counts out of the execution status row', () => {
     const dashboard = createDashboard({ counts: { ...createDashboard().counts, COMPLETED: 8 }, queuedCount: 0 })
     render(

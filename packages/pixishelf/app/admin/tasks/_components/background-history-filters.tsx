@@ -81,7 +81,12 @@ export function BackgroundHistoryFilters({
   }, [draft, composing])
   const extraCount =
     filters.triggerSources.length + Number(Boolean(filters.from || filters.to)) + Number(filters.includeBatchChildren)
-  const activeCount = filters.statuses.length + filters.types.length + extraCount + Number(Boolean(filters.search))
+  const activeCount =
+    filters.statuses.length +
+    filters.types.length +
+    extraCount +
+    Number(Boolean(filters.search)) +
+    Number(Boolean(filters.artworkId))
 
   return (
     <form
@@ -124,6 +129,18 @@ export function BackgroundHistoryFilters({
         {actions ? <Field className="w-auto shrink-0">{actions}</Field> : null}
       </FieldGroup>
       <div className="flex flex-wrap items-center gap-2">
+        {filters.artworkId ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            aria-label={`清除作品 #${filters.artworkId} 范围`}
+            onClick={() => onChange({ ...filters, artworkId: undefined })}
+          >
+            作品 #{filters.artworkId}
+            <X data-icon="inline-end" aria-hidden="true" />
+          </Button>
+        ) : null}
         <MultiFilter
           label="状态"
           values={filters.statuses}

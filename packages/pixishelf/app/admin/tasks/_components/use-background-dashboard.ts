@@ -196,6 +196,7 @@ export function useBackgroundJobDetail(jobId: string | null, dashboardJob: JobDt
   return {
     ...query,
     data: reconciled ? mergeLiveJobSnapshot(reconciled, liveJob) : reconciled,
+    videoOptimizationTarget: currentDetail?.videoOptimizationTarget ?? null,
     // Acknowledgements do not change SystemJob.updatedAt; keep this flag separate from live snapshots.
     failureNeedsAttention: currentDetail?.failureNeedsAttention ?? false
   }

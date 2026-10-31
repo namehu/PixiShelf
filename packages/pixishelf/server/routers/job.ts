@@ -1,3 +1,13 @@
+import {
+  listVideoStreamingOptimizationCandidatesInputSchema,
+  previewVideoStreamingOptimizationBatchInputSchema,
+  submitVideoStreamingOptimizationBatchInputSchema
+} from '@/schemas/video-optimization.dto'
+import {
+  listVideoStreamingOptimizationCandidates,
+  previewVideoStreamingOptimizationBatch,
+  submitVideoStreamingOptimizationBatch
+} from '@/services/video-optimization-batch-service'
 import { prisma } from '@/lib/prisma'
 import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import { archiveModule } from '@/services/archive/archive-module'
@@ -294,6 +304,15 @@ export const jobRouter = router({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message })
       }
     }),
+  listVideoStreamingOptimizationCandidates: adminProcedure
+    .input(listVideoStreamingOptimizationCandidatesInputSchema)
+    .query(({ input }) => listVideoStreamingOptimizationCandidates(input)),
+  previewVideoStreamingOptimizationBatch: adminProcedure
+    .input(previewVideoStreamingOptimizationBatchInputSchema)
+    .mutation(({ input }) => runBackgroundTaskCommand(() => previewVideoStreamingOptimizationBatch(input))),
+  submitVideoStreamingOptimizationBatch: adminProcedure
+    .input(submitVideoStreamingOptimizationBatchInputSchema)
+    .mutation(({ input, ctx }) => submitVideoStreamingOptimizationBatch(input, ctx.userId)),
   startVideoStreamingOptimization: adminProcedure
     .input(
       z.object({

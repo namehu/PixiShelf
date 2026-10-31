@@ -10,11 +10,15 @@ const { operationOrder, metadataMock, toBufferMock, sharpMock, copyFileMock, ren
   rmMock: vi.fn()
 }))
 
-vi.mock('node:fs/promises', () => ({
-  copyFile: copyFileMock,
-  rename: renameMock,
-  rm: rmMock
-}))
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const mocked = {
+    ...(await importOriginal<typeof import('node:fs/promises')>()),
+    copyFile: copyFileMock,
+    rename: renameMock,
+    rm: rmMock
+  }
+  return { ...mocked, default: mocked }
+})
 
 vi.mock('sharp', () => ({ default: sharpMock }))
 

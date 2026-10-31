@@ -96,6 +96,8 @@ sources:
 
 `VIDEO_STREAMING_OPTIMIZATION` 只接受单个 MP4 和 `REMUX_FASTSTART`。Worker 在源目录内创建任务专属临时/备份文件，完成 remux 和校验后再发布；暂停、取消或普通失败尽量恢复原视频。恢复失败会暂停为需要人工处理，而不是把可能损坏的状态标成普通完成。
 
+2026-10-31 局部核验：App 的[MP4 无损播放优化](../features/mp4-streaming-optimization.md)按作品筛选并预览最多 1,000 个实际视频目标，确认后为每个视频独立创建或复用现有单视频任务，不新增发现任务或持久批次。普通入队、批量提交和 retry 共用 image advisory lock；固定预览目标在事务内复核归属、最近任务和活动状态，单项失败不回滚其他目标。已有失败的确认只随成功创建的 retry 后继任务提交。该流程不在预览时分析 MP4 是否实际需要 faststart。
+
 ### 迁移与批量替换
 
 - `MIGRATION` 根据显式 artwork IDs、冻结查询上界或旧失败任务选择作品，为每个文件建立持久计划，先 staging 和校验，再短事务更新数据库路径，最后按 safety 配置清理旧源。逐项检查点支持暂停、重试和失败样本。

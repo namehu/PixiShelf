@@ -136,6 +136,14 @@ afterEach(() => {
 })
 
 describe('execution history filters and state', () => {
+  it('shows the artwork scope and clears it without removing the optimization type', () => {
+    const change = vi.fn()
+    const filters = { ...emptyHistoryFilters(), types: ['VIDEO_STREAMING_OPTIMIZATION' as const], artworkId: 42 }
+    render(<BackgroundHistoryFilters filters={filters} onChange={change} dateInvalid={false} />)
+    fireEvent.click(screen.getByRole('button', { name: '清除作品 #42 范围' }))
+    expect(change).toHaveBeenCalledWith({ ...filters, artworkId: undefined })
+  })
+
   it('debounces input, submits immediately and waits for IME composition', async () => {
     vi.useFakeTimers()
     const change = vi.fn()
@@ -170,6 +178,36 @@ describe('execution history filters and state', () => {
 })
 
 describe('execution history queries', () => {
+  it('retains the explicit artwork scope when other history filters change, until the user clears it', async () => {
+    const { result } = renderHook(() => useBackgroundHistory(true, 0), { wrapper })
+    await waitFor(() => expect(result.current.query.isSuccess).toBe(true))
+    act(() =>
+      result.current.changeFilters({ ...emptyHistoryFilters(), types: ['VIDEO_STREAMING_OPTIMIZATION'], artworkId: 42 })
+    )
+    await waitFor(() =>
+      expect(mocks.list).toHaveBeenLastCalledWith(
+        expect.objectContaining({ artworkId: 42, types: ['VIDEO_STREAMING_OPTIMIZATION'] }),
+        undefined
+      )
+    )
+    act(() => result.current.changeFilters({ ...result.current.filters, types: ['SCAN'] }))
+    await waitFor(() =>
+      expect(mocks.list).toHaveBeenLastCalledWith(
+        expect.objectContaining({ artworkId: 42, types: ['SCAN'] }),
+        undefined
+      )
+    )
+    expect(result.current.filters.artworkId).toBe(42)
+    act(() => result.current.changeFilters({ ...result.current.filters, artworkId: undefined }))
+    await waitFor(() =>
+      expect(mocks.list).toHaveBeenLastCalledWith(
+        expect.objectContaining({ artworkId: undefined, types: ['SCAN'] }),
+        undefined
+      )
+    )
+    expect(result.current.filters.artworkId).toBeUndefined()
+  })
+
   it('does not query while closed and loads past 50 records without refetching old pages', async () => {
     mocks.list.mockImplementation((_input, cursor) =>
       Promise.resolve(

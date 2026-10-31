@@ -19,6 +19,8 @@ const pg = process.env.PIXISHELF_TEST_DATABASE_URL ? describe : describe.skip
 pg('media task payload read model', () => {
   afterAll(async () => {
     await database.systemJob.deleteMany({ where: { requestedByUserId: prefix } })
+    await database.image.deleteMany({ where: { artwork: { title: prefix } } })
+    await database.artwork.deleteMany({ where: { title: prefix } })
     await database.$disconnect()
     await prisma.$disconnect()
   })
@@ -86,19 +88,23 @@ pg('media task payload read model', () => {
     ])
   })
   it('keeps initial enqueue and retry targets in payload after dropping legacy columns', async () => {
+    const artwork = await database.artwork.create({ data: { title: prefix } })
+    const image = await database.image.create({
+      data: { artworkId: artwork.id, path: 'rollback.mp4', mediaType: 'VIDEO' }
+    })
     const job = await enqueueJob(
       {
         type: 'VIDEO_STREAMING_OPTIMIZATION',
         triggerSource: 'MANUAL',
         priority: 10,
         requestedByUserId: prefix,
-        payload: { imageId: 2147000004, relativePath: 'rollback.mp4', mode: 'REMUX_FASTSTART' }
+        payload: { imageId: image.id, relativePath: 'rollback.mp4', mode: 'REMUX_FASTSTART' }
       },
       database
     )
     const initial = await database.systemJob.findUniqueOrThrow({ where: { id: job.id } })
     expect(initial.payload).toMatchObject({
-      imageId: 2147000004,
+      imageId: image.id,
       relativePath: 'rollback.mp4',
       mode: 'REMUX_FASTSTART'
     })
@@ -106,7 +112,7 @@ pg('media task payload read model', () => {
     await database.systemJob.update({ where: { id: job.id }, data: { status: 'FAILED' } })
     const retried = await retryJobCommand({ jobId: job.id, requestedByUserId: prefix }, database)
     expect((await database.systemJob.findUniqueOrThrow({ where: { id: retried.id } })).payload).toMatchObject({
-      imageId: 2147000004,
+      imageId: image.id,
       relativePath: 'rollback.mp4',
       mode: 'REMUX_FASTSTART'
     })

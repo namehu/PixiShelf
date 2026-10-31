@@ -5,6 +5,7 @@ import {
 } from '@pixishelf/job-runtime'
 import { ARTWORK_SUMMARY_RETIRED_MESSAGE } from '@/lib/reading/artwork-stacks'
 import { prisma } from '@/lib/prisma'
+import { lockActiveVideoStreamingOptimization } from '@/services/video-streaming-optimization-lock'
 import { FULL_SCAN_RETIRED_MESSAGE, isRetiredFullReconcilePayload } from '@/services/scan-source-policy'
 import { Prisma, lockCreatorCatalog } from '@pixishelf/db'
 import { ArchiveError } from '@/services/archive/errors'
@@ -616,7 +617,10 @@ export async function retryJobCommand(
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '请通过重复作品检查页面控制此任务')
     }
     assertStatus(job, ['FAILED', 'CANCELLED', 'SKIPPED'], 'retry')
-    if (await hasBlockingMediaContentCancellation(transaction, job.id)) {
+    if (
+      job.type !== 'VIDEO_STREAMING_OPTIMIZATION' &&
+      (await hasBlockingMediaContentCancellation(transaction, job.id))
+    ) {
       throw new BackgroundTaskError(
         'INVALID_STATE_TRANSITION',
         '存在未解决的媒体写入，请使用原任务的离线恢复授权，不能创建新的重试任务'
@@ -664,6 +668,28 @@ export async function retryJobCommand(
     const executionLane = executionLaneForJobType(retryType)
     if (job.executionLane !== executionLane) {
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '该历史任务的执行通道无效，请修复后再重试')
+    }
+    if (retryType === 'VIDEO_STREAMING_OPTIMIZATION') {
+      const target = retryPayload as { imageId: number; relativePath: string }
+      // Batch retries already hold this media lock; acquire it before recovery row locks everywhere.
+      const existing = await lockActiveVideoStreamingOptimization(transaction, target.imageId, target.relativePath)
+      const image = await transaction.image.findFirst({
+        where: {
+          id: target.imageId,
+          artwork: { is: { deletedAt: null, archiveLifecycleState: 'ACTIVE' } }
+        },
+        select: { path: true }
+      })
+      if (!image || !/\.mp4$/i.test(image.path) || image.path.replace(/^[/\\]+/, '') !== target.relativePath) {
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '历史任务的视频已失效或路径发生变化，请重新预览')
+      }
+      if (await hasBlockingMediaContentCancellation(transaction, job.id)) {
+        throw new BackgroundTaskError(
+          'INVALID_STATE_TRANSITION',
+          '存在未解决的媒体写入，请使用原任务的离线恢复授权，不能创建新的重试任务'
+        )
+      }
+      if (existing) return toJobDto(existing)
     }
     if (retryType === 'ARCHIVE_RESOLVE_ITEM') {
       const item = await transaction.archiveIntakeItem.findFirst({

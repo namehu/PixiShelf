@@ -26,6 +26,8 @@ import { emptyHistoryFilters } from './background-history-state'
 import { BackgroundFailureList } from './background-failure-list'
 import { useBackgroundFailures } from './use-background-failures'
 import type { AcknowledgeJobFailuresRequest } from '@/services/background-task/job-command-service'
+import type { BackgroundJobDetail } from '@/services/background-task/job-query-service'
+import { formatFileSize } from '@/utils/media'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
@@ -89,7 +91,18 @@ export interface BackgroundBatchView {
   parentJob: JobDto
 }
 
-export function BackgroundTaskConsole() {
+export interface VideoOptimizationHistoryRequest {
+  requestId: number
+  artworkId?: number
+}
+
+export function BackgroundTaskConsole({
+  videoOptimizationHistoryRequest,
+  refreshVersion = 0
+}: {
+  videoOptimizationHistoryRequest?: VideoOptimizationHistoryRequest
+  refreshVersion?: number
+}) {
   const [activeTab, setActiveTab] = useState<'tasks' | 'failures'>('tasks')
   const [open, setOpen] = useState(false)
   const dashboardQuery = useBackgroundDashboard(open && activeTab === 'failures')
@@ -105,13 +118,25 @@ export function BackgroundTaskConsole() {
   }, [])
   const scrollRef = useRef<HTMLDivElement>(null)
   const [historyRefreshVersion, setHistoryRefreshVersion] = useState(0)
-  const history = useBackgroundHistory(open && activeTab === 'tasks' && !selectedJobId, historyRefreshVersion)
+  const history = useBackgroundHistory(open && activeTab === 'tasks' && !selectedJobId, historyRefreshVersion + refreshVersion)
   const failures = useBackgroundFailures(
     open && activeTab === 'failures' && !selectedJobId,
     dashboard?.unacknowledgedFailureCount ?? 0,
     dashboardQuery.refetch
   )
   const historyNavigationRequested = useRef(false)
+  useEffect(() => {
+    if (!videoOptimizationHistoryRequest) return
+    setOpen(true)
+    setActiveTab('tasks')
+    setSelectedJobId(null)
+    historyNavigationRequested.current = true
+    history.changeFilters({
+      ...emptyHistoryFilters(),
+      types: ['VIDEO_STREAMING_OPTIMIZATION'],
+      artworkId: videoOptimizationHistoryRequest.artworkId
+    })
+  }, [videoOptimizationHistoryRequest, history.changeFilters])
   const [completedNotice, setCompletedNotice] = useState<JobDto | null>(null)
   const previousActiveJobIds = useRef<Set<string> | null>(null)
   const completedNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -215,6 +240,7 @@ export function BackgroundTaskConsole() {
         dashboard={dashboard}
         selectedJobId={selectedJobId}
         selectedJob={selectedJob}
+        videoOptimizationTarget={detailQuery.videoOptimizationTarget}
         selectedJobLoading={detailQuery.isPending && Boolean(selectedJobId)}
         failureNeedsAttention={detailQuery.failureNeedsAttention}
         onSelectJob={selectJob}
@@ -462,6 +488,7 @@ export function BackgroundTaskConsoleView({
   dashboard,
   selectedJobId = null,
   selectedJob,
+  videoOptimizationTarget,
   selectedJobLoading,
   onSelectJob,
   onRefresh,
@@ -475,6 +502,7 @@ export function BackgroundTaskConsoleView({
   dashboard: BackgroundDashboardView
   selectedJobId?: string | null
   selectedJob: JobDto | null
+  videoOptimizationTarget?: BackgroundJobDetail['videoOptimizationTarget']
   selectedJobLoading: boolean
   onSelectJob: (jobId: string | null) => void
   onRefresh: () => void
@@ -552,7 +580,12 @@ export function BackgroundTaskConsoleView({
               正在读取任务详情…
             </div>
           ) : selectedJob ? (
-            <JobDetail job={selectedJob} controls={controls} failureNeedsAttention={failureNeedsAttention} />
+            <JobDetail
+              job={selectedJob}
+              controls={controls}
+              failureNeedsAttention={failureNeedsAttention}
+              videoOptimizationTarget={videoOptimizationTarget}
+            />
           ) : (
             <div className="p-5 text-sm text-muted-foreground">选择一条近期任务，查看控制项和结构化事件。</div>
           )}
@@ -692,11 +725,13 @@ function WorkerInstanceCard({
 function JobDetail({
   job,
   controls,
-  failureNeedsAttention
+  failureNeedsAttention,
+  videoOptimizationTarget
 }: {
   job: JobDto
   controls: BackgroundControlsView
   failureNeedsAttention: boolean
+  videoOptimizationTarget?: BackgroundJobDetail['videoOptimizationTarget']
 }) {
   const eventQuery = useBackgroundJobEvents(job)
   const [priority, setPriority] = useState(String(job.queuePriority))
@@ -713,6 +748,18 @@ function JobDetail({
   const priorityRange = job.triggerSource === 'MANUAL' || job.triggerSource === 'RETRY' ? [0, 99] : [100, 999]
   const priorityInvalid =
     !Number.isInteger(priorityNumber) || priorityNumber < priorityRange[0]! || priorityNumber > priorityRange[1]!
+  const optimizationResult =
+    job.type === 'VIDEO_STREAMING_OPTIMIZATION' &&
+    job.status === 'COMPLETED' &&
+    job.result &&
+    typeof job.result === 'object'
+      ? (job.result as { originalSize?: number; optimizedSize?: number })
+      : null
+  const optimizationSizes =
+    typeof optimizationResult?.originalSize === 'number' && typeof optimizationResult.optimizedSize === 'number'
+      ? { before: optimizationResult.originalSize, after: optimizationResult.optimizedSize }
+      : null
+  const sizeChange = optimizationSizes ? optimizationSizes.after - optimizationSizes.before : 0
 
   return (
     <article aria-labelledby="job-detail-title" className="min-w-0 p-4 sm:p-5">
@@ -734,6 +781,40 @@ function JobDetail({
         </div>
         <JobActions job={job} controls={controls} disabled={anyPending} failureNeedsAttention={failureNeedsAttention} />
       </div>
+
+      {job.type === 'VIDEO_STREAMING_OPTIMIZATION' && (videoOptimizationTarget || optimizationSizes) ? (
+        <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+          {videoOptimizationTarget ? (
+            <>
+              <dt className="text-muted-foreground">目标作品</dt>
+              <dd className="min-w-0 break-words">
+                <Link href={`/artworks/${videoOptimizationTarget.artworkId}`} className="underline underline-offset-4">
+                  <PrivacySensitiveText>{videoOptimizationTarget.title}</PrivacySensitiveText>
+                </Link>{' '}
+                · #{videoOptimizationTarget.artworkId}
+              </dd>
+              <dt className="text-muted-foreground">目标视频</dt>
+              <dd className="min-w-0 break-words">
+                <PrivacySensitiveText>{videoOptimizationTarget.filename}</PrivacySensitiveText> · #
+                {videoOptimizationTarget.imageId}
+              </dd>
+            </>
+          ) : null}
+          {optimizationSizes ? (
+            <>
+              <dt className="text-muted-foreground">优化前体积</dt>
+              <dd className="tabular-nums">{formatFileSize(optimizationSizes.before)}</dd>
+              <dt className="text-muted-foreground">优化后体积</dt>
+              <dd className="tabular-nums">{formatFileSize(optimizationSizes.after)}</dd>
+              <dt className="text-muted-foreground">体积变化</dt>
+              <dd className="tabular-nums">
+                {sizeChange > 0 ? '+' : sizeChange < 0 ? '−' : ''}
+                {formatFileSize(Math.abs(sizeChange))}
+              </dd>
+            </>
+          ) : null}
+        </dl>
+      ) : null}
 
       {canChangePriority(job) ? (
         <div className="mt-4 flex flex-wrap items-end gap-2 rounded-lg border bg-muted/10 p-3">

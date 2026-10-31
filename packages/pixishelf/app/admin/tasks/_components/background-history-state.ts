@@ -9,6 +9,7 @@ export interface HistoryFilters {
   from: string
   to: string
   includeBatchChildren: boolean
+  artworkId?: number
 }
 
 export function emptyHistoryFilters(): HistoryFilters {

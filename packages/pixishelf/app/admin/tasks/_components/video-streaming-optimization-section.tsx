@@ -1,264 +1,517 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { Film, RotateCcw, X } from 'lucide-react'
+import { useCallback, useRef, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Film, RefreshCw, Search } from 'lucide-react'
 import { toast } from 'sonner'
+import MultipleSelector, { type Option } from '@/components/shared/multiple-selector'
+import { ProTable, type ActionType, type ProColumnDef } from '@/components/shared/pro-table'
+import { confirm } from '@/components/shared/global-confirm'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Progress } from '@/components/ui/progress'
-import { useTRPC } from '@/lib/trpc'
-import { isActiveVideoOptimization, type VideoOptimizationJobView } from '@/types/video-optimization'
-import { formatFileSize } from '@/utils/media'
-import { TaskSection } from './task-ui'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Spinner } from '@/components/ui/spinner'
-import { AdminStatusBadge } from '../../_components/admin-status-badge'
-import { confirm } from '@/components/shared/global-confirm'
-import { cn } from '@/lib/utils'
-import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { MSource, OSource, type ESource } from '@/enums/e-source'
+import { useTRPC, useTRPCClient } from '@/lib/trpc'
+import { DEFAULT_VIDEO_OPTIMIZATION_STATUSES, VIDEO_OPTIMIZATION_STATUSES } from '@/schemas/video-optimization.dto'
+import type {
+  PreviewVideoStreamingOptimizationBatchInput,
+  VideoOptimizationBatchResult,
+  VideoOptimizationCandidate,
+  VideoOptimizationCandidatePage,
+  VideoOptimizationFilters,
+  VideoOptimizationStatus
+} from '@/types/video-optimization'
+import { TaskSection } from './task-ui'
 
-interface VideoOptimizationQueueView {
-  capacity: number
-  active: VideoOptimizationJobView[]
-  failureAttentionCount: number
-  recent: VideoOptimizationJobView[]
+const statusLabels: Record<VideoOptimizationStatus, string> = {
+  NONE: '无记录',
+  ACTIVE: '活动中',
+  COMPLETED: '最近成功',
+  FAILED: '最近失败',
+  CANCELLED: '最近取消',
+  SKIPPED: '最近跳过'
 }
 
-interface VideoStreamingOptimizationResult {
-  path?: string
-  originalSize?: number
-  optimizedSize?: number
-  savedBytes?: number
+function defaultDraft() {
+  return {
+    artworkId: '',
+    title: '',
+    artistName: '',
+    tags: [] as Option[],
+    excludeTags: [] as Option[],
+    sources: [] as Option[],
+    statuses: [...DEFAULT_VIDEO_OPTIMIZATION_STATUSES] as VideoOptimizationStatus[]
+  }
 }
 
-export function VideoStreamingOptimizationSection() {
+export function VideoStreamingOptimizationSection({
+  onViewTasks,
+  onSubmitted
+}: {
+  onViewTasks?: (artworkId?: number) => void
+  onSubmitted?: () => void
+}) {
   const trpc = useTRPC()
-  const [pollInterval, setPollInterval] = useState<number | false>(false)
-  const queueQuery = useQuery(
-    trpc.job.getVideoStreamingOptimizationQueue.queryOptions(undefined, {
-      refetchInterval: pollInterval
+  const trpcClient = useTRPCClient()
+  const queryClient = useQueryClient()
+  const tableRef = useRef<ActionType | undefined>(undefined)
+  const [draft, setDraft] = useState(defaultDraft)
+  const [filters, setFilters] = useState<VideoOptimizationFilters>({
+    statuses: [...DEFAULT_VIDEO_OPTIMIZATION_STATUSES]
+  })
+  const [page, setPage] = useState(1)
+  const currentView = useRef({ filters, page })
+  currentView.current = { filters, page }
+  const [candidates, setCandidates] = useState<VideoOptimizationCandidatePage>()
+  const [selection, setSelection] = useState<PreviewVideoStreamingOptimizationBatchInput['selection']>({
+    mode: 'SELECTED',
+    artworkIds: []
+  })
+  const [confirming, setConfirming] = useState(false)
+  const [result, setResult] = useState<VideoOptimizationBatchResult>()
+  const request = useCallback(
+    async ({ current }: { current: number }) => {
+      const data = await queryClient.fetchQuery(
+        trpc.job.listVideoStreamingOptimizationCandidates.queryOptions(
+          {
+            filters,
+            page: current,
+            pageSize: 20
+          },
+          { staleTime: 0, retry: false }
+        )
+      )
+      if (currentView.current.filters === filters && currentView.current.page === current) setCandidates(data)
+      return { data: data.items, success: true, total: data.total }
+    },
+    [filters, queryClient, trpc]
+  )
+  const previewMutation = useMutation(
+    trpc.job.previewVideoStreamingOptimizationBatch.mutationOptions({
+      retry: false,
+      onError: (error) => toast.error(`预览失败：${error.message}。选择已保留，可刷新后重试。`)
     })
   )
-  const queue = queueQuery.data as VideoOptimizationQueueView | undefined
-
-  useEffect(() => {
-    setPollInterval(queue?.active.length ? 1000 : false)
-  }, [queue?.active.length])
-
-  const cancelMutation = useMutation(
-    trpc.job.cancelVideoStreamingOptimization.mutationOptions({
+  const submitMutation = useMutation(
+    trpc.job.submitVideoStreamingOptimizationBatch.mutationOptions({
+      retry: false,
       onSuccess: (data) => {
-        toast.info(data.success ? '任务取消请求已提交' : '该任务已经结束')
-        void queueQuery.refetch()
+        setResult(data)
+        setSelection({ mode: 'SELECTED', artworkIds: [] })
+        void queryClient.invalidateQueries({ queryKey: trpc.job.listVideoStreamingOptimizationCandidates.queryKey() })
+        void queryClient.invalidateQueries({ queryKey: trpc.job.backgroundDashboard.queryKey() })
+        void queryClient.invalidateQueries({ queryKey: trpc.job.backgroundHistory.queryKey() })
+        tableRef.current?.reload()
+        onSubmitted?.()
       },
-      onError: (error) => toast.error(`取消优化失败：${error.message}`)
+      onError: (error) => toast.error(`提交失败：${error.message}。选择已保留，可刷新后重试。`)
     })
   )
-  const retryMutation = useMutation(
-    trpc.job.startVideoStreamingOptimization.mutationOptions({
-      onSuccess: (data) => {
-        if (data.reused) {
-          toast.info(data.queuePosition ? `该视频已在队列第 ${data.queuePosition} 位` : '该视频正在优化')
-        } else {
-          toast.success(data.queuePosition ? `已重新加入队列，第 ${data.queuePosition} 位` : '已开始优化')
+  const busy = previewMutation.isPending || confirming || submitMutation.isPending
+  const selectable = (candidates?.items ?? []).filter((item) => item.actionableMp4Count > 0)
+  const isSelected = (artworkId: number) =>
+    selection.mode === 'SELECTED'
+      ? selection.artworkIds.includes(artworkId)
+      : !selection.excludedArtworkIds?.includes(artworkId)
+  const selectedOnPage = selectable.filter((item) => isSelected(item.artworkId)).length
+  const selectedCount =
+    selection.mode === 'SELECTED'
+      ? selection.artworkIds.length
+      : Math.max(0, (candidates?.total ?? 0) - (selection.excludedArtworkIds?.length ?? 0))
+  const setSelected = (ids: number[], checked: boolean) =>
+    setSelection((previous) => {
+      if (previous.mode === 'SELECTED') {
+        return {
+          mode: 'SELECTED',
+          artworkIds: checked
+            ? [...new Set([...previous.artworkIds, ...ids])]
+            : previous.artworkIds.filter((id) => !ids.includes(id))
         }
-        setPollInterval(1000)
-        void queueQuery.refetch()
-      },
-      onError: (error) => toast.error(`重新加入队列失败：${error.message}`)
+      }
+      return {
+        mode: 'ALL_MATCHING',
+        excludedArtworkIds: checked
+          ? (previous.excludedArtworkIds ?? []).filter((id) => !ids.includes(id))
+          : [...new Set([...(previous.excludedArtworkIds ?? []), ...ids])]
+      }
     })
-  )
-
-  const active = queue?.active ?? []
-  const recent = queue?.recent ?? []
-  const runningCount = active.filter((job) => job.status === 'RUNNING' || job.status === 'CANCELLING').length
-  const pendingCount = active.filter((job) => job.status === 'PENDING').length
-  const failedCount = queue?.failureAttentionCount ?? 0
+  const applyFilters = (reset = false) => {
+    const next = reset ? defaultDraft() : draft
+    if (reset) setDraft(next)
+    setFilters({
+      artworkId: next.artworkId ? Number(next.artworkId) : undefined,
+      title: next.title.trim() || undefined,
+      artistName: next.artistName.trim() || undefined,
+      tags: next.tags.map((tag) => tag.value),
+      excludeTags: next.excludeTags.map((tag) => tag.value),
+      sources: next.sources.map((source) => source.value as ESource),
+      statuses: next.statuses
+    })
+    setPage(1)
+    setCandidates(undefined)
+    setSelection({ mode: 'SELECTED', artworkIds: [] })
+    setResult(undefined)
+  }
+  const searchTags = async (query: string) => {
+    const response = await trpcClient.tag.list.query({ query, pageSize: 20 })
+    return response.items.map((tag) => ({
+      value: tag.name,
+      label: tag.name_zh ? `${tag.name} (${tag.name_zh})` : tag.name
+    }))
+  }
+  const preview = async () => {
+    const data = await previewMutation.mutateAsync({ filters, selection }).catch(() => undefined)
+    if (!data) return
+    if (data.mp4Count > 1000) {
+      toast.error(`当前选择包含 ${data.mp4Count} 个 MP4，超过单批 1000 个上限。整批未提交，请缩小范围。`)
+      return
+    }
+    if (!data.mp4Count) {
+      toast.info('当前选择没有可提交的 MP4，请刷新列表后重新选择。')
+      return
+    }
+    setConfirming(true)
+    confirm({
+      title: '确认执行 MP4 无损播放优化？',
+      description: (
+        <div className="flex flex-col gap-2 text-sm">
+          <p>
+            将提交 {data.artworkCount} 部作品中的 {data.mp4Count} 个 MP4，其中 {data.successRedoCount}{' '}
+            个为最近成功项重做。
+          </p>
+          <p>
+            仅处理所选作品中符合已应用筛选的 MP4。将使用 FFmpeg stream copy + faststart 移动 moov
+            并重建容器索引，视频和音频不会重新编码。
+          </p>
+          <p>不保证压缩体积，也不会增加关键帧。</p>
+          <p>成功后会原位替换文件。执行期间请勿从外部修改或移动该视频。</p>
+        </div>
+      ),
+      confirmText: '加入优化队列',
+      onCancel: () => setConfirming(false),
+      onConfirm: async () => {
+        await submitMutation.mutateAsync({ targets: data.targets }).catch(() => undefined)
+        setConfirming(false)
+      }
+    })
+  }
+  const columns: ProColumnDef<VideoOptimizationCandidate>[] = [
+    {
+      id: 'selection',
+      header: () => (
+        <Checkbox
+          aria-label="选择本页作品"
+          disabled={busy || !selectable.length}
+          checked={
+            selectedOnPage === selectable.length && selectable.length > 0
+              ? true
+              : selectedOnPage > 0
+                ? 'indeterminate'
+                : false
+          }
+          onCheckedChange={(checked) =>
+            setSelected(
+              selectable.map((item) => item.artworkId),
+              checked === true
+            )
+          }
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          aria-label={`选择作品 #${row.original.artworkId}`}
+          disabled={busy || row.original.actionableMp4Count === 0}
+          checked={isSelected(row.original.artworkId) && row.original.actionableMp4Count > 0}
+          onCheckedChange={(checked) => setSelected([row.original.artworkId], checked === true)}
+        />
+      )
+    },
+    {
+      id: 'artwork',
+      header: '作品',
+      cell: ({ row }) => (
+        <div className="flex min-w-40 flex-col gap-1">
+          <PrivacySensitiveText className="break-words font-medium">{row.original.title}</PrivacySensitiveText>
+          <span className="text-xs text-muted-foreground">内部 ID #{row.original.artworkId}</span>
+        </div>
+      )
+    },
+    {
+      id: 'artists',
+      header: '艺术家',
+      cell: ({ row }) => (
+        <PrivacySensitiveText className="break-words">
+          {row.original.artists.map((artist) => artist.name).join('、') || '未关联艺术家'}
+        </PrivacySensitiveText>
+      )
+    },
+    { accessorKey: 'source', header: '创建来源', cell: ({ row }) => MSource[row.original.source] },
+    {
+      id: 'mp4',
+      header: 'MP4',
+      cell: ({ row }) => (
+        <div className="flex flex-col gap-1 text-xs tabular-nums">
+          <span>
+            匹配 {row.original.matchingMp4Count} / 共 {row.original.mp4Count}
+          </span>
+          <span className="text-muted-foreground">可提交 {row.original.actionableMp4Count}</span>
+        </div>
+      )
+    },
+    {
+      id: 'statuses',
+      header: '任务状态',
+      cell: ({ row }) => (
+        <div className="flex min-w-36 flex-wrap gap-1">
+          {VIDEO_OPTIMIZATION_STATUSES.filter((status) => row.original.statusCounts[status] > 0).map((status) => (
+            <Badge key={status} variant="outline">
+              {statusLabels[status]} {row.original.statusCounts[status]}
+            </Badge>
+          ))}
+        </div>
+      )
+    },
+    {
+      id: 'actions',
+      header: '操作',
+      cell: ({ row }) => (
+        <Button type="button" size="sm" variant="ghost" onClick={() => onViewTasks?.(row.original.artworkId)}>
+          查看任务
+        </Button>
+      )
+    }
+  ]
 
   return (
     <TaskSection
       id="video-streaming"
       category="持久队列"
       icon={Film}
-      title="MP4 无损播放优化队列"
-      description="从作品详情或媒体管理提交，任务按顺序串行执行；仅做 stream copy + faststart，不重新编码。"
-      summary={
-        runningCount > 0
-          ? `${runningCount} 项运行中 · ${pendingCount} 项等待`
-          : pendingCount > 0
-            ? `${pendingCount} 项等待执行`
-            : failedCount > 0
-              ? `需要处理 · ${failedCount} 项失败`
-              : null
+      title="MP4 无损播放优化"
+      description="筛选作品并批量提交匹配的 MP4；活动中任务不会重复创建。"
+      summary={null}
+      action={
+        <Button type="button" variant="outline" onClick={() => onViewTasks?.()}>
+          查看优化任务
+        </Button>
       }
-      tone={active.length > 0 ? 'active' : failedCount > 0 ? 'error' : 'idle'}
     >
-      <QueueGroup title="正在处理与等待" emptyText="当前没有等待或执行中的视频优化任务">
-        {active.map((job) => (
-          <OptimizationJobRow
-            key={job.id}
-            job={job}
-            onCancel={() =>
-              confirm({
-                title: '取消这个视频优化任务？',
-                description: '当前优化会停止，原始媒体文件不会被删除。',
-                confirmText: '确认取消',
-                variant: 'destructive',
-                onConfirm: () => cancelMutation.mutate({ jobId: job.id })
-              })
-            }
-            cancelling={cancelMutation.isPending && cancelMutation.variables?.jobId === job.id}
-          />
-        ))}
-      </QueueGroup>
-
-      <QueueGroup title="近期记录（保留 90 天）" emptyText="还没有视频优化记录">
-        {recent.map((job) => (
-          <OptimizationJobRow
-            key={job.id}
-            job={job}
-            onRetry={
-              job.targetImageId && job.retryAllowed
-                ? () => retryMutation.mutate({ imageId: job.targetImageId! })
-                : undefined
-            }
-            retrying={retryMutation.isPending && retryMutation.variables?.imageId === job.targetImageId}
-          />
-        ))}
-      </QueueGroup>
+      <form
+        className="flex flex-col gap-4"
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (!busy && draft.statuses.length) applyFilters()
+        }}
+      >
+        <FieldGroup className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <Field>
+            <FieldLabel htmlFor="video-optimization-artwork-id">内部作品 ID</FieldLabel>
+            <Input
+              id="video-optimization-artwork-id"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              step={1}
+              value={draft.artworkId}
+              disabled={busy}
+              autoComplete="off"
+              onChange={(event) => setDraft({ ...draft, artworkId: event.target.value })}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="video-optimization-title">作品标题</FieldLabel>
+            <Input
+              id="video-optimization-title"
+              value={draft.title}
+              maxLength={500}
+              placeholder="仅匹配作品标题"
+              disabled={busy}
+              autoComplete="off"
+              onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="video-optimization-artist">艺术家名</FieldLabel>
+            <Input
+              id="video-optimization-artist"
+              value={draft.artistName}
+              maxLength={500}
+              disabled={busy}
+              autoComplete="off"
+              onChange={(event) => setDraft({ ...draft, artistName: event.target.value })}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="video-optimization-tags">包含标签</FieldLabel>
+            <MultipleSelector
+              value={draft.tags}
+              inputProps={{ id: 'video-optimization-tags' }}
+              disabled={busy}
+              maxSelected={100}
+              onChange={(tags) => setDraft((previous) => ({ ...previous, tags }))}
+              onSearch={searchTags}
+              triggerSearchOnFocus
+              placeholder="搜索并选择包含标签…"
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="video-optimization-exclude-tags">排除标签</FieldLabel>
+            <MultipleSelector
+              value={draft.excludeTags}
+              inputProps={{ id: 'video-optimization-exclude-tags' }}
+              disabled={busy}
+              maxSelected={100}
+              onChange={(excludeTags) => setDraft((previous) => ({ ...previous, excludeTags }))}
+              onSearch={searchTags}
+              triggerSearchOnFocus
+              placeholder="搜索并选择排除标签…"
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="video-optimization-sources">创建来源</FieldLabel>
+            <MultipleSelector
+              value={draft.sources}
+              inputProps={{ id: 'video-optimization-sources' }}
+              disabled={busy}
+              options={OSource}
+              onChange={(sources) => setDraft((previous) => ({ ...previous, sources }))}
+              placeholder="选择创建来源…"
+            />
+          </Field>
+        </FieldGroup>
+        <div className="flex flex-wrap items-center gap-2">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button type="button" size="sm" variant="outline" disabled={busy}>
+                任务状态 · {draft.statuses.length}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start">
+              <FieldSet>
+                <FieldLegend>匹配 MP4 的最近任务状态</FieldLegend>
+                <FieldGroup className="gap-3">
+                  {VIDEO_OPTIMIZATION_STATUSES.map((status) => (
+                    <Field key={status} orientation="horizontal">
+                      <Checkbox
+                        id={`video-optimization-status-${status.toLowerCase()}`}
+                        checked={draft.statuses.includes(status)}
+                        disabled={busy}
+                        onCheckedChange={(checked) =>
+                          setDraft({
+                            ...draft,
+                            statuses: checked
+                              ? [...draft.statuses, status]
+                              : draft.statuses.filter((value) => value !== status)
+                          })
+                        }
+                      />
+                      <FieldLabel htmlFor={`video-optimization-status-${status.toLowerCase()}`}>
+                        {statusLabels[status]}
+                      </FieldLabel>
+                    </Field>
+                  ))}
+                </FieldGroup>
+              </FieldSet>
+            </PopoverContent>
+          </Popover>
+          <Button type="submit" size="sm" disabled={busy || !draft.statuses.length}>
+            <Search data-icon="inline-start" aria-hidden="true" />
+            应用筛选
+          </Button>
+          <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => applyFilters(true)}>
+            重置
+          </Button>
+          {!draft.statuses.length ? (
+            <p role="alert" className="text-sm text-destructive">
+              请至少选择一种任务状态。
+            </p>
+          ) : null}
+        </div>
+      </form>
+      <p className="text-xs text-muted-foreground">
+        任务状态按每个 MP4 的最近任务统计。活动中包括排队、执行、暂停、自动重试及取消中；成功项需显式筛选后重做。
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm tabular-nums" role="status">
+          {selection.mode === 'ALL_MATCHING'
+            ? `已选择所有筛选结果${selection.excludedArtworkIds?.length ? `，排除 ${selection.excludedArtworkIds.length} 部作品` : ''}`
+            : `已选择 ${selectedCount} 部作品`}
+        </span>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={busy || !candidates?.total}
+          onClick={() => setSelection({ mode: 'ALL_MATCHING', excludedArtworkIds: [] })}
+        >
+          全选所有筛选结果
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={busy || !selectedCount}
+          onClick={() => setSelection({ mode: 'SELECTED', artworkIds: [] })}
+        >
+          清空选择
+        </Button>
+        <Button type="button" size="sm" disabled={busy || !selectedCount} onClick={() => void preview()}>
+          {busy ? <Spinner data-icon="inline-start" aria-hidden="true" /> : null}预览并提交
+        </Button>
+        <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => tableRef.current?.reload()}>
+          <RefreshCw data-icon="inline-start" aria-hidden="true" />
+          刷新作品
+        </Button>
+      </div>
+      {result ? (
+        <Alert variant={result.failed || result.skipped ? 'warning' : 'success'}>
+          <AlertTitle>批量提交结果</AlertTitle>
+          <AlertDescription>
+            <p>
+              新建 {result.submitted} · 复用 {result.reused} · 跳过 {result.skipped} · 失败 {result.failed}
+            </p>
+            {result.items.some((item) => item.outcome === 'FAILED' || item.outcome === 'SKIPPED') ? (
+              <ul className="flex max-h-40 flex-col gap-1 overflow-y-auto">
+                {result.items
+                  .filter((item) => item.outcome === 'FAILED' || item.outcome === 'SKIPPED')
+                  .map((item) => (
+                    <li key={item.imageId}>
+                      作品 #{item.artworkId} · 视频 #{item.imageId} · {item.outcome === 'SKIPPED' ? '跳过' : '失败'}：
+                      {item.reason || '请刷新作品后重新选择。'}
+                    </li>
+                  ))}
+              </ul>
+            ) : null}
+            <Button type="button" size="sm" variant="outline" onClick={() => onViewTasks?.()}>
+              查看优化任务
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      <ProTable
+        key={`${JSON.stringify(filters)}:${page}`}
+        columns={columns}
+        request={request}
+        actionRef={tableRef}
+        rowKey={(item) => String(item.artworkId)}
+        defaultPageSize={20}
+        pageSizeOptions={[20]}
+        pagination={{ pageIndex: page - 1, pageSize: 20 }}
+        onPaginationChange={(updater) => {
+          if (busy) return
+          const next = typeof updater === 'function' ? updater({ pageIndex: page - 1, pageSize: 20 }) : updater
+          setCandidates(undefined)
+          setPage(next.pageIndex + 1)
+        }}
+        toolBarRender={false}
+        scrollToTopOnPageChange={false}
+      />
     </TaskSection>
   )
-}
-
-function QueueGroup({ title, emptyText, children }: { title: string; emptyText: string; children: React.ReactNode }) {
-  const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children)
-  return (
-    <section className="flex flex-col gap-2">
-      <h4 className="text-sm font-medium text-foreground">{title}</h4>
-      {hasChildren ? (
-        <div className="flex flex-col gap-2">{children}</div>
-      ) : (
-        <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">{emptyText}</p>
-      )}
-    </section>
-  )
-}
-
-function OptimizationJobRow({
-  job,
-  onCancel,
-  onRetry,
-  cancelling = false,
-  retrying = false
-}: {
-  job: VideoOptimizationJobView
-  onCancel?: () => void
-  onRetry?: () => void
-  cancelling?: boolean
-  retrying?: boolean
-}) {
-  const active = isActiveVideoOptimization(job)
-  const pending = job.status === 'PENDING'
-  const result = toOptimizationResult(job.result)
-
-  return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-      <div className="flex flex-col gap-3 p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex min-w-0 flex-col gap-1">
-            <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
-              <AdminStatusBadge status={job.status}>{getStatusLabel(job)}</AdminStatusBadge>
-              {job.attempt && job.attempt > 1 ? <Badge variant="outline">第 {job.attempt} 次执行</Badge> : null}
-              {job.status === 'FAILED' && !job.failureNeedsAttention ? (
-                <Badge variant="outline">历史记录</Badge>
-              ) : null}
-            </div>
-            <PrivacySensitiveText as="p" className="break-all font-mono text-xs text-muted-foreground">
-              媒体 #{job.targetImageId ?? '-'} · {job.targetPath || '路径未知'}
-            </PrivacySensitiveText>
-            {job.createdAt && <p className="text-xs text-muted-foreground">提交于 {formatDateTime(job.createdAt)}</p>}
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {onCancel && active && (
-              <Button
-                type="button"
-                size="sm"
-                variant="destructive"
-                disabled={job.status === 'CANCELLING' || cancelling}
-                onClick={onCancel}
-              >
-                {cancelling || job.status === 'CANCELLING' ? (
-                  <Spinner data-icon="inline-start" aria-hidden="true" />
-                ) : (
-                  <X data-icon="inline-start" aria-hidden="true" />
-                )}
-                {pending ? '取消排队' : '取消任务'}
-              </Button>
-            )}
-            {onRetry && (
-              <Button type="button" size="sm" variant="outline" disabled={retrying} onClick={onRetry}>
-                <RotateCcw
-                  data-icon="inline-start"
-                  className={cn(retrying && 'animate-spin motion-reduce:animate-none')}
-                  aria-hidden="true"
-                />
-                重新加入队列
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {active && !pending && (
-          <div className="flex items-center gap-3">
-            <Progress value={job.progress} className="h-2 flex-1" aria-label={`优化进度 ${job.progress}%`} />
-            <span className="text-xs font-medium tabular-nums text-muted-foreground">{job.progress}%</span>
-          </div>
-        )}
-        {job.error && (
-          <p className="break-words text-sm font-medium text-destructive">
-            错误：<PrivacySensitiveText>{job.error}</PrivacySensitiveText>
-          </p>
-        )}
-      </div>
-
-      {job.status === 'COMPLETED' && result && (
-        <div className="flex flex-wrap gap-x-4 gap-y-1 border-t bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-          <SizeStat label="优化前" value={result.originalSize} />
-          <SizeStat label="优化后" value={result.optimizedSize} />
-          <span>
-            体积变化：
-            <strong className="font-medium text-foreground">
-              {(result.savedBytes ?? 0) > 0 ? '-' : '+'}
-              {formatFileSize(Math.abs(result.savedBytes ?? 0))}
-            </strong>
-          </span>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function getStatusLabel(job: VideoOptimizationJobView) {
-  if (job.status === 'PENDING') return `排队中${job.queuePosition ? ` · 第 ${job.queuePosition} 位` : ''}`
-  if (job.status === 'RUNNING') return job.message || '正在优化'
-  if (job.status === 'CANCELLING') return '正在取消'
-  if (job.status === 'COMPLETED') return '优化完成'
-  if (job.status === 'CANCELLED') return '已取消'
-  return '优化失败'
-}
-
-function SizeStat({ label, value }: { label: string; value?: number }) {
-  return (
-    <span>
-      {label}：<strong className="font-medium text-foreground">{formatFileSize(value ?? 0)}</strong>
-    </span>
-  )
-}
-
-function toOptimizationResult(result: unknown): VideoStreamingOptimizationResult | null {
-  return result && typeof result === 'object' ? (result as VideoStreamingOptimizationResult) : null
-}
-
-function formatDateTime(value: Date | string) {
-  return new Date(value).toLocaleString('zh-CN')
 }

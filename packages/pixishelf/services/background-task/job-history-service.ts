@@ -42,6 +42,7 @@ export const backgroundHistoryInputSchema = z
     createdFrom: z.string().datetime().optional(),
     createdTo: z.string().datetime().optional(),
     search: z.string().trim().max(500).optional(),
+    artworkId: z.number().int().positive().optional(),
     includeBatchChildren: z.boolean().default(false)
   })
   .refine(
@@ -76,7 +77,7 @@ const historySelect = {
 } satisfies Prisma.SystemJobSelect
 
 type HistoryRecord = Prisma.SystemJobGetPayload<{ select: typeof historySelect }>
-type HistoryClient = Pick<Prisma.TransactionClient, 'systemJob'>
+type HistoryClient = Pick<Prisma.TransactionClient, 'systemJob' | '$queryRaw'>
 
 function toHistoryItem(record: HistoryRecord) {
   const redact = record.type.startsWith('ARCHIVE_') ? redactArchiveText : redactSensitiveText
@@ -136,6 +137,7 @@ export async function listBackgroundHistory(
   parsed: z.output<typeof backgroundHistoryInputSchema>,
   client: HistoryClient = prisma as unknown as HistoryClient
 ) {
+  if (parsed.artworkId) return listArtworkOptimizationHistory(parsed, client)
   const conditions: Prisma.SystemJobWhereInput[] = [{ definitionVersion: { gte: 1 } }, currentArchiveExecutionWhere]
   if (!parsed.includeBatchChildren) {
     conditions.push(dashboardVisibleWhere)
@@ -145,6 +147,54 @@ export async function listBackgroundHistory(
   if (parsed.triggerSources?.length) conditions.push({ triggerSource: { in: parsed.triggerSources } })
   if (parsed.search) conditions.push(historySearchWhere(parsed.search))
   return listHistoryPage(parsed, conditions, client, parsed)
+}
+
+async function listArtworkOptimizationHistory(
+  parsed: z.output<typeof backgroundHistoryInputSchema>,
+  client: HistoryClient
+) {
+  const clauses = [
+    Prisma.sql`j.type = 'VIDEO_STREAMING_OPTIMIZATION'`,
+    Prisma.sql`j."definitionVersion" >= 1`,
+    Prisma.sql`EXISTS (SELECT 1 FROM "Image" i WHERE i."artworkId" = ${parsed.artworkId!}
+      AND j.payload #> '{imageId}' = to_jsonb(i.id))`
+  ]
+  if (parsed.statuses?.length) clauses.push(Prisma.sql`j.status::text IN (${Prisma.join(parsed.statuses)})`)
+  if (parsed.types?.length) clauses.push(Prisma.sql`j.type IN (${Prisma.join(parsed.types)})`)
+  if (parsed.triggerSources?.length) {
+    clauses.push(Prisma.sql`j."triggerSource"::text IN (${Prisma.join(parsed.triggerSources)})`)
+  }
+  if (parsed.createdFrom) clauses.push(Prisma.sql`j."createdAt" >= ${new Date(parsed.createdFrom)}`)
+  if (parsed.createdTo) clauses.push(Prisma.sql`j."createdAt" < ${new Date(parsed.createdTo)}`)
+  if (parsed.cursor) {
+    clauses.push(Prisma.sql`(j."createdAt", j.id) < (${new Date(parsed.cursor.createdAt)}, ${parsed.cursor.id})`)
+  }
+  if (parsed.search) {
+    const needle = `%${parsed.search}%`
+    const type = 'VIDEO_STREAMING_OPTIMIZATION'
+    const normalized = parsed.search.toLocaleLowerCase()
+    const typeMatches =
+      type.toLowerCase().includes(normalized) || backgroundJobTypeLabels[type].toLocaleLowerCase().includes(normalized)
+    clauses.push(Prisma.sql`(${typeMatches} OR j.id ILIKE ${needle} OR j.message ILIKE ${needle}
+      OR j."errorCode" ILIKE ${needle} OR j.error ILIKE ${needle})`)
+  }
+  const ids = await client.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT j.id FROM system_jobs j WHERE ${Prisma.join(clauses, ' AND ')}
+    ORDER BY j."createdAt" DESC, j.id DESC LIMIT ${parsed.limit + 1}`)
+  const records = await client.systemJob.findMany({
+    where: { id: { in: ids.slice(0, parsed.limit).map((row) => row.id) } },
+    select: historySelect,
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }]
+  })
+  const items = records.map(toHistoryItem)
+  const last = items.at(-1)
+  return {
+    items,
+    nextCursor:
+      ids.length > parsed.limit && last
+        ? Buffer.from(JSON.stringify({ createdAt: last.createdAt, id: last.id })).toString('base64url')
+        : null
+  }
 }
 
 export async function listBackgroundFailures(

@@ -1,6 +1,8 @@
 import { Prisma } from '@pixishelf/db'
 const sourceProof = vi.hoisted(() => ({ assert: vi.fn().mockResolvedValue(undefined) }))
-vi.mock('@/services/archive-intake/archive-intake-source-proof', () => ({ assertArchiveIntakeSourceProof: sourceProof.assert }))
+vi.mock('@/services/archive-intake/archive-intake-source-proof', () => ({
+  assertArchiveIntakeSourceProof: sourceProof.assert
+}))
 import { describe, expect, it, vi } from 'vitest'
 import { BackgroundTaskError } from '../background-task-error'
 import {
@@ -19,6 +21,8 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
   const queryRaw = vi.fn().mockResolvedValue([{ pg_advisory_xact_lock: null }])
   const findUnique = vi.fn()
   for (const record of records) findUnique.mockResolvedValueOnce(record)
+  const findFirst = vi.fn().mockResolvedValue(null)
+  const findImage = vi.fn().mockResolvedValue(null)
   const updateMany = vi.fn().mockResolvedValue({ count: 1 })
   const updateIntakeItems = vi.fn().mockResolvedValue({ count: 1 })
   const updateScanRuns = vi.fn().mockResolvedValue({ count: 1 })
@@ -42,9 +46,15 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
   const transaction = {
     $queryRaw: queryRaw,
     $queryRawUnsafe: queryRawUnsafe,
-    systemJob: { findUnique, updateMany, create },
+    systemJob: { findUnique, findFirst, updateMany, create },
+    image: { findFirst: findImage },
     systemJobFailureAcknowledgement: { createMany: acknowledgementCreateMany },
-    archiveIntakeItem: { updateMany: updateIntakeItems, findFirst: vi.fn().mockResolvedValue({ submittedUrl: 'https://e-hentai.org/g/123/token/', dedupSourceSnapshot: { version: 1 } }) },
+    archiveIntakeItem: {
+      updateMany: updateIntakeItems,
+      findFirst: vi
+        .fn()
+        .mockResolvedValue({ submittedUrl: 'https://e-hentai.org/g/123/token/', dedupSourceSnapshot: { version: 1 } })
+    },
     scanRun: { findUnique: findScanRun, updateMany: updateScanRuns },
     scanRunItem: { updateMany: updateScanRunItems, findMany: findScanRunItems },
     systemJobEvent: { create: eventCreate }
@@ -55,6 +65,8 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
     queryRaw,
     queryRawUnsafe,
     findUnique,
+    findFirst,
+    findImage,
     updateMany,
     updateIntakeItems,
     updateScanRuns,
@@ -497,6 +509,33 @@ describe('job commands', () => {
       code: 'INVALID_STATE_TRANSITION'
     })
     expect(harness.create).not.toHaveBeenCalled()
+  })
+
+  it('locks MP4 before recovery rows and preserves recovery blocking even when active work can be reused', async () => {
+    const payload = { imageId: 9, relativePath: 'video.mp4', mode: 'REMUX_FASTSTART' }
+    const failed = jobRecord({ type: 'VIDEO_STREAMING_OPTIMIZATION', status: 'FAILED', payload })
+    const harness = commandHarness([failed])
+    harness.findFirst.mockResolvedValue(jobRecord({ id: 'active', type: failed.type, payload }))
+    harness.findImage.mockResolvedValue({ path: 'video.mp4' })
+    harness.queryRawUnsafe.mockResolvedValue([{ blocked: true }])
+    await expect(retryJobCommand({ jobId: failed.id }, harness.client)).rejects.toMatchObject({
+      code: 'INVALID_STATE_TRANSITION'
+    })
+    expect(harness.queryRawUnsafe.mock.calls[0]?.[0]).toContain('pg_advisory_xact_lock')
+    expect(harness.queryRawUnsafe.mock.calls[1]?.[0]).toContain('FOR UPDATE')
+    expect(harness.create).not.toHaveBeenCalled()
+    expect(harness.acknowledgementCreateMany).not.toHaveBeenCalled()
+  })
+
+  it('reuses active MP4 work without acknowledging the old failure or creating another retry', async () => {
+    const payload = { imageId: 9, relativePath: 'video.mp4', mode: 'REMUX_FASTSTART' }
+    const failed = jobRecord({ type: 'VIDEO_STREAMING_OPTIMIZATION', status: 'FAILED', payload })
+    const harness = commandHarness([failed])
+    harness.findFirst.mockResolvedValue(jobRecord({ id: 'active', type: failed.type, payload }))
+    harness.findImage.mockResolvedValue({ path: 'video.mp4' })
+    await expect(retryJobCommand({ jobId: failed.id }, harness.client)).resolves.toMatchObject({ id: 'active' })
+    expect(harness.create).not.toHaveBeenCalled()
+    expect(harness.acknowledgementCreateMany).not.toHaveBeenCalled()
   })
 
   it('requires an offline grant before resuming an unresolved cancellation', async () => {

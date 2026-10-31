@@ -23,6 +23,8 @@ sources:
 - 默认隐藏既有四类 Pixiv 补全/核对子任务；“包含批次子任务”恢复这些子项逐条展示。归档各阶段和重试始终按业务身份聚合，历史阶段在归档详情展开。记录按自身持久化状态筛选，不把父任务状态改写成活动批次状态。批次综合状态在列表顶部的实时进度行中显示。
 - 待处理失败和执行记录允许重复展示同一任务；失败页的“查看失败历史”切换到任务页，清除其他条件并筛选 FAILED，包括已确认的历史失败。
 
+2026-10-31 局部核验：MP4 无损播放优化提供“查看任务”和单作品入口，分别打开只含优化任务的执行动态、或继续限定作品的优化历史。单作品范围以可清除的作品标记显示；切换任务类型不会自动清除作品范围或扩大到全库，类型交集为空时显示空结果。原有 `/admin/tasks?jobId=…` 深链继续直接打开指定任务详情。MP4 详情展示目标作品、视频及 `COMPLETED` 结果中的原体积、现体积与差值，失败、取消、运行中等状态不将历史／中间结果显示成完成体积；候选作品列表不复制这些详情。选择与提交规则见[MP4 无损播放优化](./mp4-streaming-optimization.md)。
+
 ## 待处理失败与批量忽略
 
 - 失败页固定查询 definition v1+、FAILED、无确认的任务，隐藏四类 Pixiv 补全/核对子任务，归档只取当前阶段失败；计数、分页、批量操作共用资格条件。每批 50 条，支持加载更多，使用与执行历史相同的轻量摘要、脱敏与按值游标。
@@ -37,17 +39,19 @@ sources:
 
 以下接口均为 tRPC 管理员接口。backgroundDashboard、backgroundList 与历史查询共用归档当前阶段聚合。共享 JobDto 和 SSE 摘要增加可选 `archiveImportId`、`archivePhase`、`activeExecutionId`；backgroundDetail 另有页面专用提醒状态。
 
-| 接口                                   | 输入                                                                                                                            | 输出                                                                      |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `job.backgroundHistory`                | `cursor?`, `limit?`, `statuses?`, `types?`, `triggerSources?`, `createdFrom?`, `createdTo?`, `search?`, `includeBatchChildren?` | `{ items, nextCursor }`                                                   |
-| `job.backgroundHistorySnapshots`       | `{ ids }`，1–100 项，服务端去重                                                                                                 | `{ items }`，返回仍存在的 definition v1+ 记录；归档旧执行 ID 跟随当前阶段 |
-| `job.backgroundFailures`               | `cursor?`, `limit?`（默认 50，最多 100）                                                                                        | `{ items, nextCursor }`，仅待处理失败                                     |
-| `job.acknowledgeBackgroundJobFailures` | `{ scope: 'selected', jobIds }`（1–100 项，去重）或 `{ scope: 'all' }`                                                          | `{ acknowledgedCount, skippedCount }`，操作者来自 Session                 |
-| `job.backgroundDetail`                 | `{ jobId }`                                                                                                                     | 当前详情加 `failureNeedsAttention: boolean`，或 null                      |
+| 接口                                   | 输入                                                                                                                                          | 输出                                                                      |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `job.backgroundHistory`                | `cursor?`, `limit?`, `statuses?`, `types?`, `triggerSources?`, `createdFrom?`, `createdTo?`, `search?`, `artworkId?`, `includeBatchChildren?` | `{ items, nextCursor }`                                                   |
+| `job.backgroundHistorySnapshots`       | `{ ids }`，1–100 项，服务端去重                                                                                                               | `{ items }`，返回仍存在的 definition v1+ 记录；归档旧执行 ID 跟随当前阶段 |
+| `job.backgroundFailures`               | `cursor?`, `limit?`（默认 50，最多 100）                                                                                                      | `{ items, nextCursor }`，仅待处理失败                                     |
+| `job.acknowledgeBackgroundJobFailures` | `{ scope: 'selected', jobIds }`（1–100 项，去重）或 `{ scope: 'all' }`                                                                        | `{ acknowledgedCount, skippedCount }`，操作者来自 Session                 |
+| `job.backgroundDetail`                 | `{ jobId }`                                                                                                                                   | 当前详情加 `failureNeedsAttention: boolean`，或 null                      |
 
 归档详情接受任一已关联阶段的 job ID，返回当前执行；暂停、恢复、取消和重试使用返回的当前 ID 并经过 archive 领域控制。详情提醒状态直接读取确认关系，不从 Dashboard 前 10 条推断；确认不修改 SystemJob.updatedAt，该布尔值与 SSE 任务快照分开处理。任务经 SSE 变成 FAILED 后重新查询详情，单条/批量忽略和重试成功后主动刷新详情。
 
 游标是包含末项业务创建时间和稳定身份的 base64url JSON，不是需要数据库回查的记录 ID；删除游标记录后仍可继续查询。游标、时间和枚举经过 Zod 校验，非法参数返回 BAD_REQUEST。轻量记录仅含 ID、类型和显示名称、状态、触发来源、父任务 ID、进度/阶段、脱敏消息/错误摘要、优先级、创建/更新时间；没有完整 payload、result、事件、租约或凭据。
+
+`artworkId` 是当前作品 MP4 优化历史的范围条件，通过当前媒体归属关联任务；它不提供通用跨类型作品历史，也不把已删除或已移走媒体的历史视为仍属于该作品。目标与体积信息由 `backgroundDetail` 读取，历史与 SSE 不增加完整视频 payload 或处理结果。
 
 ## 滚动与实时更新
 

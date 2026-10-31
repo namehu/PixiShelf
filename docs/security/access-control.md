@@ -57,6 +57,8 @@ PixiShelf 当前是**单一管理员信任域**。可以创建多个账户，但
 
 精确接口参数由 Zod 和路由代码维护。扫描/迁移错误 envelope 及 Webhook 例外见[HTTP 响应契约](./http-response-contract.md)，外部调用见[扫描 Webhook](../../packages/pixishelf/docs/webhook-features.md)。
 
+2026-10-31 局部核验：MP4 优化的候选查询、预览和提交均使用 `adminProcedure`，操作者来自 Session。客户端只提交固定的视频／作品 ID、预览时最近任务 ID 与状态，服务端逐项复核当前归属、活动作品、MP4 类型及任务状态；已有活动任务复用，失效或状态变化目标跳过。作品范围只收窄已有管理权限，不构成新的授权方式。未新增公共路由、令牌或媒体挂载，具体批量与中断边界见[MP4 无损播放优化](../features/mp4-streaming-optimization.md)。
+
 作品评分和喜欢筛选使用 Session 账户，`expectedUserId` 只作账户切换一致性校验。评分读取／赋值及喜欢条件的列表、卡片与沉浸 feed 缺失或错账户参数时拒绝；客户端不能指定任意账户评分或喜欢集合。详情滑杆与沉浸爱心共用鉴权评分赋值入口，不存在可绕过评分阈值的布尔点赞写入。服务在作品锁和事务内复核活动、未删除状态；前端缓存及迟到响应按账户隔离。见[作品评分与喜欢](../features/artwork-rating.md)与[作品搜索与我的喜欢](../features/artwork-search-and-favorites.md)。
 
 单图 `mediaMark.getMany/likedMediaIds/set/list/remove` 使用同样的 Session 与 `expectedUserId` 保护，但操作独立媒体标记，不写作品评分。`likedMediaIds` 只读取当前会话账户在指定活动作品下的喜欢记录，返回当前逻辑媒体 ID，不返回其他账户状态或媒体详情。设置必须核对媒体属于当前活动作品、逻辑媒体身份及写入状态；失效条目只能按会话账户移除指定状态。原媒体写入开始、成功失效与标记设置按相同作品锁排序，避免把标记写到正在替换的内容。见[单图书签与喜欢](../features/media-marks.md)。

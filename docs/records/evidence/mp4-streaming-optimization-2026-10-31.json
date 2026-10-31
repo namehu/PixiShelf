@@ -1,0 +1,341 @@
+{
+  "date": "2026-10-31",
+  "baselineCommit": "8f2046a2cfc42704f24cf96ebd73557c03dbcf01",
+  "environment": {
+    "os": "macOS",
+    "node": "20.19.4",
+    "pnpm": "8.15.9",
+    "database": "PostgreSQL 15; isolated 127.0.0.1:57432/mp4_optimization_verification",
+    "app": "http://mp4-fixture.localhost:57430",
+    "workerHealthPort": 57411,
+    "migrations": 134,
+    "desktopViewport": {
+      "width": 1280,
+      "height": 720
+    },
+    "mobileViewport": {
+      "width": 390,
+      "height": 844
+    },
+    "mobileDocumentWidth": 390
+  },
+  "fixture": {
+    "artworks": 28,
+    "mp4": 29,
+    "otherMedia": 1,
+    "sampleBytes": 58621,
+    "sampleSha256": "11a073f6942e778e1cc7e655bee79ba10831e48ac3ab62a1889663af049b1622"
+  },
+  "runtime": [
+    {
+      "jobId": "cmvw7mll9000i144v0iuzba4j",
+      "imageId": 2151,
+      "artworkId": 87,
+      "originalBytes": 58621,
+      "optimizedBytes": 58621,
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "beforeCount": 12,
+          "afterCount": 12,
+          "packetHashesEqual": true,
+          "beforeSequenceHash": "8b3ab23922d2976a44aa5eec4e6bd1a9e30b0a2855fbb421776d03cfb8f1184b",
+          "afterSequenceHash": "8b3ab23922d2976a44aa5eec4e6bd1a9e30b0a2855fbb421776d03cfb8f1184b"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "beforeCount": 45,
+          "afterCount": 45,
+          "packetHashesEqual": true,
+          "beforeSequenceHash": "cb2aa4e34bb3a693a02fa22e575930eb6b2ae21df5beb18ea5621620d1be3a0e",
+          "afterSequenceHash": "cb2aa4e34bb3a693a02fa22e575930eb6b2ae21df5beb18ea5621620d1be3a0e"
+        }
+      ],
+      "streamMetadataEqual": true,
+      "beforeAtoms": [
+        {
+          "type": "ftyp",
+          "offset": 0,
+          "size": 32
+        },
+        {
+          "type": "free",
+          "offset": 32,
+          "size": 8
+        },
+        {
+          "type": "mdat",
+          "offset": 40,
+          "size": 56781
+        },
+        {
+          "type": "moov",
+          "offset": 56821,
+          "size": 1800
+        }
+      ],
+      "afterAtoms": [
+        {
+          "type": "ftyp",
+          "offset": 0,
+          "size": 32
+        },
+        {
+          "type": "moov",
+          "offset": 32,
+          "size": 1800
+        },
+        {
+          "type": "free",
+          "offset": 1832,
+          "size": 8
+        },
+        {
+          "type": "mdat",
+          "offset": 1840,
+          "size": 56781
+        }
+      ],
+      "faststart": true
+    },
+    {
+      "jobId": "cmvw7hoxk000f144v3ppx9zpu",
+      "imageId": 2129,
+      "artworkId": 65,
+      "originalBytes": 58621,
+      "optimizedBytes": 58621,
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "beforeCount": 12,
+          "afterCount": 12,
+          "packetHashesEqual": true,
+          "beforeSequenceHash": "8b3ab23922d2976a44aa5eec4e6bd1a9e30b0a2855fbb421776d03cfb8f1184b",
+          "afterSequenceHash": "8b3ab23922d2976a44aa5eec4e6bd1a9e30b0a2855fbb421776d03cfb8f1184b"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "beforeCount": 45,
+          "afterCount": 45,
+          "packetHashesEqual": true,
+          "beforeSequenceHash": "cb2aa4e34bb3a693a02fa22e575930eb6b2ae21df5beb18ea5621620d1be3a0e",
+          "afterSequenceHash": "cb2aa4e34bb3a693a02fa22e575930eb6b2ae21df5beb18ea5621620d1be3a0e"
+        }
+      ],
+      "streamMetadataEqual": true,
+      "beforeAtoms": [
+        {
+          "type": "ftyp",
+          "offset": 0,
+          "size": 32
+        },
+        {
+          "type": "free",
+          "offset": 32,
+          "size": 8
+        },
+        {
+          "type": "mdat",
+          "offset": 40,
+          "size": 56781
+        },
+        {
+          "type": "moov",
+          "offset": 56821,
+          "size": 1800
+        }
+      ],
+      "afterAtoms": [
+        {
+          "type": "ftyp",
+          "offset": 0,
+          "size": 32
+        },
+        {
+          "type": "moov",
+          "offset": 32,
+          "size": 1800
+        },
+        {
+          "type": "free",
+          "offset": 1832,
+          "size": 8
+        },
+        {
+          "type": "mdat",
+          "offset": 1840,
+          "size": 56781
+        }
+      ],
+      "faststart": true
+    },
+    {
+      "jobId": "cmvw7howt000d144vhdxunmne",
+      "imageId": 3222,
+      "artworkId": 65,
+      "originalBytes": 58621,
+      "optimizedBytes": 58621,
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "beforeCount": 12,
+          "afterCount": 12,
+          "packetHashesEqual": true,
+          "beforeSequenceHash": "8b3ab23922d2976a44aa5eec4e6bd1a9e30b0a2855fbb421776d03cfb8f1184b",
+          "afterSequenceHash": "8b3ab23922d2976a44aa5eec4e6bd1a9e30b0a2855fbb421776d03cfb8f1184b"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "beforeCount": 45,
+          "afterCount": 45,
+          "packetHashesEqual": true,
+          "beforeSequenceHash": "cb2aa4e34bb3a693a02fa22e575930eb6b2ae21df5beb18ea5621620d1be3a0e",
+          "afterSequenceHash": "cb2aa4e34bb3a693a02fa22e575930eb6b2ae21df5beb18ea5621620d1be3a0e"
+        }
+      ],
+      "streamMetadataEqual": true,
+      "beforeAtoms": [
+        {
+          "type": "ftyp",
+          "offset": 0,
+          "size": 32
+        },
+        {
+          "type": "free",
+          "offset": 32,
+          "size": 8
+        },
+        {
+          "type": "mdat",
+          "offset": 40,
+          "size": 56781
+        },
+        {
+          "type": "moov",
+          "offset": 56821,
+          "size": 1800
+        }
+      ],
+      "afterAtoms": [
+        {
+          "type": "ftyp",
+          "offset": 0,
+          "size": 32
+        },
+        {
+          "type": "moov",
+          "offset": 32,
+          "size": 1800
+        },
+        {
+          "type": "free",
+          "offset": 1832,
+          "size": 8
+        },
+        {
+          "type": "mdat",
+          "offset": 1840,
+          "size": 56781
+        }
+      ],
+      "faststart": true
+    }
+  ],
+  "partialSubmission": {
+    "submitted": 1,
+    "reused": 0,
+    "skipped": 1,
+    "failed": 0,
+    "skippedArtworkId": 88,
+    "skippedImageId": 2152,
+    "reason": "历史任务的视频已失效或路径发生变化，请重新预览",
+    "oldFailureAcknowledged": false,
+    "oldFailureRetryChildren": 0
+  },
+  "checks": {
+    "lint": {
+      "exit": 0,
+      "warnings": 0,
+      "errors": 0
+    },
+    "typecheck": {
+      "exit": 0
+    },
+    "build": {
+      "exit": 0,
+      "compileSeconds": 25.3
+    },
+    "initialFullUnit": {
+      "exit": 1,
+      "passedFiles": 482,
+      "failedFiles": 3,
+      "skippedFiles": 51,
+      "passedTests": 3584,
+      "failedTests": 6,
+      "skippedTests": 367
+    },
+    "headBaseline": {
+      "exit": 1,
+      "failedFiles": 1,
+      "failedTests": 5,
+      "suite": "services/__tests__/artwork-dedup-display.test.ts",
+      "sameFailures": true
+    },
+    "isolatedPostgres": {
+      "exit": 0,
+      "passedFiles": 4,
+      "passedTests": 15
+    },
+    "finalFullUnit": {
+      "exit": 1,
+      "passedFiles": 484,
+      "failedFiles": 1,
+      "skippedFiles": 51,
+      "passedTests": 3594,
+      "failedTests": 5,
+      "skippedTests": 367,
+      "durationSeconds": 122.74,
+      "onlyFailingSuite": "services/__tests__/artwork-dedup-display.test.ts"
+    },
+    "recoveredSuites": {
+      "videoKeyframeTests": 9,
+      "archiveUploaderSourcesTests": 47,
+      "passedInFinalFullUnit": true
+    },
+    "docs": {
+      "exit": 0,
+      "markdownFiles": 366
+    },
+    "diagrams": {
+      "exit": 0,
+      "sources": 34,
+      "embeddedMermaid": 23,
+      "browserChannel": "chrome"
+    },
+    "lowercasePaths": {
+      "matchingUppercasePaths": 0
+    },
+    "diffWhitespace": {
+      "exit": 0
+    }
+  },
+  "cleanup": {
+    "status": "complete",
+    "containerRemoved": true,
+    "anonymousDatabaseVolumeRemoved": true,
+    "temporarySourceSnapshotsMediaCredentialsAndRawLogsRemoved": true,
+    "temporaryBrowserTabClosed": true,
+    "viewportReset": true,
+    "portsReleased": [57430, 57411, 57432],
+    "existingApplicationPid": 79743,
+    "existingApplicationPort": 5430,
+    "existingBusinessDatabaseContainer": "pixishelf-db",
+    "existingBusinessDatabasePort": 5432
+  }
+}

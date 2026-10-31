@@ -1,5 +1,10 @@
 import { prisma } from '@/lib/prisma'
-import { JOB_STATUS_VALUES, JOB_TYPE_VALUES, type JobStatus } from '@pixishelf/job-contracts'
+import {
+  JOB_STATUS_VALUES,
+  JOB_TYPE_VALUES,
+  videoStreamingOptimizationPayloadSchema,
+  type JobStatus
+} from '@pixishelf/job-contracts'
 import { Prisma } from '@pixishelf/db'
 import { z } from 'zod'
 import { systemJobWireSelect, toJobDto, toWorkerHealthDto, workerInstanceWireSelect } from './job-serialization'
@@ -13,6 +18,7 @@ import {
 } from './job-failure-policy'
 
 type JobQueryClient = Pick<Prisma.TransactionClient, 'systemJob' | 'workerInstance'>
+type JobDetailClient = JobQueryClient & Pick<Prisma.TransactionClient, 'image'>
 
 const TERMINAL_JOB_STATUSES: JobStatus[] = ['COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED']
 const PIXIV_ENRICHMENT_TYPES = [
@@ -244,7 +250,7 @@ export async function getJobById(jobId: string, client?: JobQueryClient) {
   return record ? toJobDto(record) : null
 }
 
-export async function getBackgroundJobDetail(jobId: string, client?: JobQueryClient) {
+export async function getBackgroundJobDetail(jobId: string, client?: JobDetailClient) {
   let record = await queryClient(client).systemJob.findUnique({
     where: { id: z.string().min(1).parse(jobId), definitionVersion: { gte: 1 } },
     select: { ...systemJobWireSelect, failureAcknowledgement: { select: { jobId: true } } }
@@ -256,5 +262,29 @@ export async function getBackgroundJobDetail(jobId: string, client?: JobQueryCli
     })
     if (current) record = current
   }
-  return record ? { ...toJobDto(record), failureNeedsAttention: failureNeedsAttention(record) } : null
+  if (!record) return null
+  let videoOptimizationTarget: { imageId: number; artworkId: number; title: string; filename: string } | null = null
+  if (record.type === 'VIDEO_STREAMING_OPTIMIZATION') {
+    const payload = videoStreamingOptimizationPayloadSchema.safeParse(record.payload)
+    if (payload.success) {
+      const image = await (client ?? (prisma as unknown as JobDetailClient)).image.findFirst({
+        where: {
+          id: payload.data.imageId,
+          artwork: { is: { deletedAt: null, archiveLifecycleState: 'ACTIVE' } }
+        },
+        select: { id: true, path: true, artwork: { select: { id: true, title: true } } }
+      })
+      if (image?.artwork) {
+        videoOptimizationTarget = {
+          imageId: image.id,
+          artworkId: image.artwork.id,
+          title: image.artwork.title,
+          filename: image.path.replaceAll('\\', '/').split('/').at(-1)!
+        }
+      }
+    }
+  }
+  return { ...toJobDto(record), failureNeedsAttention: failureNeedsAttention(record), videoOptimizationTarget }
 }
+
+export type BackgroundJobDetail = NonNullable<Awaited<ReturnType<typeof getBackgroundJobDetail>>>

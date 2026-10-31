@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { lockActiveVideoStreamingOptimization } from './video-streaming-optimization-lock'
 import {
   cancelJobCommand,
   enqueueJob,
@@ -17,7 +18,6 @@ import type { Prisma } from '@pixishelf/db'
 
 const CENTRAL_VIDEO_PROCESSING_TYPES = new Set(['VIDEO_CHAPTER_PREVIEW_GENERATION', 'VIDEO_STREAMING_OPTIMIZATION'])
 const CHAPTER_ENQUEUE_LOCK = 7_283_460
-const STREAMING_ENQUEUE_LOCK = 7_283_461
 const ACTIVE_STATUSES = ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'] as const
 
 export async function enqueueCentralVideoChapterPreview(input: {
@@ -95,32 +95,12 @@ export async function enqueueCentralVideoStreamingOptimization(input: { imageId:
   })
 
   return prisma.$transaction(async (transaction) => {
-    await transaction.$queryRawUnsafe(
-      'SELECT pg_advisory_xact_lock($1::integer, $2::integer)::text',
-      STREAMING_ENQUEUE_LOCK,
-      image.id
+    const existing = await lockActiveVideoStreamingOptimization(
+      transaction as unknown as Prisma.TransactionClient,
+      image.id,
+      relativePath
     )
-    const existing = await transaction.systemJob.findFirst({
-      where: {
-        type: 'VIDEO_STREAMING_OPTIMIZATION',
-        definitionVersion: JOB_DEFINITION_VERSION,
-        status: { in: [...ACTIVE_STATUSES] },
-        AND: [
-          { payload: { path: ['imageId'], equals: image.id } },
-          { payload: { path: ['mode'], equals: 'REMUX_FASTSTART' } }
-        ]
-      },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, status: true, payload: true }
-    })
-    const existingPayload = existing ? videoStreamingOptimizationPayloadSchema.safeParse(existing.payload) : null
-    if (
-      existing &&
-      existingPayload?.success &&
-      existingPayload.data.imageId === image.id &&
-      existingPayload.data.relativePath === relativePath &&
-      existingPayload.data.mode === 'REMUX_FASTSTART'
-    ) {
+    if (existing) {
       return { jobId: existing.id, imageId: image.id, path: image.path, status: existing.status, reused: true }
     }
     const created = await enqueueJob(
