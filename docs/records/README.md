@@ -51,6 +51,8 @@ Android：[2026-10-28 核心阅读页面迁移](./features/android-core-parity-2
 
 ## 发布、迁移与事故
 
+去重删除改造：[2026-10-31 v0.55.9 发布交接](./operations/dedup-shared-deletion-release-2026-10-31.md) · [实施与桌面验收](./dedup-shared-deletion-2026-10-31.md)。
+
 热批回退修复：[2026-10-30 v0.55.6 发布交接](./operations/artwork-deduplication-hot-batch-fallback-release-2026-10-30.md) · [根因与验收](./artwork-deduplication-hot-batch-fallback-2026-10-30.md)。
 
 热批回退修复：[2026-10-30 生产根因、修复与专项验收](./artwork-deduplication-hot-batch-fallback-2026-10-30.md)。
