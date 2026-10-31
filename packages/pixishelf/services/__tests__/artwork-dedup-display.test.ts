@@ -2,10 +2,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/lib/prisma', () => ({ prisma: {} }))
 vi.mock('../artwork-dedup-cover', () => ({ artworkDedupCoverUrls: vi.fn(async () => new Map()) }))
-vi.mock('@pixishelf/job-contracts', async (original) => ({
-  ...(await original<typeof import('@pixishelf/job-contracts')>()),
-  isArtworkDedupMaintenanceModeEnabled: () => true
-}))
 import { artworkDedupOperationDto, getArtworkDedupOperation } from '../artwork-dedup-review-service'
 
 const date = new Date('2026-10-24T00:00:00Z')
@@ -52,29 +48,42 @@ function row(overrides: Record<string, unknown> = {}) {
   }
 }
 beforeEach(() => vi.clearAllMocks())
-describe('deduplication display facts', () => {
-  it('uses persisted deleteStartedAt to expose cancellation before any intent and stopping afterwards', () => {
+describe('retired deduplication operation display facts', () => {
+  it('preserves deletion and stop-request facts while historical operations remain read-only', () => {
     for (const status of ['DRAINING', 'VERIFYING', 'DELETING']) {
       const before = artworkDedupOperationDto(row({ status }) as never)
-      expect(before.allowedActions).toEqual(['CANCEL'])
-      expect(before.deleteStartedAt).toBeNull()
-      const after = artworkDedupOperationDto(row({ status, deleteStartedAt: date }) as never)
-      expect(after.allowedActions).toEqual(['STOP'])
-      expect(after.deleteStartedAt).toBe(date.toISOString())
+      expect(before).toMatchObject({ status, allowedActions: [], deleteStartedAt: null, stopRequested: false })
+      const after = artworkDedupOperationDto(row({ status, deleteStartedAt: date, cancelRequestedAt: date }) as never)
+      expect(after).toMatchObject({
+        status,
+        allowedActions: [],
+        deleteStartedAt: date.toISOString(),
+        stopRequested: true
+      })
     }
     const requested = artworkDedupOperationDto(row({ cancelRequestedAt: date }) as never)
+    expect(requested.deleteStartedAt).toBeNull()
     expect(requested.stopRequested).toBe(true)
     expect(requested.allowedActions).toEqual([])
   })
-  it('exposes protocol4 prepare actions only from a valid idle preview', () => {
+  it('keeps historical protocol4 READY previews read-only regardless of reader activity', () => {
     const ready = row({ mode: 'PREPARE', originalAction: 'PREPARE', status: 'READY', protocolVersion: 4 })
-    expect(artworkDedupOperationDto(ready as never).allowedActions).toEqual(['DIRECT_DELETE'])
-    expect(
-      artworkDedupOperationDto({ ...ready, readerState: 'RUNNING', readerToken: 'private-token' } as never)
-        .allowedActions
-    ).toEqual([])
+    expect(artworkDedupOperationDto(ready as never)).toMatchObject({
+      mode: 'PREPARE',
+      status: 'READY',
+      protocolVersion: 4,
+      allowedActions: []
+    })
+    const activeReader = artworkDedupOperationDto({
+      ...ready,
+      readerState: 'RUNNING',
+      readerToken: 'private-token'
+    } as never)
+    expect(activeReader.allowedActions).toEqual([])
+    expect(activeReader).not.toHaveProperty('readerToken')
+    expect(JSON.stringify(activeReader)).not.toContain('private-token')
   })
-  it('keeps prepare cancellation available while the reader is active without claiming it has exited', () => {
+  it('keeps an active historical prepare reader read-only and hides its private token', () => {
     const dto = artworkDedupOperationDto(
       row({
         mode: 'PREPARE',
@@ -84,11 +93,18 @@ describe('deduplication display facts', () => {
         readerToken: 'private-token'
       }) as never
     )
-    expect(dto.allowedActions).toEqual(['CANCEL'])
+    expect(dto).toMatchObject({
+      mode: 'PREPARE',
+      status: 'BUILDING',
+      allowedActions: [],
+      deleteStartedAt: null,
+      stopRequested: false
+    })
+    expect(dto).not.toHaveProperty('readerToken')
     expect(JSON.stringify(dto)).not.toContain('private-token')
   })
   it.each(['VISUAL', 'PARTIAL'] as const)(
-    'projects durable %s evidence after business deletion without paths or private history',
+    'preserves read-only frozen %s evidence after deletion without exposing paths or enabling reimport',
     async (relationKind) => {
       const visual = {
         evidenceVersion: relationKind === 'PARTIAL' ? 'sha256-multiset-overlap-v1' : 'visual-v1',
@@ -224,6 +240,11 @@ describe('deduplication display facts', () => {
         { operationId: 'op-1', expectedUserId: 'user-a', preview: { kind: 'ARTWORKS', limit: 20 } },
         { $transaction: async (body) => body(tx as never) }
       )
+      expect(response.operation).toMatchObject({
+        allowedActions: [],
+        deleteStartedAt: date.toISOString(),
+        stopRequested: false
+      })
       expect(response.operation.counts).toMatchObject({
         deleteIntentFiles: '3',
         deletedFiles: '3',
@@ -241,12 +262,14 @@ describe('deduplication display facts', () => {
       })
       expect(response.preview.items[1]).toMatchObject({
         title: '冻结副本',
+        sourceLabel: 'PIXIV_IMPORTED',
+        createdAt: date.toISOString(),
         relationKind,
         visual,
         personalRecords: 'REMOVED',
         mediaCount: '2',
         fileCount: '3',
-        canAllowReimport: true,
+        canAllowReimport: false,
         sources: [{ displayName: '原件 · a.jpg', generation: '4', status: 'TOMBSTONE' }]
       })
       expect(JSON.stringify(response)).not.toContain('/private/media')
