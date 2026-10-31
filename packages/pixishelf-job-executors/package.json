@@ -20,6 +20,11 @@
       "types": "./dist/media-content/index.d.ts",
       "import": "./dist/media-content/index.js",
       "default": "./dist/media-content/index.js"
+    },
+    "./artwork-delete": {
+      "types": "./dist/artwork-delete/index.d.ts",
+      "import": "./dist/artwork-delete/index.js",
+      "default": "./dist/artwork-delete/index.js"
     }
   },
   "files": [

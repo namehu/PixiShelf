@@ -1,30 +1,17 @@
-import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import {
   Prisma,
   ArtworkDedupOperationError,
   isArtworkDedupPrepareRetryable,
-  artworkDedupRequestDigest,
-  freezeArtworkDedupOperation,
-  prepareArtworkDedupQuickConfirmation,
   saveArtworkDedupReview,
   readArtworkDedupGroupChoices,
-  lockArtworkDedupActor,
-  lockArtworkDedupCommand,
-  lockArtworkDedupOperation,
-  authorizeArtworkDedupDirectDelete,
-  retryArtworkDedupDirectDelete,
-  requestArtworkDedupDirectDeleteStop,
-  allowArtworkDedupDirectDeleteReimport,
   type ArtworkDedupGroupChoice
 } from '@pixishelf/db'
 import * as contract from '@pixishelf/job-contracts'
 import { prisma } from '@/lib/prisma'
 import { artworkDedupCoverUrls } from './artwork-dedup-cover'
 import { assertArtworkDedupAccount } from './artwork-dedup-service'
-import { writeJobEvent } from './background-task/job-event-service'
-import { WORKER_HEARTBEAT_STALE_AFTER_MS } from './background-task/worker-heartbeat'
 interface Database {
   $transaction<T>(body: (tx: Prisma.TransactionClient) => Promise<T>, options?: { timeout?: number }): Promise<T>
 }
@@ -199,12 +186,7 @@ export async function listArtworkDedupReviewGroups(
         runId: run.id,
         runVersion: run.version,
         reviewRevision: state?.reviewRevision ?? 0,
-        allowedActions:
-          run.status === 'COMPLETED' && contract.isArtworkDedupMaintenanceModeEnabled('PREPARE')
-            ? contract.isArtworkDedupMaintenanceModeEnabled('PREPARE', 'DIRECT_DELETE')
-              ? (['SAVE_REVIEW', 'PREPARE_CLEANUP'] as const)
-              : (['SAVE_REVIEW'] as const)
-            : []
+        allowedActions: run.status === 'COMPLETED' ? (['SAVE_REVIEW', 'PREPARE_CLEANUP'] as const) : []
       }
       const scope = [
         userId,
@@ -380,62 +362,6 @@ export async function saveArtworkDedupReviewService(
   )
 }
 type RetryJob = Parameters<typeof isArtworkDedupPrepareRetryable>[1]
-function operationActions(
-  op: Operation,
-  job: RetryJob,
-  now: Date
-): contract.ArtworkDedupOperationDto['allowedActions'] {
-  if (op.preparePurpose === 'DIRECT_DELETE') {
-    if (!contract.isArtworkDedupMaintenanceModeEnabled('DIRECT_DELETE', 'DIRECT_DELETE')) return []
-    if (op.mode === 'DIRECT_DELETE') {
-      if (op.status === 'DELETED') return ['ALLOW_REIMPORT']
-      if (op.status === 'CANCELLED') return []
-      if (op.readerState === 'BLOCKED') return []
-      const idle = !op.readerToken && op.readerState === 'IDLE'
-      const jobInactive = !job || ['FAILED', 'CANCELLED', 'COMPLETED', 'PAUSED'].includes(job.status)
-      if (idle && jobInactive && ['RECOVERY_REQUIRED', 'STOPPED', 'FAILED'].includes(op.status)) {
-        return op.cancelRequestedAt ? ['RETRY_OPERATION'] : ['RETRY_OPERATION', op.deleteStartedAt ? 'STOP' : 'CANCEL']
-      }
-      return op.cancelRequestedAt ? [] : [op.deleteStartedAt ? 'STOP' : 'CANCEL']
-    }
-    if (![1, 2, 3, 4].includes(op.protocolVersion ?? 0)) return []
-    if (op.status === 'BUILDING') return op.cancelRequestedAt ? [] : ['CANCEL']
-    if (op.readerToken || op.readerState !== 'IDLE') return []
-    if (op.status === 'READY' && op.scopeDigest) return ['DIRECT_DELETE']
-    if (isArtworkDedupPrepareRetryable(op, job, now)) return ['RETRY_PREPARE', 'REPREPARE']
-    return ['STALE', 'FAILED', 'CANCELLED'].includes(op.status) ? ['REPREPARE'] : []
-  }
-  if (op.readerToken || op.readerState === 'BLOCKED') return []
-  const actions: contract.ArtworkDedupOperationDto['allowedActions'] = []
-  if (op.status === 'BUILDING' && contract.isArtworkDedupMaintenanceModeEnabled('PREPARE')) actions.push('CANCEL')
-  if (
-    ['STALE', 'FAILED', 'CANCELLED'].includes(op.status) &&
-    op.originalAction === 'PREPARE' &&
-    contract.isArtworkDedupMaintenanceModeEnabled('PREPARE')
-  ) {
-    actions.push('REPREPARE')
-  }
-  if (isArtworkDedupPrepareRetryable(op, job, now) && contract.isArtworkDedupMaintenanceModeEnabled('PREPARE')) {
-    actions.push('RETRY_PREPARE')
-  }
-  if (op.status === 'READY' && contract.isArtworkDedupMaintenanceModeEnabled('ISOLATE')) actions.push('ISOLATE')
-  if (op.status === 'ISOLATED' && contract.isArtworkDedupMaintenanceModeEnabled('RESTORE')) actions.push('RESTORE')
-  if (op.status === 'ISOLATED' && contract.isArtworkDedupMaintenanceModeEnabled('PREPARE', 'PURGE')) {
-    actions.push('PREPARE_PURGE')
-  }
-  if (
-    op.status === 'ISOLATED' &&
-    op.purgePreviewStatus === 'READY' &&
-    contract.isArtworkDedupMaintenanceModeEnabled('PURGE')
-  ) {
-    actions.push('PURGE')
-  }
-  if (op.status === 'RECOVERY_REQUIRED' && contract.isArtworkDedupMaintenanceModeEnabled('ISOLATE')) {
-    actions.push('RETRY_OPERATION')
-  }
-  if (op.status === 'PURGED' && contract.isArtworkDedupMaintenanceModeEnabled('PURGE')) actions.push('ALLOW_REIMPORT')
-  return actions
-}
 export function artworkDedupOperationDto(
   op: Operation,
   job: RetryJob = null,
@@ -499,7 +425,7 @@ export function artworkDedupOperationDto(
           validatedAt: op.purgePreviewValidatedAt?.toISOString() ?? null
         }
       : null,
-    allowedActions: operationActions(op, job, now),
+    allowedActions: [],
     failure: op.errorCode
       ? {
           code: op.errorCode,
@@ -512,43 +438,6 @@ export function artworkDedupOperationDto(
         }
       : null
   })
-}
-async function assertDirectDeleteWorker(
-  tx: Prisma.TransactionClient,
-  replay?: { userId: string; idempotencyKey: string; prepare?: boolean }
-) {
-  if (replay) {
-    const where = { requestedBy_idempotencyKey: { requestedBy: replay.userId, idempotencyKey: replay.idempotencyKey } }
-    const prior = replay.prepare
-      ? await tx.artworkDedupOperation.findUnique({ where, select: { id: true } })
-      : await tx.artworkDedupCommand.findUnique({ where, select: { operationId: true } })
-    // The domain still validates the canonical replay. An existing intent needs no new Worker capability.
-    if (prior) return
-  }
-  const workers = await tx.workerInstance.findMany({
-    where: { status: 'READY', heartbeatAt: { gte: new Date(Date.now() - WORKER_HEARTBEAT_STALE_AFTER_MS) } },
-    orderBy: { heartbeatAt: 'desc' },
-    take: 20,
-    select: { capabilities: true }
-  })
-  if (
-    !workers.some(
-      ({ capabilities }) =>
-        Array.isArray(capabilities) &&
-        capabilities.some(
-          (entry) =>
-            entry !== null &&
-            typeof entry === 'object' &&
-            !Array.isArray(entry) &&
-            entry.jobType === 'ARTWORK_DEDUP_MAINTENANCE' &&
-            entry.executionLane === 'BACKGROUND_WRITER' &&
-            Array.isArray(entry.definitionVersions) &&
-            entry.definitionVersions.includes(contract.ARTWORK_DEDUP_DIRECT_DELETE_DEFINITION_VERSION)
-        )
-    )
-  ) {
-    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: '支持直接删除协议的 Worker 尚未就绪' })
-  }
 }
 async function projectOperation(tx: Prisma.TransactionClient, op: Operation, userId: string, job: RetryJob = null) {
   let progress: Parameters<typeof artworkDedupOperationDto>[3]
@@ -574,62 +463,16 @@ async function projectOperation(tx: Prisma.TransactionClient, op: Operation, use
   if (op.requestedBy !== userId) dto.allowedActions = []
   return dto
 }
-async function enqueueOperation(tx: Prisma.TransactionClient, op: Operation) {
-  const direct = op.preparePurpose === 'DIRECT_DELETE'
-  const job = await tx.systemJob.create({
-    data: {
-      id: randomUUID(),
-      type: 'ARTWORK_DEDUP_MAINTENANCE',
-      executionLane: 'BACKGROUND_WRITER',
-      definitionVersion: direct ? op.preparationVersion === 2 ? 6 : 5 : 1,
-      triggerSource: 'SYSTEM',
-      queuePriority: 900,
-      effectivePriority: 900,
-      maxAttempts: 3,
-      requestedByUserId: op.requestedBy,
-      payload: contract.artworkDedupMaintenancePayloadSchema.parse({
-        operationId: op.id,
-        executionVersion: op.executionVersion,
-        mode: op.mode,
-        ...(direct && op.mode === 'PREPARE' ? { purpose: 'DIRECT_DELETE', protocolVersion: op.protocolVersion } : {})
-      }),
-      idempotencyKey: `artwork-dedup-maintenance:${op.id}:${op.executionVersion}`
-    }
-  })
-  const updated = await tx.artworkDedupOperation.update({ where: { id: op.id }, data: { jobId: job.id } })
-  await writeJobEvent(tx, {
-    jobId: job.id,
-    type: 'job.queued',
-    message: '重复作品维护已排队',
-    data: { operationId: op.id, mode: op.mode }
-  })
-  return updated
-}
 export async function prepareArtworkDedupCleanup(
   userId: string,
   input:
     | z.infer<typeof contract.artworkDedupPrepareCleanupInputSchema>
     | z.infer<typeof contract.artworkDedupPrepareDirectDeleteInputSchema>,
   database: Database = databaseDefault
-) {
+): Promise<contract.ArtworkDedupOperationDto> {
+  void database
   assertArtworkDedupAccount(userId, input.expectedUserId)
-  const purpose = 'purpose' in input ? input.purpose : 'ISOLATION'
-  assertArtworkDedupMode('PREPARE', purpose)
-  return mapArtworkDedupMaintenanceError(() =>
-    database.$transaction(async (tx) => {
-      if (purpose === 'DIRECT_DELETE') {
-        await assertDirectDeleteWorker(tx, { userId, idempotencyKey: input.idempotencyKey, prepare: true })
-      }
-      if ('sourceOperationId' in input) {
-        const source = await tx.artworkDedupOperation.findUnique({ where: { id: input.sourceOperationId } })
-        if (source?.requestedBy !== userId || source.preparePurpose !== purpose) conflict('SCOPE_MISMATCH')
-      }
-      const result = await freezeArtworkDedupOperation(tx, { ...input, userId, preparePurpose: purpose })
-      return artworkDedupOperationDto(result.created
-        ? purpose === 'DIRECT_DELETE' ? await prepareArtworkDedupQuickConfirmation(tx, result.operation.id) : await enqueueOperation(tx, result.operation)
-        : result.operation)
-    }, { timeout: 30000 })
-  )
+  throw new TRPCError({ code: 'FORBIDDEN', message: '旧去重删除记录仅供查看，请返回检查结果使用作品删除' })
 }
 export async function getArtworkDedupOperation(
   userId: string,
@@ -846,165 +689,28 @@ export async function controlArtworkDedupPrepare(
   action: 'RETRY' | 'CANCEL',
   database: Database = databaseDefault
 ): Promise<contract.ArtworkDedupOperationDto> {
+  void action
+  void database
   assertArtworkDedupAccount(userId, input.expectedUserId)
-  return mapArtworkDedupMaintenanceError(() =>
-    database.$transaction(async (tx) => {
-      const current = await tx.artworkDedupOperation.findUnique({ where: { id: input.operationId } })
-      if (!current) conflict('NOT_FOUND')
-      const directPurpose = current.preparePurpose === 'DIRECT_DELETE' || current.mode === 'DIRECT_DELETE'
-      assertArtworkDedupMode(
-        current.mode === 'DIRECT_DELETE' ? 'DIRECT_DELETE' : 'PREPARE',
-        directPurpose ? 'DIRECT_DELETE' : 'ISOLATION'
-      )
-      if (directPurpose) {
-        if (input.itemIds !== undefined) conflict('SCOPE_MISMATCH')
-        contract.artworkDedupDirectDeleteRetryInputSchema.parse(input)
-        if (current.requestedBy !== userId) conflict('ACCOUNT_CHANGED')
-      }
-      await lockArtworkDedupActor(tx, userId)
-      await lockArtworkDedupCommand(tx, userId, input.idempotencyKey)
-      const digest = artworkDedupRequestDigest({ input, action })
-      const prior = await tx.artworkDedupCommand.findUnique({
-        where: { requestedBy_idempotencyKey: { requestedBy: userId, idempotencyKey: input.idempotencyKey } }
-      })
-      if (prior) {
-        // A PREPARE control receipt remains valid after the operation advances to DIRECT_DELETE.
-        const directAction = action === 'RETRY' ? 'RETRY_DIRECT_DELETE' : 'STOP_DIRECT_DELETE'
-        let expectedDigest = digest
-        if (prior.action !== `${action}_OPERATION`) {
-          if (!directPurpose || prior.action !== directAction) conflict('IDEMPOTENCY_CONFLICT')
-          const command = contract.artworkDedupDirectDeleteRetryInputSchema.parse(input)
-          expectedDigest = artworkDedupRequestDigest({ ...command, userId })
-        }
-        if (
-          prior.operationId !== input.operationId ||
-          prior.expectedVersion !== input.expectedVersion ||
-          prior.requestDigest !== expectedDigest
-        ) {
-          conflict('IDEMPOTENCY_CONFLICT')
-        }
-        const replay = await tx.artworkDedupOperation.findUniqueOrThrow({ where: { id: input.operationId } })
-        return projectOperation(
-          tx,
-          replay,
-          userId,
-          replay.jobId ? await tx.systemJob.findUnique({ where: { id: replay.jobId } }) : null
-        )
-      }
-      if (current.mode === 'DIRECT_DELETE') {
-        const command = contract.artworkDedupDirectDeleteRetryInputSchema.parse(input)
-        if (action === 'RETRY') {
-          await assertDirectDeleteWorker(tx, { userId, idempotencyKey: input.idempotencyKey })
-          const result = await retryArtworkDedupDirectDelete(tx, { ...command, userId })
-          const op = result.created ? await enqueueOperation(tx, result.operation) : result.operation
-          return projectOperation(tx, op, userId)
-        }
-        let op = await requestArtworkDedupDirectDeleteStop(tx, { ...command, userId })
-        if (!op.jobId) {
-          await assertDirectDeleteWorker(tx)
-          op = await enqueueOperation(tx, op)
-        }
-        return projectOperation(tx, op, userId)
-      }
-      if (current.preparePurpose === 'DIRECT_DELETE') {
-        if (action === 'RETRY') await assertDirectDeleteWorker(tx)
-      }
-      const before = await tx.artworkDedupOperation.findUnique({ where: { id: input.operationId } })
-      if (!before) conflict('NOT_FOUND')
-      await tx.$queryRaw`SELECT "resourceKey" FROM job_resource_leases WHERE "resourceKey"='lane/background-writer' FOR UPDATE`
-      if (before.jobId) await tx.$queryRaw(Prisma.sql`SELECT id FROM system_jobs WHERE id=${before.jobId} FOR UPDATE`)
-      let op = await lockArtworkDedupOperation(tx, input.operationId)
-      if (
-        op.version !== input.expectedVersion ||
-        op.jobId !== before.jobId ||
-        op.mode !== 'PREPARE' ||
-        op.originalAction !== 'PREPARE' ||
-        !['ISOLATION', 'DIRECT_DELETE'].includes(op.preparePurpose) ||
-        input.itemIds?.length
-      ) {
-        conflict()
-      }
-      if (action === 'RETRY') {
-        const job = op.jobId ? await tx.systemJob.findUnique({ where: { id: op.jobId } }) : null
-        if (!isArtworkDedupPrepareRetryable(op, job, new Date())) conflict()
-        op = await tx.artworkDedupOperation.update({
-          where: { id: op.id },
-          data: {
-            status: 'BUILDING',
-            executionVersion: { increment: 1 },
-            version: { increment: 1 },
-            cancelRequestedAt: null,
-            errorCode: null
-          }
-        })
-        op = await enqueueOperation(tx, op)
-      } else {
-        if (op.status !== 'BUILDING') conflict()
-        const job = op.jobId ? await tx.systemJob.findUnique({ where: { id: op.jobId } }) : null
-        if (!job) conflict()
-        const now = new Date(),
-          running = ['RUNNING', 'PAUSING', 'CANCELLING'].includes(job.status)
-        if (!running && !['PENDING', 'RETRY_WAIT', 'PAUSED'].includes(job.status)) conflict()
-        await tx.systemJob.update({
-          where: { id: job.id },
-          data: running ? { status: 'CANCELLING' } : { status: 'CANCELLED', finishedAt: now }
-        })
-        op = await tx.artworkDedupOperation.update({
-          where: { id: op.id },
-          data: { cancelRequestedAt: now, ...(!running ? { status: 'CANCELLED' } : {}), version: { increment: 1 } }
-        })
-      }
-      await tx.artworkDedupCommand.create({
-        data: {
-          runId: op.runId,
-          requestedBy: userId,
-          idempotencyKey: input.idempotencyKey,
-          expectedVersion: input.expectedVersion,
-          action: `${action}_OPERATION`,
-          resultingVersion: op.version,
-          operationId: op.id,
-          requestDigest: digest
-        }
-      })
-      return artworkDedupOperationDto(op)
-    })
-  )
+  throw new TRPCError({ code: 'FORBIDDEN', message: '旧去重删除记录仅供查看，请返回检查结果使用作品删除' })
 }
 export async function directDeleteArtworkDedupOperation(
   userId: string,
   input: z.infer<typeof contract.artworkDedupDirectDeleteInputSchema>,
   database: Database = databaseDefault
-) {
+): Promise<contract.ArtworkDedupOperationDto> {
+  void database
   assertArtworkDedupAccount(userId, input.expectedUserId)
-  assertArtworkDedupMode('DIRECT_DELETE', 'DIRECT_DELETE')
-  const parsed = contract.artworkDedupDirectDeleteInputSchema.parse(input)
-  return mapArtworkDedupMaintenanceError(() =>
-    database.$transaction(async (tx) => {
-      await assertDirectDeleteWorker(tx, { userId, idempotencyKey: input.idempotencyKey })
-      const result = await authorizeArtworkDedupDirectDelete(tx, { ...parsed, userId })
-      const op = result.created ? await enqueueOperation(tx, result.operation) : result.operation
-      return projectOperation(tx, op, userId)
-    })
-  )
+  throw new TRPCError({ code: 'FORBIDDEN', message: '旧去重删除记录仅供查看，请返回检查结果使用作品删除' })
 }
 export async function allowArtworkDedupReimport(
   userId: string,
   input: z.infer<typeof contract.artworkDedupAllowReimportInputSchema>,
   database: Database = databaseDefault
-) {
+): Promise<contract.ArtworkDedupOperationDto> {
+  void database
   assertArtworkDedupAccount(userId, input.expectedUserId)
-  assertArtworkDedupMode('DIRECT_DELETE', 'DIRECT_DELETE')
-  const parsed = contract.artworkDedupAllowReimportInputSchema.parse(input)
-  return mapArtworkDedupMaintenanceError(() =>
-    database.$transaction(async (tx) => {
-      const op = await allowArtworkDedupDirectDeleteReimport(tx, {
-        ...parsed,
-        userId,
-        sources: parsed.sources.map((source) => ({ ...source, expectedGeneration: BigInt(source.expectedGeneration) }))
-      })
-      return projectOperation(tx, op, userId)
-    })
-  )
+  throw new TRPCError({ code: 'FORBIDDEN', message: '旧去重删除记录仅供查看，请返回检查结果使用作品删除' })
 }
 /** All advanced routes use the same release check before entering their domain transaction. */
 export async function artworkDedupAdvancedOperation(
@@ -1013,7 +719,8 @@ export async function artworkDedupAdvancedOperation(
   mode: contract.ArtworkDedupMaintenanceMode,
   purpose: 'ISOLATION' | 'PURGE' = 'ISOLATION'
 ): Promise<contract.ArtworkDedupOperationDto> {
+  void mode
+  void purpose
   assertArtworkDedupAccount(userId, input.expectedUserId)
-  assertArtworkDedupMode(mode, purpose)
-  throw new TRPCError({ code: 'FORBIDDEN', message: '此维护阶段尚未完成验收' })
+  throw new TRPCError({ code: 'FORBIDDEN', message: '旧去重删除记录仅供查看，请返回检查结果使用作品删除' })
 }

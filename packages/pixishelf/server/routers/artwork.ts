@@ -1,3 +1,15 @@
+import {
+  artworkBatchDeletePreviewInputSchema,
+  artworkBatchDeleteIdInputSchema,
+  artworkBatchDeleteSubmitInputSchema
+} from '@pixishelf/job-contracts'
+import {
+  previewArtworkBatchDelete,
+  getArtworkBatchDelete,
+  submitArtworkBatchDelete,
+  controlArtworkBatchDelete,
+  listArtworkBatchDeletes
+} from '@/services/artwork-batch-delete-service'
 import { resolveRatingLevels } from '@/schemas/artwork-filter.dto'
 import { MediaUploadReceiptSchema } from '@/schemas/media-content.dto'
 import { ReaderInputSchema, MediaPageInputSchema } from '@/schemas/artwork-reader.dto'
@@ -230,6 +242,32 @@ export const artworkRouter = router({
   /**
    * 删除作品
    */
+  batchDeletePreview: adminProcedure
+    .input(artworkBatchDeletePreviewInputSchema)
+    .mutation(({ ctx, input }) => previewArtworkBatchDelete(ctx.userId, input)),
+  batchDeleteGet: adminProcedure
+    .input(artworkBatchDeleteIdInputSchema)
+    .query(({ ctx, input }) => getArtworkBatchDelete(ctx.userId, input)),
+  batchDeleteSubmit: adminProcedure
+    .input(artworkBatchDeleteSubmitInputSchema)
+    .mutation(({ ctx, input }) => submitArtworkBatchDelete(ctx.userId, input)),
+  batchDeleteStop: adminProcedure
+    .input(artworkBatchDeleteIdInputSchema)
+    .mutation(({ ctx, input }) => controlArtworkBatchDelete(ctx.userId, input, 'STOP')),
+  batchDeleteRetry: adminProcedure
+    .input(artworkBatchDeleteIdInputSchema)
+    .mutation(({ ctx, input }) => controlArtworkBatchDelete(ctx.userId, input, 'RETRY')),
+  batchDeleteList: adminProcedure
+    .input(
+      z
+        .object({
+          expectedUserId: z.string(),
+          runId: z.string().optional(),
+          artistId: z.number().int().positive().optional()
+        })
+        .refine((input) => Boolean(input.runId || input.artistId), '请选择检查或艺术家')
+    )
+    .query(({ ctx, input }) => listArtworkBatchDeletes(ctx.userId, input)),
   previewDelete: adminProcedure
     .input(z.number().int().positive())
     .output(ArtworkDeletePreviewSchema)

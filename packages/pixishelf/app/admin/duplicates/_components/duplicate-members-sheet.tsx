@@ -28,7 +28,9 @@ export function DuplicateMembersSheet({
   errorMessage,
   onClose,
   onKeep,
-  onRetry
+  onRetry,
+  selected = false,
+  onSelect
 }: {
   userId: string
   runId: string
@@ -41,6 +43,8 @@ export function DuplicateMembersSheet({
   onClose: () => void
   onKeep: (group: ArtworkDedupGroupDto, artworkId: number) => void
   onRetry: () => void
+  selected?: boolean
+  onSelect?: (checked: boolean) => void
 }) {
   const trpc = useTRPC()
   const returnFocus = useRef(typeof document !== 'undefined' ? (document.activeElement as HTMLElement) : null)
@@ -118,6 +122,7 @@ export function DuplicateMembersSheet({
                     key={member.artworkId}
                     member={member}
                     name={`detail-${groupId}`}
+                    statusLabel={selected && keeperId !== member.artworkId ? '待删除' : undefined}
                     keeper={(keeperId ?? page.keeper?.artworkId) === member.artworkId}
                     disabled={!canSave}
                     metadata={duplicateRelationMemberMetadata(page.group, member.artworkId)}
@@ -140,6 +145,16 @@ export function DuplicateMembersSheet({
                   </>
                 ) : null}
               </div>
+              {onSelect ? (
+                <Button
+                  className="my-3 min-h-11"
+                  variant="outline"
+                  disabled={!canSave || !keeperId || failed}
+                  onClick={() => onSelect(!selected)}
+                >
+                  {selected ? '取消批量选择' : '加入批量选择'}
+                </Button>
+              ) : null}
               <DuplicatePagination
                 page={cursors.length - 1}
                 hasNext={Boolean(page.nextMemberCursor)}

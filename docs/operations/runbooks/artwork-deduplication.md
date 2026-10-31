@@ -1,5 +1,5 @@
 ---
-status: current
+status: historical
 scope: 去重直接删除的升级顺序、停写前提与故障处置；开放状态以验收记录为准
 last-verified: 2026-10-29
 sources:
@@ -10,6 +10,8 @@ sources:
 ---
 
 # 去重直接删除运维
+
+> 本页仅用于旧专用删除版本在升级前收口未结操作，不能用于新任务。当前行为见[作品去重](../../features/artwork-deduplication.md)与[普通作品删除](../../features/artwork-deletion.md)，切换前先读[共享删除升级门槛](./dedup-shared-deletion-upgrade.md)。下文步骤、协议和来源解除均保持旧版本语境。
 
 本文描述去重直接删除所需的部署和故障处置，不代表某个实例已经部署。当前四类关系、处理上限与交付边界统一见[功能规格](../../features/artwork-deduplication.md)，具体版本和环境的证据从该入口追溯；旧总计划仅作历史参考。功能只删除已确认的精确文件，保留空目录；普通归档回收流程不受替代。
 

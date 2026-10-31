@@ -1,8 +1,10 @@
 ---
 status: current
 scope: 作品删除前预览、文件选择、空目录清理、当次总结及失败重试
-last-verified: 2026-10-03
+last-verified: 2026-10-31
 sources:
+  - packages/pixishelf-job-executors/src/artwork-delete/delete-artwork.ts
+  - packages/pixishelf/services/artwork-batch-delete-service.ts
   - packages/pixishelf/services/artwork-service/delete-artwork.ts
   - packages/pixishelf/services/artwork-service/delete-artwork-files.ts
   - packages/pixishelf/schemas/artwork-delete.dto.ts
@@ -30,17 +32,17 @@ sources:
 - 共享作品目录递归只读展示，额外文件禁选且目录保留；其他作品引用的登记文件也保留，但允许移除本作品记录。
 - 不跟随符号链接或 junction，不删除系统保留路径 `sources`、`.trash`、`.archive-staging` 和 `.pixishelf-root`，不处理非普通文件。非法登记章节路径保留。不根据文件内容扩展删除范围，不清理派生媒体根目录。
 - 检查最多 100,000 个目录项、向下 12 层；达到边界时报告未完整检查并禁止执行。只处理本次作品，不扫描历史残留。
-- 目录仅在文件处理和数据库事务成功后，从深到浅通过非递归 `rmdir` 清理，不向作品范围外延伸。用户保留文件导致目录非空是预期结果。
+- 目录只在原清单的文件处理后、数据库发布前，从深到浅通过非递归 `rmdir` 清理，不向作品范围外延伸。用户保留文件导致目录非空是预期结果。
 
 ## 执行与失败
 
-顺序为：管理员预览 → 提交明确选择与稳定 operationId → 服务端核对范围、持久化精确删除清单并建立写入声明 → 按清单删除文件 → 在同一事务中删除 Image/Artwork 记录并结束声明 → 清理冻结清单中的空目录。此处为 2026-10-23 开发分支局部更新；验收状态见[阶段记录](../records/artwork-deduplication-phase-1-2026-10-23.md)。
+顺序为：管理员预览 → 提交明确选择与稳定 operationId → 服务端核对范围、持久化精确删除清单并建立写入声明 → 按清单删除文件 → 非递归清理原清单内空目录 → 在同一短事务中删除 Image/Artwork 记录并结束声明。App 与 Worker 共用 `job-executors/artwork-delete` 中的最小核心，不包含上传或替换业务重构；验收见[共享删除记录](../records/dedup-shared-deletion-2026-10-31.md)。
 
 服务端在第一次文件写入前校验整份选择：必选媒体不可漏选，禁止选择目录、禁选项或范围外路径。不会把执行时新发现的文件追加到删除集合。首个 unlink 前，原选择、成员快照、根身份、逐文件身份和执行进度保存到扫描与媒体 HTTP 排除的恢复区；operationId 绑定会话账户和原目标，不能作为跨账户授权。每个文件实际删除前核对身份，数据库事务内复核原成员集合，避免删除未处理媒体的记录。
 
 任何选中文件真实删除失败时保留作品、媒体记录和写入声明，其余文件可能已经删除，不自动恢复。同账户重新打开预览时展示原清单，选择保持冻结，明确点击“重试原删除”；单图和章节物理删除使用相同协议。重试不重新递归扩展范围。未回执的路径已经缺失可记为已处理；已确认缺失后路径重新出现、文件身份变化或成员变化时停止，不覆盖新内容。未知结果不按超时自动解除保护。
 
-Image 与 Artwork 删除在同一短事务中，先获取 creator catalog 锁，再获取作品锁。任一步失败，两类数据库记录及触发器变更一起回滚；文件删除不随数据库回滚。数据库提交后才报告记录 `DELETED`。空目录清理错误单独报告，不撤销已经完成的作品删除。
+Image 与 Artwork 删除在同一短事务中，先获取 creator catalog 锁，再获取作品锁。任一步失败，两类数据库记录及触发器变更一起回滚；文件删除不随数据库回滚。数据库提交后才报告记录 `DELETED`。空目录或文件处理失败会保留业务记录供原清单重试；已经删除的文件不会因数据库回滚自动恢复。
 
 按选择完成且有主动保留或安全保留文件时，结果可为 `COMPLETED`，界面明确展示保留数量及目录状态。文件或数据库步骤失败并已有文件删除时为 `PARTIAL`；没有完成任何删除时为 `FAILED`。目录清理错误为 `PARTIAL`。
 
@@ -49,6 +51,16 @@ Image 与 Artwork 删除在同一短事务中，先获取 creator catalog 锁，
 - `artwork.previewDelete`：`adminProcedure`，输入正整数作品 ID，返回 `ArtworkDeletePreview`。包含作品信息、目录模式（作品目录/共享目录/仅登记文件）、检查完整性、是否可执行、说明和逐项选择约束（必选/可选/禁选/目录批量选择）。
 - `artwork.delete`：`adminProcedure`，输入 `{ artworkId, operationId?, selectedPaths? }`。本地删除必须提交明确相对路径数组，空数组仅在没有必选媒体时有效；URL 归档省略选择，继续整包回收。旧整数输入不再支持，页面与服务接口需随同一版本更新。
 - 客户端选择不能越过服务器路径、系统保留项或共享引用保护；预览不执行文件删除。首个执行请求持久化恢复 manifest，复用共享目录/source 声明；不新增环境变量。响应丢失使用原 operationId 重放终态，不重复 unlink。
+
+## 通用批量后台删除
+
+`artwork.batchDeletePreview/Submit/Get/List/Stop/Retry` 使用管理员会话与账户一致性校验。预览复用上面的普通删除范围，服务端在 SystemJob payload 保存逐作品 preview、operationId 和选择；`PAUSED + CONFIRMATION` 仅为无占用草稿，用户确认后才转为 PENDING。Worker 另检查 `confirmed`，通用任务中心控制不能将草稿直接入队。关闭确认可取消草稿，不建立来源 hold。
+
+`ARTWORK_BATCH_DELETE` 在既有 writer lane 内逐作品处理；普通文件 manifest 不变，不增加数据库表或逐文件去重回执。直接删除在文件边界检查现有执行失效信号，两个数据库短事务各自通过现有执行权入口。归档项只在短事务提交原 ARCHIVE_MAINTENANCE，然后继续其他作品；不会占着 writer lane 等待其子任务。报告区分“回收已提交”“文件已移入回收站”，已回收作品重放可直接显示完成。
+
+单作品失败记录安全的具体原因并继续独立项。失败重试或正常 Worker 关闭后续跑使用相同任务、operationId 和已确认路径，不重新扩大范围；已成功项跳过。停止后续删除是持久业务请求，未开始的作品不执行，当前作品到原安全边界结束，已删和已提交归档回收不会自动撤销。失去执行权或 Worker 关闭信号及时中断，不能当作“等当前作品做完”。强杀残留 `.replace-write-lock` 不自动偷取或按超时删除，需按普通停写恢复流程核对。
+
+批量报告持久保存在 SystemJob result，轻量列表只返回作品进度、结果及归档任务摘要；确认明细和完整下载按需查询。去重结果页在处理结果变化时刷新受影响结果，不重新执行检测。单作品接口的返回与原报告展示保持原行为。
 
 ## 报告契约
 

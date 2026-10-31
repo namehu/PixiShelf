@@ -18,3 +18,5 @@ export { readExecutorMediaRecoveryDomainSnapshot } from './scan/media-content-re
 export { resolveMediaContentRoots } from './media-content/roots.ts'
 
 export * from './artwork-dedup/index.ts'
+
+export { createArtworkBatchDeleteExecutor } from './artwork-delete/batch-executor.ts'

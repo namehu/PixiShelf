@@ -12,10 +12,6 @@ import {
   getMediaContentWriteHandle,
   withMediaContentOwnerPublication,
   type MediaContentDirectorySnapshot,
-  type MediaContentOwner,
-  type MediaContentResult,
-  type MediaContentWriteHandle,
-  type MediaContentTransaction,
   type MediaContentChunkReceipt
 } from '@pixishelf/db'
 import { resolveMediaContentRoots, resolveMediaContentPath } from '@pixishelf/job-executors/media-content'
@@ -24,34 +20,17 @@ import { resolveCreatablePathWithinRoot } from '@/lib/safe-path'
 import type { ContentWriteAuthorization, MediaUploadReceipt } from '@/schemas/media-content.dto'
 import { groupLogicalMedia } from './logical-media'
 
-export class ContentWriteConflict extends Error {
-  readonly status = 409
-  constructor(message = '媒体状态已变化或正在写入，请刷新后重试。') {
-    super(message)
-  }
-}
-export function requireContentReady<T>(result: MediaContentResult<T>): T {
-  if (result.status !== 'READY') throw new ContentWriteConflict(`媒体暂不可操作（${result.status}）。`)
-  return result.value
-}
-export const contentTx = (tx: AppTransaction) => tx as unknown as MediaContentTransaction
-export const contentOwner = (userId: string, sessionId: string): MediaContentOwner => ({
-  ownerUserId: userId,
-  sessionId,
-  sessionVersion: 1n,
-  execution: null
-})
-export const contentHandle = (auth: ContentWriteAuthorization): MediaContentWriteHandle => ({
-  ...auth.handle,
-  declarationVersion: BigInt(auth.handle.declarationVersion)
-})
-export const contentAuthorization = (
-  sessionId: string,
-  handle: MediaContentWriteHandle
-): ContentWriteAuthorization => ({
-  sessionId,
-  handle: { ...handle, declarationVersion: handle.declarationVersion.toString() }
-})
+import {
+  ContentWriteConflict,
+  requireContentReady,
+  contentTx as sharedContentTx,
+  contentOwner,
+  contentHandle,
+  contentAuthorization
+} from '@pixishelf/job-executors/artwork-delete'
+export { ContentWriteConflict, requireContentReady, contentOwner, contentHandle, contentAuthorization }
+export const contentTx = (tx: AppTransaction) =>
+  sharedContentTx(tx as unknown as import('@pixishelf/db').Prisma.TransactionClient)
 export const contentReceipt = (receipt: MediaUploadReceipt['receipt']): MediaContentChunkReceipt => ({
   ...receipt,
   offset: BigInt(receipt.offset),
@@ -165,22 +144,33 @@ export async function beginContentUpload(input: {
       if (input.parent.sessionId !== input.sessionId) throw new ContentWriteConflict()
     } else if (!previous) {
       const images = await tx.image.findMany({
-        where: { OR: [
-          { path: { in: [context.relativePath, `/${context.relativePath}`] } },
-          ...(input.relatedImage ? [{ id: input.relatedImage.imageId }] : [])
-        ] },
+        where: {
+          OR: [
+            { path: { in: [context.relativePath, `/${context.relativePath}`] } },
+            ...(input.relatedImage ? [{ id: input.relatedImage.imageId }] : [])
+          ]
+        },
         select: { id: true, artworkId: true, path: true, contentSource: { select: { writeToken: true } } }
       })
       if (input.relatedImage) {
         const related = images.find((image) => image.id === input.relatedImage!.imageId)
-        if (!related || related.artworkId !== input.relatedImage.artworkId || related.path !== input.relatedImage.path) {
+        if (
+          !related ||
+          related.artworkId !== input.relatedImage.artworkId ||
+          related.path !== input.relatedImage.path
+        ) {
           throw new ContentWriteConflict('章节所属媒体已变化。')
         }
       }
-      const imageIds = images.filter((image) => image.contentSource?.writeToken !== input.writeToken).map((image) => image.id)
+      const imageIds = images
+        .filter((image) => image.contentSource?.writeToken !== input.writeToken)
+        .map((image) => image.id)
       if (imageIds.length) {
         await beginMediaContentSourceWrite(contentTx(tx), {
-          artworkIds: [], imageIds, writeToken: input.writeToken, now: new Date()
+          artworkIds: [],
+          imageIds,
+          writeToken: input.writeToken,
+          now: new Date()
         })
       }
     }
@@ -189,8 +179,11 @@ export async function beginContentUpload(input: {
         where: { id: input.relatedImage.imageId },
         select: { artworkId: true, path: true, contentSource: { select: { writeToken: true } } }
       })
-      if (related?.artworkId !== input.relatedImage.artworkId || related.path !== input.relatedImage.path ||
-          related.contentSource?.writeToken !== input.writeToken) {
+      if (
+        related?.artworkId !== input.relatedImage.artworkId ||
+        related.path !== input.relatedImage.path ||
+        related.contentSource?.writeToken !== input.writeToken
+      ) {
         throw new ContentWriteConflict('原章节上传没有匹配的媒体声明，请核对后重新上传。')
       }
     }

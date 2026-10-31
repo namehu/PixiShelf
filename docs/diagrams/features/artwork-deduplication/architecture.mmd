@@ -21,31 +21,34 @@ config:
 title: 同艺术家作品去重 · 系统职责与边界
 ---
 flowchart TB
-  A01[桌面浏览器<br/>检查 · 图片对照 · 确认删除]
-  A02[App · 短请求<br/>账户与范围校验 · 三处共用阶段进度]
-  A03[(数据库 · 持久状态<br/>任务／游标／性能汇总<br/>三层缓存 · 删除意图／回执)]
-  A05[Worker 调度<br/>租约和心跳 · 异步领取／续行]
-  subgraph Worker[三条执行通道]
-    A06[解析通道<br/>ARCHIVE_RESOLVE]
-    A07[下载通道<br/>ARCHIVE_DOWNLOAD]
-    A08[写入通道 · BACKGROUND_WRITER<br/>去重／核验／删除 · 正式发布]
+  subgraph Browser[桌面浏览器]
+    A[检查／对照／统一选择／一次确认]
+    P[结果页轻量进度 · 按需完整报告]
   end
-  A09[受控文件子进程<br/>属性／SHA／解码 · 逐文件动作]
-  A12[单计算线程 · 扫描 v8<br/>只读特征／BK-tree／图片精比<br/>不接触媒体 · 不持有提交许可]
-  A10[下载暂存目录 · staging]
-  A11[媒体目录<br/>冻结文件清单 · 不清空目录]
-  A01 <-->|命令／持久阶段进度| A02
-  A02 <-->|短事务| A03
-  A03 -->|持久任务| A05
-  A05 --> A06 & A07 & A08
-  A07 --> A10
-  A08 -->|受控读取与删除| A09 --> A11
-  A08 <-->|分页特征／有界批次结果| A12
-  A08 -.->|重新取得许可／批量校验<br/>原子保存结果、游标和计数| A03
-  A12 -.->|取消／超限／退出| A08
-  classDef store fill:#f0fdf4,stroke:#779489
-  classDef disk fill:#f8fafc,stroke:#94a3b8
-  classDef writer fill:#dbeafe,stroke:#2563eb,stroke-width:2px
-  class A03 store
-  class A10,A11 disk
-  class A08 writer
+  subgraph App[App · 管理员请求]
+    B[去重 adapter · 明确选择解析为作品]
+    C[普通批量预览／提交／停止／重试]
+    S[普通单作品删除接口]
+  end
+  DB[(数据库 · 既有 SystemJob<br/>payload 确认范围 · result 普通报告)]
+  subgraph Worker[通用 Worker]
+    Q[writer lane · ARTWORK_BATCH_DELETE]
+    R[writer lane · ARCHIVE_MAINTENANCE]
+    SC[检测执行器 · 受控读取与计算线程]
+    RD[解析通道／下载通道 · 保持原职责]
+  end
+  CORE[共享最小普通删除核心<br/>路径／引用／文件身份／短事务]
+  FS[(原媒体与普通删除 manifest)]
+  A --> B --> C --> DB
+  P <-->|仅摘要轮询 · 无逐文件 JSON| C
+  DB --> Q
+  DB --> SC
+  Q --> CORE
+  S --> CORE
+  CORE --> FS
+  Q -->|仅提交回收 · 不等待子任务| DB
+  DB --> R --> FS
+  CORE -->|执行前与发布各一个短事务| DB
+  Q -->|逐项结果与任务事件| DB
+  OLD[旧专用删除 · 只读历史<br/>升级前收口 · 不再注册执行器]
+  OLD -.-> DB

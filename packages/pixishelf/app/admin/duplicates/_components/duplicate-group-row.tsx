@@ -37,6 +37,7 @@ export function DuplicateGroupRow({
   onDetails: () => void
   onRetry: () => void
 }) {
+  const manual = group.relationKind === 'PARTIAL' || group.relationKind === 'VISUAL'
   const contains = group.relationKind === 'CONTAINS'
   const title = group.previewMembers[0]?.title ?? '待比较的作品'
   return (
@@ -52,9 +53,21 @@ export function DuplicateGroupRow({
             />
           </span>
           <span className="min-w-0">
-            <span className="block text-sm font-medium">{contains ? '完整包含' : '处理这一组'}</span>
+            <span className="block text-sm font-medium">
+              {contains
+                ? '完整包含'
+                : manual
+                  ? group.relationKind === 'PARTIAL'
+                    ? '部分重复'
+                    : '疑似版本'
+                  : '内容相同'}
+            </span>
             <span className="text-xs text-muted-foreground">
-              {contains ? duplicateContainmentCounts(group) : `${group.memberCount} 部内容相同 · 保留 1 部`}
+              {contains
+                ? duplicateContainmentCounts(group)
+                : manual
+                  ? '手动选择保留方，再勾选待删作品'
+                  : `${group.memberCount} 部内容相同 · 保留 1 部`}
             </span>
           </span>
         </label>
@@ -69,7 +82,9 @@ export function DuplicateGroupRow({
         </Button>
       </header>
       {group.needsExplicitChoice && !group.savedReview && group.reasons.length === 0 ? (
-        <p className="px-3 py-2 text-sm text-warning">有多份整理记录，请先选择保留作品。</p>
+        <p className="px-3 py-2 text-sm text-warning">
+          {manual ? '请明确选择保留哪一个版本。' : '有多份整理记录，请先选择保留作品。'}
+        </p>
       ) : null}
       {group.reasons[0] ? (
         <p className="px-3 py-2 text-sm text-warning">{duplicateBlockReason(group.reasons[0])}</p>

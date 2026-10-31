@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import {
   isArchiveJobType,
   artworkDedupScanPayloadSchema,
@@ -122,18 +123,47 @@ function iso(value: Date | null) {
 export function toJobDto(record: SystemJobWireRecord): JobDto {
   const redactText = wireTextRedactor(record.type)
   const legacyYield = isLegacyAnimationDurationYield(record)
+  const batch = record.type === 'ARTWORK_BATCH_DELETE'
+  const batchPayload = batch
+    ? z
+        .object({
+          origin: z.object({ runId: z.string() }).nullish(),
+          items: z.array(z.unknown()),
+          confirmed: z.boolean(),
+          stopAfterCurrent: z.boolean()
+        })
+        .safeParse(record.payload).data
+    : null
+  const batchResult = batch
+    ? z.object({ items: z.array(z.object({ status: z.string() })) }).safeParse(record.result).data
+    : null
   return jobDtoSchema.parse({
     ...record,
     ...archiveExecutionSummary(record),
     hasPartialFailure: hasPartialFailure(record),
     idempotencyKey: redactSensitiveText(record.idempotencyKey),
-    payload:
-      record.type === 'ARTWORK_DEDUP_SCAN'
+    payload: batch
+      ? batchPayload
+        ? {
+            runId: batchPayload.origin?.runId ?? null,
+            artworks: batchPayload.items.length,
+            confirmed: batchPayload.confirmed,
+            stopAfterCurrent: batchPayload.stopAfterCurrent
+          }
+        : null
+      : record.type === 'ARTWORK_DEDUP_SCAN'
         ? (artworkDedupScanPayloadSchema.safeParse(record.payload).data ?? null)
         : record.type === 'ARTWORK_DEDUP_MAINTENANCE'
           ? (artworkDedupMaintenancePayloadSchema.safeParse(record.payload).data ?? null)
           : sanitizeJsonValue(record.payload, redactText),
-    result: sanitizeJsonValue(record.result, redactText),
+    result: batch
+      ? batchResult
+        ? {
+            processed: batchResult.items.filter((item) => item.status !== 'PROCESSING').length,
+            failed: batchResult.items.filter((item) => item.status === 'FAILED').length
+          }
+        : null
+      : sanitizeJsonValue(record.result, redactText),
     message: redactText(record.message),
     errorCode: legacyYield ? null : record.errorCode,
     error: legacyYield ? null : redactText(record.error),
@@ -156,7 +186,7 @@ export function toJobEventDto(record: SystemJobEventWireRecord): JobEventDto {
     ...event,
     id: record.id.toString(10),
     message: redactText(record.message),
-    data: sanitizeJsonValue(record.data, redactText),
+    data: job.type === 'ARTWORK_BATCH_DELETE' ? null : sanitizeJsonValue(record.data, redactText),
     createdAt: record.createdAt.toISOString()
   })
 }

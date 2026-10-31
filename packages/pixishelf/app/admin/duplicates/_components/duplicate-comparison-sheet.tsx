@@ -2,7 +2,7 @@
 
 import type { ArtworkDedupGroupDto, ArtworkDedupListComparisonsDto } from '@pixishelf/job-contracts'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ImageOff } from 'lucide-react'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { Badge } from '@/components/ui/badge'
@@ -21,7 +21,15 @@ import { duplicatePairCounts, duplicateVisualSideCounts } from './duplicate-rela
 type Comparison = ArtworkDedupListComparisonsDto['items'][number]
 type Filter = 'ALL' | 'DIFFERENT' | 'PAIRED' | 'UNMATCHED' | 'UNCHECKED'
 
-function ComparisonImage({ media, title, unchecked }: { media: Comparison['left']; title: string; unchecked: boolean }) {
+function ComparisonImage({
+  media,
+  title,
+  unchecked
+}: {
+  media: Comparison['left']
+  title: string
+  unchecked: boolean
+}) {
   const [failed, setFailed] = useState(false)
   if (!media) {
     return (
@@ -82,7 +90,8 @@ export function DuplicateComparisonSheet({
   onClose,
   onKeep,
   onRetry,
-  onPrepare
+  onPrepare,
+  selected = false
 }: {
   userId: string
   runId: string
@@ -99,6 +108,7 @@ export function DuplicateComparisonSheet({
   onKeep: (group: ArtworkDedupGroupDto, artworkId: number) => void
   onRetry: () => void
   onPrepare: () => void
+  selected?: boolean
 }) {
   const trpc = useTRPC()
   const queryClient = useQueryClient()
@@ -107,14 +117,18 @@ export function DuplicateComparisonSheet({
   const [filter, setFilter] = useState<Filter>(partial ? 'UNMATCHED' : 'DIFFERENT')
   const [side, setSide] = useState<'left' | 'right'>('left')
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined])
-  const options = trpc.artworkDedup.listComparisons.queryOptions({
-    expectedUserId: userId,
-    runId,
-    groupId: group.groupId,
-    filter,
-    cursor: cursors.at(-1),
-    limit: 1
-  })
+  const options = useMemo(
+    () =>
+      trpc.artworkDedup.listComparisons.queryOptions({
+        expectedUserId: userId,
+        runId,
+        groupId: group.groupId,
+        filter,
+        cursor: cursors.at(-1),
+        limit: 1
+      }),
+    [trpc, userId, runId, group.groupId, filter, cursors]
+  )
   const comparisons = useQuery({ ...options, retry: false, gcTime: 0 })
   const members = useQuery({
     ...trpc.artworkDedup.listGroups.queryOptions({ runId, groupId: group.groupId, expectedUserId: userId, limit: 20 }),
@@ -251,7 +265,9 @@ export function DuplicateComparisonSheet({
                   const mediaLabel = media
                     ? `第 ${media.index + 1} ${unchecked ? '项' : '张'}`
                     : pair
-                      ? unchecked ? '本行未列出对应项' : '无对应图片'
+                      ? unchecked
+                        ? '本行未列出对应项'
+                        : '无对应图片'
                       : '本筛选无图片'
                   return (
                     <section
@@ -273,7 +289,9 @@ export function DuplicateComparisonSheet({
                           <p className="text-xs text-muted-foreground">
                             {currentSide === 'left' ? '左侧版本' : '右侧版本'} ·{' '}
                             {coverage.total.toLocaleString('zh-CN')} 项原媒体
-                            {!partial ? `（已核对 ${coverage.checked.toLocaleString('zh-CN')} · 未核对 ${coverage.unchecked.toLocaleString('zh-CN')}）` : ''}
+                            {!partial
+                              ? `（已核对 ${coverage.checked.toLocaleString('zh-CN')} · 未核对 ${coverage.unchecked.toLocaleString('zh-CN')}）`
+                              : ''}
                             {' · '}
                             {mediaLabel}
                           </p>
@@ -367,13 +385,13 @@ export function DuplicateComparisonSheet({
                   </Button>
                 </>
               ) : keeperId ? (
-                '将只处理这一对，下一步确认删除范围。'
+                '选择会与结果页同步，可和其他作品一起批量删除。'
               ) : (
                 '请明确选择保留哪一个版本。'
               )}
             </div>
             <Button className="min-h-11" disabled={!canDelete} onClick={onPrepare}>
-              {preparing ? '正在打开确认' : '确认删除'}
+              {selected ? '取消批量选择' : '加入批量选择'}
             </Button>
           </div>
         </div>

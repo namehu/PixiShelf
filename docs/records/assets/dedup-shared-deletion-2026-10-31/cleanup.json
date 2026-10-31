@@ -1,0 +1,13 @@
+{
+  "verifiedAt": "2026-10-31T03:25:33.060930+00:00",
+  "app": "stopped by Ctrl-C; exit 130",
+  "worker": "stopped by SIGTERM; own last PID no longer exists",
+  "databaseContainer": "pixishelf-batch-delete-postgres stopped; retained",
+  "loopbackPorts": {
+    "56430": "released",
+    "56411": "released",
+    "56432": "released"
+  },
+  "fixturesAndEvidence": "retained",
+  "userServices": "not modified or stopped"
+}

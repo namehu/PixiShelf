@@ -323,9 +323,8 @@ function BackgroundTaskDock({
       ? formatBackgroundJobType(running.type, running.payload)
       : null
   const progress = activeBatch?.progress ?? running?.progress
-  const dedupProgress = !activeBatch && running?.type === 'ARTWORK_DEDUP_SCAN'
-    ? artworkDedupProgressPresentation(running)
-    : null
+  const dedupProgress =
+    !activeBatch && running?.type === 'ARTWORK_DEDUP_SCAN' ? artworkDedupProgressPresentation(running) : null
   const dockPosition =
     'fixed inset-x-4 bottom-[calc(var(--app-mobile-navigation-offset)+0.75rem)] z-40 lg:inset-x-auto lg:right-6 lg:bottom-6'
 
@@ -364,7 +363,9 @@ function BackgroundTaskDock({
           <span className="min-w-0 truncate">{activeLabel ?? `${queuedCount} 项等待`}</span>
           {dedupProgress ? (
             <span className="truncate text-xs tabular-nums">{dedupProgress.waitLabel ?? dedupProgress.label}</span>
-          ) : progress !== undefined ? <span className="font-semibold tabular-nums">{progress}%</span> : null}
+          ) : progress !== undefined ? (
+            <span className="font-semibold tabular-nums">{progress}%</span>
+          ) : null}
           {activeBatch ? (
             <span className="opacity-80">
               {activeBatch.completedCount}/{activeBatch.totalCount}
@@ -832,7 +833,13 @@ function JobActions({
     <div className="flex flex-wrap gap-2">
       {dedupHref ? (
         <Button asChild variant="outline" className="min-h-11">
-          <Link href={dedupHref}>{job.type === 'ARTWORK_DEDUP_MAINTENANCE' ? '查看处理批次' : '查看检查进度'}</Link>
+          <Link href={dedupHref}>
+            {job.type === 'ARTWORK_BATCH_DELETE'
+              ? '返回检查结果与删除进度'
+              : job.type === 'ARTWORK_DEDUP_MAINTENANCE'
+                ? '查看处理批次'
+                : '查看检查进度'}
+          </Link>
         </Button>
       ) : null}
       {canPauseJob(job) ? (

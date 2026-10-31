@@ -42,6 +42,9 @@
       "@pixishelf/job-executors/video-audio": [
         "../pixishelf-job-executors/src/video-audio/index.ts"
       ],
+      "@pixishelf/job-executors/artwork-delete": [
+        "../pixishelf-job-executors/src/artwork-delete/index.ts"
+      ],
       "@pixishelf/job-runtime": [
         "../pixishelf-job-runtime/src/index.ts"
       ],

@@ -195,14 +195,16 @@ export async function enqueueJob(
     parsed.triggerSource === 'MANUAL' &&
     parsed.definitionVersion !== JOB_DEFINITION_VERSION &&
     !(parsed.type === 'ARCHIVE_MAINTENANCE' && parsed.definitionVersion === 2)
-  )
-    {throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '该任务版本必须通过领域入口创建')}
+  ) {
+    throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '该任务版本必须通过领域入口创建')
+  }
   if (
     parsed.type === 'ARCHIVE_MAINTENANCE' &&
     (parsed.payload as { action?: string } | undefined)?.action === 'RETIRE_PARTIAL_REVISION'
-  )
-    {throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '部分归档清理只能由补全发布创建')}
-  if (['ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(parsed.type)) {
+  ) {
+    throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '部分归档清理只能由补全发布创建')
+  }
+  if (['ARTWORK_BATCH_DELETE', 'ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(parsed.type)) {
     throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '重复作品检查必须通过领域入口创建和控制')
   }
   if (parsed.type === 'ARTWORK_SUMMARY_GENERATE') {
@@ -288,8 +290,9 @@ export async function cancelJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
-    if (['ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(job.type))
-      {throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '请通过重复作品检查页面控制此任务')}
+    if (['ARTWORK_BATCH_DELETE', 'ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(job.type)) {
+      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '请通过重复作品检查页面控制此任务')
+    }
     if (job.definitionVersion === 0) {
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '历史任务仅供查看，不能重新执行或控制')
     }
@@ -493,8 +496,9 @@ export async function pauseJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
-    if (['ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(job.type))
-      {throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '请通过重复作品检查页面控制此任务')}
+    if (['ARTWORK_BATCH_DELETE', 'ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(job.type)) {
+      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '请通过重复作品检查页面控制此任务')
+    }
     if (job.definitionVersion === 0) {
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '历史任务仅供查看，不能重新执行或控制')
     }
@@ -551,8 +555,9 @@ export async function resumeJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
-    if (['ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(job.type))
-      {throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '请通过重复作品检查页面控制此任务')}
+    if (['ARTWORK_BATCH_DELETE', 'ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(job.type)) {
+      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '请通过重复作品检查页面控制此任务')
+    }
     if (job.definitionVersion === 0) {
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '历史任务仅供查看，不能重新执行或控制')
     }
@@ -607,8 +612,9 @@ export async function retryJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
-    if (['ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(job.type))
-      {throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '请通过重复作品检查页面控制此任务')}
+    if (['ARTWORK_BATCH_DELETE', 'ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(job.type)) {
+      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '请通过重复作品检查页面控制此任务')
+    }
     assertStatus(job, ['FAILED', 'CANCELLED', 'SKIPPED'], 'retry')
     if (await hasBlockingMediaContentCancellation(transaction, job.id)) {
       throw new BackgroundTaskError(
@@ -664,8 +670,9 @@ export async function retryJobCommand(
         where: { currentSystemJobId: job.id, status: { in: ['FAILED', 'CANCELLED'] } },
         select: { submittedUrl: true, dedupSourceSnapshot: true }
       })
-      if (!item)
-        {throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '收件记录已删除或不再可重试，请从收件箱重新添加链接')}
+      if (!item) {
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '收件记录已删除或不再可重试，请从收件箱重新添加链接')
+      }
       await lockCreatorCatalog(transaction)
       try {
         await assertArchiveIntakeSourceProof(transaction, item.dedupSourceSnapshot, item.submittedUrl)
@@ -817,8 +824,9 @@ export async function changeJobPriorityCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: parsed.jobId }, select: systemJobWireSelect })
     )
-    if (['ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(job.type))
-      {throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '重复作品检查使用固定低优先级')}
+    if (['ARTWORK_BATCH_DELETE', 'ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(job.type)) {
+      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '重复作品检查使用固定低优先级')
+    }
     if (job.definitionVersion === 0) {
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '历史任务仅供查看，不能重新执行或控制')
     }
