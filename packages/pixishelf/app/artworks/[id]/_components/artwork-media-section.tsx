@@ -19,6 +19,7 @@ import ArtworkImages from './artwork-images'
 import { getAutoBrowseViewport } from './use-artwork-auto-scroll'
 import { useArtworkMediaView } from './artwork-media-view-context'
 import { useArtworkDetailControls } from './artwork-detail-controls'
+import { useLikedMediaIds } from '@/hooks/use-media-mark'
 
 type MediaSectionProps = { images: ArtworkImageResponseDto[]; artworkId: number; resumeOnEntry?: boolean; mediaIdOnEntry?: number | null }
 
@@ -45,7 +46,7 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
   const [continueRequest, setContinueRequest] = useState<{ index: number; nonce: number } | null>(null)
   const [entryResumePending, setEntryResumePending] = useState(resumeOnEntry || mediaIdOnEntry !== undefined)
   const [entryMediaError, setEntryMediaError] = useState<'invalid' | 'missing' | 'reader' | 'page' | null>(null)
-  const [filter, setFilter] = useState<{ owner: string | null; artworkId: number; ids: number[]; nonce: number } | null>(null)
+  const [filter, setFilter] = useState<{ owner: string | null; artworkId: number; kind: 'unread' | 'liked'; ids: number[]; nonce: number } | null>(null)
   const topRef = useRef<HTMLDivElement>(null)
   const requestScope = useRef({ artworkId, owner: reading.ownerUserId })
   useEffect(() => {
@@ -56,9 +57,16 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
     setContinueRequest(null)
     if (previous.owner && previous.owner !== reading.ownerUserId) { setEntryResumePending(false); setEntryMediaError(null) }
   }, [artworkId, reading.ownerUserId])
-  const unreadOnly = filter !== null && filter.owner === reading.ownerUserId && filter.artworkId === artworkId
-  const filteredImages = useMemo(() => unreadOnly
-    ? images.filter((image) => filter.ids.includes(image.id)) : images, [filter, images, unreadOnly])
+  const activeFilter = filter?.owner === reading.ownerUserId && filter.artworkId === artworkId ? filter : null
+  const unreadOnly = activeFilter?.kind === 'unread'
+  const likedOnly = activeFilter?.kind === 'liked'
+  const likes = useLikedMediaIds(artworkId, likedOnly)
+  const filteredImages = useMemo(() => {
+    const ids = likedOnly ? likes.data?.mediaIds ?? [] : unreadOnly ? activeFilter!.ids : null
+    if (!ids) return images
+    const included = new Set(ids)
+    return images.filter((image) => included.has(image.id))
+  }, [activeFilter, images, unreadOnly, likedOnly, likes.data])
   useLayoutEffect(() => { if (summary) summary.availableMediaIds.current = filteredImages.map((image) => image.id) }, [filteredImages, summary?.availableMediaIds])
   const projection = useMemo(() => summaryMode && summary
     ? projectArtworkStacks(filteredImages, summary.groups, summary.activeByGroup) : null,
@@ -90,13 +98,13 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
     if (index >= 0) setContinueRequest({ index, nonce: summaryAnchor.nonce })
     else summary?.finishNavigation(summaryAnchor.nonce)
   }, [summaryAnchor, displayImages])
-  const changeFilter = (enabled: boolean) => {
+  const changeFilter = (kind: 'all' | 'unread' | 'liked') => {
     useArtworkAutoBrowseStore.getState().pause('manual')
     const navigation = summary?.beginNavigation()
     setContinueRequest(null)
     const seen = new Set(reading.context?.seenMediaIds ?? [])
     const ids = reading.context?.media.filter((item) => !seen.has(item.mediaId)).flatMap((item) => item.memberMediaIds) ?? []
-    setFilter(enabled ? { owner: reading.ownerUserId, artworkId, ids, nonce: (filter?.nonce ?? 0) + 1 } : null)
+    setFilter(kind === 'all' ? null : { owner: reading.ownerUserId, artworkId, kind, ids, nonce: (filter?.nonce ?? 0) + 1 })
     requestAnimationFrame(() => {
       if (!topRef.current) return
       window.scrollTo({
@@ -117,21 +125,23 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
   }
   const emptyUnread = unreadOnly && filteredImages.length === 0
   const mediaView = useArtworkMediaView()
-  const actionRef = useRef({ changeFilter, continueReading, reading, unreadOnly })
-  actionRef.current = { changeFilter, continueReading, reading, unreadOnly }
+  const emptyLiked = likedOnly && !likes.isPending && !likes.error && filteredImages.length === 0
+  const actionRef = useRef({ changeFilter, continueReading, reading, unreadOnly, likedOnly })
+  actionRef.current = { changeFilter, continueReading, reading, unreadOnly, likedOnly }
   const setReadingMenu = mediaView?.setReadingMenu
   const readingRequest = mediaView?.readingRequest
   const remaining = reading.summary ? Math.max(0, reading.summary.totalCount - reading.summary.seenCount) : 0
   const available = Boolean(reading.context)
   useEffect(() => {
-    setReadingMenu?.(available ? { unreadOnly, remaining, disabled: reading.marking || reading.invalidated } : null)
-  }, [setReadingMenu, available, unreadOnly, remaining, reading.marking, reading.invalidated])
+    setReadingMenu?.(available ? { unreadOnly, likedOnly, remaining, disabled: reading.marking || reading.invalidated } : null)
+  }, [setReadingMenu, available, unreadOnly, likedOnly, remaining, reading.marking, reading.invalidated])
   useEffect(() => () => setReadingMenu?.(null), [setReadingMenu])
   useEffect(() => {
     if (!readingRequest) return
     const current = actionRef.current
     if (readingRequest.action === 'mark-all') void current.reading.markRead({ kind: 'ALL' })
-    else current.changeFilter(readingRequest.action === 'refresh' || !current.unreadOnly)
+    else if (readingRequest.action === 'liked-filter') current.changeFilter(current.likedOnly ? 'all' : 'liked')
+    else current.changeFilter(readingRequest.action === 'refresh' || !current.unreadOnly ? 'unread' : 'all')
   }, [readingRequest])
 
   const pathname = usePathname()
@@ -278,16 +288,34 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
         </div>}
         {summaryMode && <p className="pb-5 text-xs text-muted-foreground">上下浏览各叠，左右翻看组内图片；浏览一张即将整叠标为已读。</p>}
       </div></PageContainer>
-      {reading.invalidated || entryMediaError === 'invalid' || entryMediaError === 'missing' ? null : emptyUnread ? (
+      {reading.invalidated || entryMediaError === 'invalid' || entryMediaError === 'missing' ? null : likedOnly && likes.isPending ? (
+        <p role="status" className="py-16 text-center text-sm text-muted-foreground">正在加载喜欢的图片…</p>
+      ) : likedOnly && likes.error ? (
+        <Empty className="py-16">
+          <EmptyHeader><EmptyTitle>喜欢的图片加载失败</EmptyTitle></EmptyHeader>
+          <EmptyContent>
+            <Button variant="secondary" onClick={() => void likes.refetch()}>重试</Button>
+            <Button variant="ghost" onClick={() => changeFilter('all')}>查看全部图片</Button>
+          </EmptyContent>
+        </Empty>
+      ) : emptyLiked ? (
+        <Empty className="py-16">
+          <EmptyHeader>
+            <EmptyTitle>还没有喜欢的图片</EmptyTitle>
+            <EmptyDescription>双击图片或从图片操作菜单添加喜欢后，可在这里筛选查看。</EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent><Button variant="secondary" onClick={() => changeFilter('all')}>查看全部图片</Button></EmptyContent>
+        </Empty>
+      ) : emptyUnread ? (
         <Empty className="py-16">
           <EmptyHeader>
             <EmptyTitle>没有未读内容</EmptyTitle>
             <EmptyDescription>这部作品的 {reading.summary?.totalCount ?? 0} 张图片都已读完。</EmptyDescription>
           </EmptyHeader>
-          <EmptyContent><Button variant="secondary" onClick={() => changeFilter(false)}>查看全部</Button></EmptyContent>
+          <EmptyContent><Button variant="secondary" onClick={() => changeFilter('all')}>查看全部</Button></EmptyContent>
         </Empty>
       ) : (
-        <ArtworkImages key={`${artworkId}:${reading.ownerUserId}:${unreadOnly ? filter.nonce : 'all'}`}
+        <ArtworkImages key={`${artworkId}:${reading.ownerUserId}:${activeFilter?.nonce ?? 'all'}`}
           images={displayImages} allImages={filteredImages} artworkId={artworkId} reading={projectedReading}
           summaryMode={summaryMode} summaryDecorations={projection?.decorations}
           trackingActive={!entryResumePending && !mediaView?.readerBlocked && !summary?.navigating} continueRequest={continueRequest}

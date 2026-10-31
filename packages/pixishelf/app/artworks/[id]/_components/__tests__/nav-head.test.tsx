@@ -39,6 +39,9 @@ vi.mock('@/components/ui/dropdown-menu', () => ({
   DropdownMenuContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   DropdownMenuSeparator: () => <hr />,
   DropdownMenuGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  DropdownMenuCheckboxItem: ({ children, checked, disabled, onCheckedChange }: {
+    children: ReactNode; checked: boolean; disabled?: boolean; onCheckedChange: (checked: boolean) => void
+  }) => <button role="menuitemcheckbox" aria-checked={checked} disabled={disabled} onClick={() => onCheckedChange(!checked)}>{children}</button>,
   DropdownMenuItem: ({
     children,
     onSelect,
@@ -119,10 +122,12 @@ describe('NavHead', () => {
     function ReadingState() {
       const view = useArtworkMediaView()!
       const setMenu = view.setReadingMenu
-      useEffect(() => { setMenu({ unreadOnly: true, remaining: 2, disabled: false }) }, [setMenu])
+      useEffect(() => { setMenu({ unreadOnly: true, likedOnly: false, remaining: 2, disabled: false }) }, [setMenu])
       return <output>{view.readingRequest?.action}</output>
     }
     render(<ArtworkMediaViewProvider><ReadingState /><NavHead data={data} id="7" /></ArtworkMediaViewProvider>)
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: '只看喜欢的图片' }))
+    expect(screen.getByRole('status').textContent).toBe('liked-filter')
     fireEvent.click(screen.getByRole('button', { name: '查看全部' }))
     expect(screen.getByRole('status').textContent).toBe('filter')
     fireEvent.click(screen.getByRole('button', { name: '刷新未读' }))

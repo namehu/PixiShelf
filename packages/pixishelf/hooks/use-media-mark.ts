@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
-import { type QueryClient, useQueryClient } from '@tanstack/react-query'
+import { type QueryClient, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useAuthStore, useAuthUser } from '@/components/auth'
 import { useTRPCClient } from '@/lib/trpc'
@@ -50,6 +50,17 @@ function sessionFor(
     },
     initial
   )
+}
+
+export function useLikedMediaIds(artworkId: number, enabled: boolean) {
+  const owner = useAuthUser()?.id
+  const client = useTRPCClient()
+  return useQuery({
+    queryKey: [...mediaMarkListKey(owner ?? ''), 'likedMediaIds', artworkId],
+    queryFn: ({ signal }) => client.mediaMark.likedMediaIds.query({ artworkId, expectedUserId: owner! }, { signal }),
+    enabled: enabled && Boolean(owner),
+    refetchOnWindowFocus: false
+  })
 }
 
 export function usePrefetchMediaMarks(artworkId: number, mediaIds: number[], enabled: boolean) {

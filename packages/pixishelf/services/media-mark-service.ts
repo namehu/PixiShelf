@@ -91,6 +91,22 @@ function snapshotMediaType(image: MediaContext['images'][number]): 'image' | 'an
   return 'image'
 }
 
+export async function getLikedMediaIds(userId: string, artworkId: number) {
+  return prisma.$transaction(async (tx) => {
+    const artwork = await loadContext(tx, artworkId)
+    const marks = await tx.mediaMark.findMany({
+      where: { userId, artworkId, likedAt: { not: null }, mediaId: { not: null } },
+      select: { mediaId: true }
+    })
+    const liked = new Set(marks.map((mark) => mark.mediaId))
+    return {
+      mediaIds: logicalTargets(artwork)
+        .filter((target) => target.members.some((member) => liked.has(member.id)))
+        .map((target) => target.item.id)
+    }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead })
+}
+
 export async function getMediaMarks(userId: string, artworkId: number, mediaIds: number[]) {
   return prisma.$transaction(
     async (tx) => {

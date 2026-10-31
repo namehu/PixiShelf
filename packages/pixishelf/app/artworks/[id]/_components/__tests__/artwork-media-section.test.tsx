@@ -10,6 +10,7 @@ import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store
 import { ArtworkMediaSection } from '../artwork-media-section'
 import { ArtworkMediaViewProvider, useArtworkMediaView } from '../artwork-media-view-context'
 import type { useArtworkSummary } from '../artwork-summary-context'
+import { useLikedMediaIds } from '@/hooks/use-media-mark'
 
 const mocks = vi.hoisted(() => ({
   observedReading: null as ArtworkReadingHandle | null,
@@ -35,6 +36,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('next/navigation', () => ({ usePathname: () => mocks.pathname }))
+vi.mock('@/hooks/use-media-mark', () => ({ useLikedMediaIds: vi.fn() }))
 vi.mock('../artwork-summary-context', () => ({ useArtworkSummary: () => mocks.stackSession }))
 vi.mock('../artwork-detail-controls', () => ({ useArtworkDetailControls: () => ({ ratingOpen: mocks.ratingOpen }) }))
 vi.mock('@/lib/reading/artwork-reader-provider', () => ({ useArtworkReader: vi.fn(() => null) }))
@@ -84,6 +86,7 @@ function ReadingMenuHarness() {
   const view = useArtworkMediaView()!
   if (!view.readingMenu) return null
   return <nav aria-label="阅读操作测试入口">
+    <button onClick={() => view.requestReadingAction('liked-filter')} aria-pressed={view.readingMenu.likedOnly}>只看喜欢的图片</button>
     <button onClick={() => view.requestReadingAction('filter')}>{view.readingMenu.unreadOnly ? '查看全部' : '只看未读'}</button>
     {view.readingMenu.unreadOnly && <button onClick={() => view.requestReadingAction('refresh')}>刷新未读</button>}
     {view.readingMenu.remaining > 0 && <button onClick={() => view.requestReadingAction('mark-all')}>标记全部已读</button>}
@@ -101,6 +104,7 @@ function renderSection() {
 describe('ArtworkMediaSection', () => {
   beforeEach(() => {
     mocks.observe.mockReset()
+    vi.mocked(useLikedMediaIds).mockReturnValue({ data: { mediaIds: [12] }, isPending: false, error: null, refetch: vi.fn() } as unknown as ReturnType<typeof useLikedMediaIds>)
     mocks.observedReading = null
     mocks.stackSession = null
     mocks.readingContext = null
@@ -500,6 +504,52 @@ describe('ArtworkMediaSection', () => {
     expect(screen.getAllByRole('button', { name: '查看全部' })).toHaveLength(2)
     fireEvent.click(screen.getAllByRole('button', { name: '查看全部' })[0]!)
     expect(screen.getByText('第 1 张')).toBeTruthy()
+  })
+
+  it('filters by liked identity, preserves original positions and switches back to all or unread', () => {
+    mocks.readingContext = { ...resumedContext(), resume: null }
+    mocks.readingSummary = mocks.readingContext.summary
+    const images = [{ id: 11 }, { id: 12 }] as ArtworkImageResponseDto[]
+    const content = () => <ArtworkMediaViewProvider><ReadingMenuHarness /><ArtworkMediaSection images={images} artworkId={7} /></ArtworkMediaViewProvider>
+    render(content())
+    const pause = vi.spyOn(useArtworkAutoBrowseStore.getState(), 'pause')
+    fireEvent.click(screen.getByRole('button', { name: '只看喜欢的图片' }))
+    expect(pause).toHaveBeenCalledWith('manual')
+    expect(screen.queryByText('第 1 张')).toBeNull()
+    expect(screen.getByText('第 2 张')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '只看喜欢的图片' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: '只看喜欢的图片' }))
+    expect(screen.getByText('第 1 张')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '只看喜欢的图片' }))
+    fireEvent.click(screen.getByRole('button', { name: '只看未读' }))
+    expect(screen.getByRole('button', { name: '只看喜欢的图片' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.queryByText('第 1 张')).toBeNull()
+    expect(screen.getByText('第 2 张')).toBeTruthy()
+  })
+
+  it('keeps loading, errors and an empty liked selection separate and can restore the full list', () => {
+    mocks.readingContext = { ...resumedContext(), resume: null }
+    const retry = vi.fn()
+    const result = { data: undefined, isPending: true, error: null, refetch: retry } as unknown as ReturnType<typeof useLikedMediaIds>
+    vi.mocked(useLikedMediaIds).mockReturnValue(result)
+    const images = [{ id: 11 }, { id: 12 }] as ArtworkImageResponseDto[]
+    const content = () => <ArtworkMediaViewProvider><ReadingMenuHarness /><ArtworkMediaSection images={images} artworkId={7} /></ArtworkMediaViewProvider>
+    const view = render(content())
+    fireEvent.click(screen.getByRole('button', { name: '只看喜欢的图片' }))
+    expect(screen.getByText('正在加载喜欢的图片…')).toBeTruthy()
+    expect(screen.queryByText('还没有喜欢的图片')).toBeNull()
+    expect(screen.queryByTestId('local-images')).toBeNull()
+    vi.mocked(useLikedMediaIds).mockReturnValue({ ...result, isPending: false, error: new Error('offline') } as ReturnType<typeof useLikedMediaIds>)
+    view.rerender(content())
+    expect(screen.getByText('喜欢的图片加载失败')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    expect(retry).toHaveBeenCalledOnce()
+    vi.mocked(useLikedMediaIds).mockReturnValue({ ...result, data: { mediaIds: [] }, isPending: false } as ReturnType<typeof useLikedMediaIds>)
+    view.rerender(content())
+    expect(screen.getByText('还没有喜欢的图片')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '查看全部图片' }))
+    expect(screen.getByText('第 1 张')).toBeTruthy()
+    expect(screen.getByText('第 2 张')).toBeTruthy()
   })
 
   it('rejects stale detail visibility after collapse without suppressing the active preview', () => {

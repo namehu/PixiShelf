@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('next/navigation', () => ({ usePathname: () => '/artworks/7', useRouter: () => ({ push: vi.fn() }) }))
+vi.mock('@/hooks/use-media-mark', () => ({ useLikedMediaIds: () => ({ data: undefined }) }))
 vi.mock('@/lib/reading/reading-provider', () => ({ useArtworkReading: () => mocks.reading }))
 vi.mock('@/lib/reading/artwork-reader-provider', () => ({
   useArtworkReader: () => null,

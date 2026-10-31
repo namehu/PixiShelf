@@ -2,17 +2,17 @@ import type { PropsWithChildren } from 'react'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useMediaMark, usePrefetchMediaMarks } from '../use-media-mark'
+import { useLikedMediaIds, useMediaMark, usePrefetchMediaMarks } from '../use-media-mark'
 import type { MediaMarkStateDto } from '@/schemas/media-mark.dto'
 
-const mocks = vi.hoisted(() => ({ owner: 'alice', get: vi.fn(), set: vi.fn(), remove: vi.fn() }))
+const mocks = vi.hoisted(() => ({ owner: 'alice', get: vi.fn(), likedIds: vi.fn(), set: vi.fn(), remove: vi.fn() }))
 vi.mock('@/components/auth', () => ({
   useAuthUser: () => ({ id: mocks.owner }),
   useAuthStore: { getState: () => ({ user: { id: mocks.owner } }), subscribe: () => () => {} }
 }))
 vi.mock('@/lib/trpc', () => {
   const client = {
-    mediaMark: { getMany: { query: mocks.get }, set: { mutate: mocks.set }, remove: { mutate: mocks.remove } }
+    mediaMark: { getMany: { query: mocks.get }, likedMediaIds: { query: mocks.likedIds }, set: { mutate: mocks.set }, remove: { mutate: mocks.remove } }
   }
   return { useTRPCClient: () => client }
 })
@@ -32,6 +32,7 @@ function wrapper() {
 }
 beforeEach(() => {
   mocks.owner = 'alice'
+  mocks.likedIds.mockReset().mockResolvedValue({ mediaIds: [42] })
   mocks.get.mockReset().mockResolvedValue({ items: [state()] })
   mocks.set.mockReset().mockResolvedValue(state(true))
 })
@@ -41,6 +42,37 @@ afterEach(() => {
 })
 
 describe('media mark hook', () => {
+  it('loads liked membership only on demand and refreshes it after a confirmed unlike', async () => {
+    mocks.get.mockResolvedValue({ items: [{ ...state(), likedAt: '2026-10-31T00:00:00.000Z' }] })
+    const provider = wrapper()
+    const view = renderHook(({ enabled }) => ({ liked: useLikedMediaIds(7, enabled), mark: useMediaMark(7, 42) }), {
+      wrapper: provider, initialProps: { enabled: false }
+    })
+    expect(mocks.likedIds).not.toHaveBeenCalled()
+    await waitFor(() => expect(view.result.current.mark.available).toBe(true))
+    view.rerender({ enabled: true })
+    await waitFor(() => expect(view.result.current.liked.data?.mediaIds).toEqual([42]))
+    expect(mocks.likedIds).toHaveBeenCalledWith({ artworkId: 7, expectedUserId: 'alice' }, expect.anything())
+    mocks.likedIds.mockResolvedValue({ mediaIds: [] })
+    mocks.set.mockResolvedValue(state())
+    act(() => view.result.current.mark.set('like', false))
+    await waitFor(() => expect(view.result.current.liked.data?.mediaIds).toEqual([]))
+    expect(mocks.likedIds).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not reuse another account\'s liked membership or accept its late response', async () => {
+    let resolveAlice!: (value: { mediaIds: number[] }) => void
+    mocks.likedIds.mockImplementationOnce(() => new Promise((resolve) => { resolveAlice = resolve }))
+    const view = renderHook(() => useLikedMediaIds(7, true), { wrapper: wrapper() })
+    await waitFor(() => expect(resolveAlice).toBeDefined())
+    mocks.owner = 'bob'
+    mocks.likedIds.mockResolvedValue({ mediaIds: [99] })
+    view.rerender()
+    await waitFor(() => expect(view.result.current.data?.mediaIds).toEqual([99]))
+    await act(async () => resolveAlice({ mediaIds: [42] }))
+    expect(view.result.current.data?.mediaIds).toEqual([99])
+  })
+
   it('shares optimistic state, saves after closing and includes the account guard', async () => {
     let resolve!: (value: MediaMarkStateDto) => void
     mocks.set.mockImplementationOnce(

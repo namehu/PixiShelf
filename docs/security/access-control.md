@@ -59,7 +59,7 @@ PixiShelf 当前是**单一管理员信任域**。可以创建多个账户，但
 
 作品评分和喜欢筛选使用 Session 账户，`expectedUserId` 只作账户切换一致性校验。评分读取／赋值及喜欢条件的列表、卡片与沉浸 feed 缺失或错账户参数时拒绝；客户端不能指定任意账户评分或喜欢集合。详情滑杆与沉浸爱心共用鉴权评分赋值入口，不存在可绕过评分阈值的布尔点赞写入。服务在作品锁和事务内复核活动、未删除状态；前端缓存及迟到响应按账户隔离。见[作品评分与喜欢](../features/artwork-rating.md)与[作品搜索与我的喜欢](../features/artwork-search-and-favorites.md)。
 
-单图 `mediaMark.getMany/set/list/remove` 使用同样的 Session 与 `expectedUserId` 保护，但操作独立媒体标记，不写作品评分。设置必须核对媒体属于当前活动作品、逻辑媒体身份及写入状态；失效条目只能按会话账户移除指定状态。原媒体写入开始、成功失效与标记设置按相同作品锁排序，避免把标记写到正在替换的内容。见[单图书签与喜欢](../features/media-marks.md)。
+单图 `mediaMark.getMany/likedMediaIds/set/list/remove` 使用同样的 Session 与 `expectedUserId` 保护，但操作独立媒体标记，不写作品评分。`likedMediaIds` 只读取当前会话账户在指定活动作品下的喜欢记录，返回当前逻辑媒体 ID，不返回其他账户状态或媒体详情。设置必须核对媒体属于当前活动作品、逻辑媒体身份及写入状态；失效条目只能按会话账户移除指定状态。原媒体写入开始、成功失效与标记设置按相同作品锁排序，避免把标记写到正在替换的内容。见[单图书签与喜欢](../features/media-marks.md)。
 
 同艺术家重复检测的 `artworkDedup` 接口要求 Session 与 `expectedUserId` 一致；检测结果属于共享管理事实，`requestedBy` 仅为审计身份。运行控制核对业务版本与幂等键，通用后台任务入口不能绕过检测领域限制或提升优先级。返回信息不含其他账户私人整理内容、绝对媒体路径、根身份、原始哈希和执行租约；开发分支行为见[重复检测](../features/artwork-deduplication.md)。
 

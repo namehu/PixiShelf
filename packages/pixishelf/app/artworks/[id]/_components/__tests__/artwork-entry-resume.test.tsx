@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('next/navigation', () => ({ usePathname: () => '/artworks/7' }))
+vi.mock('@/hooks/use-media-mark', () => ({ useLikedMediaIds: () => ({ data: undefined }) }))
 vi.mock('sonner', () => ({ toast: { custom: mocks.toast, dismiss: vi.fn(), error: vi.fn() } }))
 vi.mock('@/lib/reading/artwork-reader-provider', () => ({ useArtworkReader: () => mocks.reader }))
 vi.mock('@/lib/reading/reading-provider', () => ({ useArtworkReading: vi.fn() }))

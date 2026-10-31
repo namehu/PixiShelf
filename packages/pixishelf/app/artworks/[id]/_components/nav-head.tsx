@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuCheckboxItem,
   DropdownMenuGroup,
   DropdownMenuSeparator,
   DropdownMenuItem,
@@ -102,6 +103,13 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
             <DropdownMenuContent align="end" className="w-48">
               {mediaView?.readingMenu && <>
                 <DropdownMenuGroup>
+                  <DropdownMenuCheckboxItem
+                    checked={mediaView.readingMenu.likedOnly}
+                    disabled={mediaView.readingMenu.disabled}
+                    onCheckedChange={() => mediaView.requestReadingAction('liked-filter')}
+                  >
+                    只看喜欢的图片
+                  </DropdownMenuCheckboxItem>
                   <DropdownMenuItem disabled={mediaView.readingMenu.disabled} onSelect={() => mediaView.requestReadingAction('filter')}>
                     <ListFilterIcon aria-hidden="true" />{mediaView.readingMenu.unreadOnly ? '查看全部' : '只看未读'}
                   </DropdownMenuItem>

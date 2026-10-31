@@ -884,7 +884,7 @@ export function VideoPlayer({
 
   return (
     <div
-      className={cn('video-player relative flex items-center justify-center bg-black', className)}
+      className={cn('video-player relative isolate flex items-center justify-center bg-black', className)}
       style={fillParent ? undefined : { aspectRatio, width: '100%', maxWidth: '100%', maxHeight: '100%' }}
     >
       <div ref={playerContainerRef} className="h-full w-full" />

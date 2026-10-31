@@ -2,9 +2,10 @@
 
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react'
 
-export type ReadingMenuAction = 'filter' | 'refresh' | 'mark-all'
+export type ReadingMenuAction = 'filter' | 'liked-filter' | 'refresh' | 'mark-all'
 export interface ReadingMenuState {
   unreadOnly: boolean
+  likedOnly: boolean
   remaining: number
   disabled: boolean
 }

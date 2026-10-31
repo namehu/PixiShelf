@@ -6,13 +6,18 @@ import {
   MediaMarkGetManyInput, MediaMarkGetManyResponseDto, MediaMarkListInput, MediaMarkListResponseDto,
   MediaMarkRemoveInput, MediaMarkSetInput, MediaMarkStateDto
 } from '@/schemas/media-mark.dto'
-import { getMediaMarks, listMediaMarks, removeMediaMark, setMediaMark } from '@/services/media-mark-service'
+import { getLikedMediaIds, getMediaMarks, listMediaMarks, removeMediaMark, setMediaMark } from '@/services/media-mark-service'
 
 function assertExpectedAccount(userId: string, expectedUserId: string) {
   if (userId !== expectedUserId) throw new TRPCError({ code: 'FORBIDDEN', message: '账户已切换，请刷新后重试。' })
 }
 
 export const mediaMarkRouter = router({
+  likedMediaIds: authProcedure.input(MediaMarkGetManyInput.omit({ mediaIds: true }))
+    .output(z.object({ mediaIds: z.array(z.number().int().positive()) })).query(({ ctx, input }) => {
+      assertExpectedAccount(ctx.userId, input.expectedUserId)
+      return getLikedMediaIds(ctx.userId, input.artworkId)
+    }),
   getMany: authProcedure.input(MediaMarkGetManyInput).output(MediaMarkGetManyResponseDto).query(({ ctx, input }) => {
     assertExpectedAccount(ctx.userId, input.expectedUserId)
     return getMediaMarks(ctx.userId, input.artworkId, input.mediaIds)
