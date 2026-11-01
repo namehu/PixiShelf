@@ -3,7 +3,7 @@ import { inferMediaTypeFromPath } from '@pixishelf/job-contracts'
 import { createHash } from 'node:crypto'
 import { contentDirectoriesHaveWriter, type Prisma, type MediaVideoPlayback } from '@pixishelf/db'
 import { inspectMediaContentFile, sameContentFileState } from '../media-content/file-reader.ts'
-import { resolveMediaContentRoots, MediaContentFileError } from '../media-content/roots.ts'
+import { resolveMediaContentRoots, readMediaContentRootBinding, MediaContentFileError } from '../media-content/roots.ts'
 
 export class VideoPlaybackUnavailable extends Error {
   constructor(readonly reason: 'MISSING' | 'WRITING' | 'CHANGED') {
@@ -45,7 +45,7 @@ export async function inspectVideoPlaybackSource(
     throw new VideoPlaybackUnavailable('WRITING')
   const relativePath = image.path.replace(/^[/\\]+/, '')
   if (relativePath.split(/[\\/]/).some((part) => part.startsWith('.'))) throw new VideoPlaybackUnavailable('MISSING')
-  const roots = await resolveMediaContentRoots({ ...config, expectedPixivRootIdentity: null })
+  const roots = await resolveMediaContentRoots({ ...config, ...(await readMediaContentRootBinding(database)) })
   const archived = image.artwork.createdVia === 'URL_ARCHIVE'
   const root = archived ? roots.archive : roots.source
   const canonicalPath =

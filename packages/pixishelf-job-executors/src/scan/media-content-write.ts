@@ -16,7 +16,7 @@ import {
   type Prisma
 } from '@pixishelf/db'
 import type { ExecutionContext, QueueSqlExecutor } from '@pixishelf/job-runtime'
-import { resolveMediaContentRoots } from '../media-content/index.ts'
+import { readMediaContentRootBinding, resolveMediaContentRoots } from '../media-content/index.ts'
 import { ScanExecutorError } from './errors.ts'
 
 export interface ExecutorMediaWrite {
@@ -35,14 +35,14 @@ export async function resolveExecutorMediaDirectory(input: {
 }): Promise<MediaContentDirectoryKey> {
   const inventory = await input.context.mutateInTransaction<
     Prisma.TransactionClient & QueueSqlExecutor,
-    { rootIdentity: string | null } | null
+    Awaited<ReturnType<typeof readMediaContentRootBinding>>
   >((transaction) =>
-    transaction.pixivMetadataInventoryState.findUnique({ where: { id: 'pixiv' }, select: { rootIdentity: true } })
+    readMediaContentRootBinding(transaction)
   )
   const roots = await resolveMediaContentRoots({
     sourceRoot: input.sourceRoot,
     archiveRoot: input.archiveRoot ?? input.sourceRoot,
-    expectedPixivRootIdentity: inventory?.rootIdentity ?? null
+    ...inventory
   })
   const root = input.location === 'archive' ? roots.archive : roots.source
   const directory = input.relativeDirectory.replace(/^\/+/, '')

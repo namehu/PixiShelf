@@ -17,9 +17,9 @@ sources:
 
 ## 环境与恢复单位
 
-恢复单位是原任务、会话、持久声明、领域检查点及同点媒体。参照[备份与恢复基线](../backup-and-recovery.md)准备恢复依据；文件根的设备/inode/身份变化时必须停止，不能修改命名空间或删除状态记录来绕过。本文不提供物理根自动重绑定。
+恢复单位是原任务、会话、持久声明、领域检查点及同点媒体。参照[备份与恢复基线](../backup-and-recovery.md)准备恢复依据；图库身份或路径不匹配时必须停止，不能修改命名空间或删除状态记录来绕过。
 
-使用与实际 Worker 相同的 DATABASE_URL、SOURCE_MEDIA_ROOT（兼容 SCAN_PATH）、ARCHIVE_ROOT（兼容 ARCHIVE_STORAGE_PATH）。CLI 会读取库存根标记绑定并通过物理根解析器核对路径、设备和 inode；不同物理根会拒绝。正式构建产物为 packages/pixishelf-worker/dist/media-content-recovery.cjs。
+使用与实际 Worker 相同的 DATABASE_URL、SOURCE_MEDIA_ROOT（兼容 SCAN_PATH）、ARCHIVE_ROOT（兼容 ARCHIVE_STORAGE_PATH）。2026-11-01 局部核验：CLI 与执行器共用[媒体根身份规则](../../features/pixiv-root-identity.md#共用媒体根身份)，已绑定的同 UUID、同路径允许执行之间的重挂载；无 UUID 的根仍按物理身份核对。此兼容不解除写入声明、不替代领域文件证据，也不允许单次执行期间更换挂载。正式构建产物为 packages/pixishelf-worker/dist/media-content-recovery.cjs。
 
 ```bash
 node packages/pixishelf-worker/dist/media-content-recovery.cjs inspect --job JOB_ID --session SESSION_ID --output /absolute/recovery-inspection.json

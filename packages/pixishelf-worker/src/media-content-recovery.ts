@@ -8,7 +8,7 @@ import {
   type MediaContentRecoverySnapshot,
   type MediaContentResult
 } from '@pixishelf/db'
-import { readExecutorMediaRecoveryDomainSnapshot, resolveMediaContentRoots } from '@pixishelf/job-executors'
+import { readExecutorMediaRecoveryDomainSnapshot, readMediaContentRootBinding, resolveMediaContentRoots } from '@pixishelf/job-executors'
 import {
   executeMediaRecoveryCommand,
   parseMediaRecoveryCommand,
@@ -31,14 +31,11 @@ export async function runMediaContentRecovery(args: string[], environment = proc
     const verifyRoots = async (snapshot: MediaContentRecoverySnapshot) => {
       const sourceRoot = environment.SOURCE_MEDIA_ROOT ?? environment.SCAN_PATH
       if (!sourceRoot?.trim()) throw new MediaRecoveryCliError('SOURCE_MEDIA_ROOT or SCAN_PATH is required')
-      const inventory = await database.pixivMetadataInventoryState.findUnique({
-        where: { id: 'pixiv' },
-        select: { rootIdentity: true }
-      })
+      const inventory = await readMediaContentRootBinding(database)
       const roots = await resolveMediaContentRoots({
         sourceRoot,
         archiveRoot: environment.ARCHIVE_ROOT ?? environment.ARCHIVE_STORAGE_PATH ?? sourceRoot,
-        expectedPixivRootIdentity: inventory?.rootIdentity ?? null
+        ...inventory
       })
       for (const claim of snapshot.claims) {
         const root = claim.directory.logicalRoot === roots.source.logicalRoot ? roots.source : roots.archive

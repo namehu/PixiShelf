@@ -109,7 +109,7 @@ export async function executeConsistencyAudit(
     if (snapshot.count === 0) {
       throw new ScanExecutorError('EMPTY_CONSISTENCY_AUDIT', 'Consistency audit discovered no metadata inputs')
     }
-    const sourceRootIdentity = await resolveScanDedupRootIdentity(root)
+    const sourceRootIdentity = await resolveScanDedupRootIdentity(root, context)
     const duplicateExpectedExternalIds = await findDuplicateExpectedExternalIds(dependencies.database, run.id)
 
     let processed = 0
@@ -327,7 +327,7 @@ async function freezeAuditSnapshot(input: {
   })
   if (!prepared.shouldFreeze) return prepared.run
 
-  const sourceRootIdentity = await resolveScanDedupRootIdentity(input.root)
+  const sourceRootIdentity = await resolveScanDedupRootIdentity(input.root, input.context)
   const digest = createAuditMetadataDigestAccumulator()
   const started = performance.now()
   let ordinal = 0
@@ -573,11 +573,12 @@ async function prepareAuditObservation(input: {
   limits: ScanExecutorLimits
   inventory: AuditInventory | undefined
 }): Promise<PreparedAuditObservation> {
+  const rootIdentity = await resolveScanDedupRootIdentity(input.root, input.context)
   await input.context.mutateInTransaction<ScanTransaction & QueueSqlExecutor>(async (transaction) => {
     await assertPixivScanSources(transaction, {
       snapshot: input.row.dedupSourceSnapshot,
       relativePath: input.row.relativePath,
-      rootIdentity: await resolveScanDedupRootIdentity(input.root),
+      rootIdentity,
       externalId: input.row.expectedExternalId!
     })
   })

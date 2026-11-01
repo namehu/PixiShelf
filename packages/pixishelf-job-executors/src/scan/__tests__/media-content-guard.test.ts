@@ -8,7 +8,10 @@ vi.mock('@pixishelf/db', () => ({
   captureMediaContentDirectory: mocks.capture,
   assertMediaContentDirectorySnapshot: mocks.assert
 }))
-vi.mock('../../media-content/index.ts', () => ({ resolveMediaContentRoots: mocks.roots }))
+vi.mock('../../media-content/index.ts', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../media-content/index.ts')>(),
+  resolveMediaContentRoots: mocks.roots
+}))
 const snapshot = {
   directoryId: 'directory',
   generation: 4n,
@@ -27,7 +30,8 @@ beforeEach(() => {
 describe('scan content publication boundary', () => {
   it('resolves the same inventory root and captures generation before discovery', async () => {
     const tx = {
-      pixivMetadataInventoryState: { findUnique: vi.fn().mockResolvedValue({ rootIdentity: 'marker' }) }
+      pixivMetadataInventoryState: { findUnique: vi.fn().mockResolvedValue({ rootIdentity: 'marker', rootPathHash: 'path-hash' }) },
+      mediaContentDirectoryState: { findUnique: vi.fn().mockResolvedValue({ rootIdentity: 'saved-root' }) }
     } as unknown as Prisma.TransactionClient
     const context = {
       mutateInTransaction: vi.fn(async (action: (tx: Prisma.TransactionClient) => unknown) => action(tx))
@@ -37,7 +41,8 @@ describe('scan content publication boundary', () => {
     expect(mocks.roots).toHaveBeenCalledWith({
       sourceRoot: '/fixture',
       archiveRoot: '/fixture',
-      expectedPixivRootIdentity: 'marker'
+      expectedPixivRootIdentity: 'marker',
+      sourceRootBinding: { pathHash: 'path-hash', identity: 'saved-root' }
     })
     expect(mocks.capture).toHaveBeenCalledWith(tx, {
       directory: { logicalRoot: 'source-media:v1', rootIdentity: 'root', relativeDirectory: 'artist' }

@@ -85,7 +85,7 @@ export async function freezeIncrementalInventorySnapshot(input: {
     root: input.root,
     now: input.now
   })
-  const sourceRootIdentity = await resolveScanDedupRootIdentity(input.root)
+  const sourceRootIdentity = await resolveScanDedupRootIdentity(input.root, input.context)
   const baselineGeneration = inventoryState.status === 'INITIALIZING' ? inventoryState.baselineGeneration : null
 
   const prepared = await mutate(input.context, async (transaction) => {

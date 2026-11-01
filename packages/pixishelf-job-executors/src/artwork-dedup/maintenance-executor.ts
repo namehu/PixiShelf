@@ -25,7 +25,7 @@ import {
   type ArtworkDedupMaintenancePayload
 } from '@pixishelf/job-contracts'
 import type { ExecutionContext, ExecutorDefinition, EnqueuedChildJob, QueueSqlExecutor } from '@pixishelf/job-runtime'
-import { MediaContentFileError } from '../media-content/roots.ts'
+import { MediaContentFileError, readMediaContentRootBinding } from '../media-content/roots.ts'
 import { throwIfAborted } from '../scan/bounded.ts'
 import { ARTWORK_DEDUP_LIMITS as limits } from './limits.ts'
 import {
@@ -146,13 +146,13 @@ export async function executeArtworkDedupMaintenance(
     const owner = await reader.start(context.signal)
     await transaction((tx) => recordArtworkDedupOperationReaderOwner(tx, { execution, readerToken, owner }))
     const inventory = await transaction((tx) =>
-      tx.pixivMetadataInventoryState.findUnique({ where: { id: 'pixiv' }, select: { rootIdentity: true } })
+      readMediaContentRootBinding(tx)
     )
     const request = {
       operation: 'roots' as const,
       sourceRoot: dependencies.sourceRoot,
       archiveRoot: dependencies.archiveRoot,
-      expectedPixivRootIdentity: inventory?.rootIdentity ?? null
+      ...inventory
     }
     const roots = await reader.resolveRoots(request, context.signal)
     const bindings = rootBindings(roots)

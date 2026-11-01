@@ -26,7 +26,7 @@ import {
   captureArtworkDedupSourceGroups,
   type Prisma
 } from '@pixishelf/db'
-import { resolveMediaContentRoots } from '@pixishelf/job-executors/media-content'
+import { readMediaContentRootBinding, resolveMediaContentRoots } from '@pixishelf/job-executors/media-content'
 import { prisma } from '@/lib/prisma'
 import { startLocalImportSchema, type StartLocalImportInput } from '@/schemas/local-import.dto'
 import { getScanPath, getSystemSettings } from '@/services/setting.service'
@@ -619,14 +619,11 @@ async function validateReusedScanRun(input: {
 }
 
 async function resolveScanSourceRoot(transaction: Prisma.TransactionClient, scanPath: string) {
-  const inventory = await transaction.pixivMetadataInventoryState.findUnique({
-    where: { id: 'pixiv' },
-    select: { rootIdentity: true }
-  })
+  const inventory = await readMediaContentRootBinding(transaction)
   const roots = await resolveMediaContentRoots({
     sourceRoot: scanPath,
     archiveRoot: scanPath,
-    expectedPixivRootIdentity: inventory?.rootIdentity ?? null
+    ...inventory
   })
   return roots.source
 }

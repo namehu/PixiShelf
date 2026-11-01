@@ -13,7 +13,7 @@ import type { ResolvedMediaContentRoot, resolveMediaContentRoots } from '../medi
 export type DedupRoots = Awaited<ReturnType<typeof resolveMediaContentRoots>>
 export type DedupRead = ContentFileInspection & { sha256: string; hashedAt: Date; bytesRead: bigint }
 export type ReaderOperation =
-  | { operation: 'roots'; sourceRoot: string; archiveRoot: string; expectedPixivRootIdentity: string | null }
+  | ({ operation: 'roots' } & Parameters<typeof resolveMediaContentRoots>[0])
   | { operation: 'inspect' | 'read' | 'visual' | 'maintenance-inspect'; root: ResolvedMediaContentRoot; relativePath: string }
   | {
       operation: 'maintenance-directory'

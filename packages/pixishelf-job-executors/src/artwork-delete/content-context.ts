@@ -10,7 +10,7 @@ import {
   type MediaContentWriteHandle,
   type MediaContentTransaction
 } from '@pixishelf/db'
-import { resolveMediaContentRoots, resolveMediaContentPath } from '../media-content/index.ts'
+import { readMediaContentRootBinding, resolveMediaContentRoots, resolveMediaContentPath } from '../media-content/index.ts'
 import type { ContentWriteAuthorization } from '@pixishelf/job-contracts'
 import { resolveCreatablePathWithinRoot } from './safe-path.ts'
 export type AppTransaction = Prisma.TransactionClient
@@ -45,14 +45,11 @@ export const contentAuthorization = (
 
 export function createDeletionContentContext(prisma: PrismaClient, archiveRoot: string) {
   async function resolveContentPath(scanRoot: string, target: string) {
-    const inventory = await prisma.pixivMetadataInventoryState.findUnique({
-      where: { id: 'pixiv' },
-      select: { rootIdentity: true }
-    })
+    const inventory = await readMediaContentRootBinding(prisma)
     const roots = await resolveMediaContentRoots({
       sourceRoot: scanRoot,
       archiveRoot: archiveRoot,
-      expectedPixivRootIdentity: inventory?.rootIdentity ?? null
+      ...inventory
     })
     const configuredTarget = await resolveCreatablePathWithinRoot(scanRoot, target)
     const relativePath = path.relative(path.resolve(scanRoot), configuredTarget).split(path.sep).join('/')

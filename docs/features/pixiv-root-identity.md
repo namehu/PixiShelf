@@ -4,6 +4,7 @@ scope: Pixiv 扫描根的持久身份、旧库升级与绑定恢复命令
 last-verified: 2026-09-11
 sources:
   - packages/pixishelf-job-executors/src/scan/root-identity.ts
+  - packages/pixishelf-job-executors/src/media-content/roots.ts
   - packages/pixishelf-worker/src/pixiv-root-identity.ts
   - packages/pixishelf-db/prisma/schema.prisma
 ---
@@ -30,6 +31,16 @@ NAS 重启或重新挂载可能改变 deviceId，inode 也不是跨恢复操作�
 首次创建需要 Worker 对媒体根有写权限；有效标记已存在时只需读取。App 保持原媒体默认只读。
 文件排他创建、完整写入并同步；文件成功而数据库失败时，在身份条件仍满足后重试可复用 UUID。
 残缺标记不自动覆盖，须保存现场并核对数据库与标记备份后恢复。
+
+## 共用媒体根身份
+
+2026-11-01 局部核验：扫描、归档入库、媒体写入、去重及播放副本共同读取库存 UUID、路径绑定与已有媒体根记录。UUID 和路径匹配时，继续使用 `MediaContentDirectoryState` 已有的根身份，不因 NAS 重启后的设备号变化拒绝新执行；尚无记录时从 UUID 与路径生成稳定身份。旧目录、写入声明、来源证明和缓存记录不批量改写，不需要额外绑定命令或数据迁移。
+
+物理挂载观测与长期图库身份分开保存于本次解析结果。执行过程中设备号、inode 或标记变化仍使本次检查失败，文件缓存继续核对自己的 stat 证据。缺失／不同 UUID、不同库存路径仍拒绝；没有已绑定 UUID 的根沿用原有物理身份规则。归档根等于源根或位于其内部时共享同一命名空间；独立归档根不因此自动接受另一挂载。
+
+去重执行的冻结根快照另存本次物理身份；旧快照按旧物理哈希解释，重挂载不会让旧检测或删除证据自动变成当前证据。正常新任务仍可使用原图库命名空间。
+
+重挂载前已经下载并封存、尚未发布的归档可在正常重试后复用暂存文件；不会自动重试全部失败任务，也不跳过 manifest、写入声明或发布检查。此次生产故障及本地验证见[排查记录](../records/operations/video-playback-host-outage-2026-11-01.md)。
 
 ## 身份维护命令
 

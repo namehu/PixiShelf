@@ -12,7 +12,7 @@ import {
   type ArtworkDedupSourceSnapshot
 } from '@pixishelf/job-contracts'
 import type { ExecutionContext, QueueSqlExecutor } from '@pixishelf/job-runtime'
-import { resolveMediaContentRoots } from '../media-content/index.ts'
+import { readMediaContentRootBinding, resolveMediaContentRoots } from '../media-content/index.ts'
 import type { SafeScanRoot } from './paths.ts'
 import { ScanExecutorError } from './errors.ts'
 import { metadataCandidateFromPath } from './metadata.ts'
@@ -222,11 +222,12 @@ function invalidProof() {
   )
 }
 
-export async function resolveScanDedupRootIdentity(root: SafeScanRoot) {
+export async function resolveScanDedupRootIdentity(root: SafeScanRoot, context: Pick<ExecutionContext, 'mutateInTransaction'>) {
+  const binding = await context.mutateInTransaction<Prisma.TransactionClient & QueueSqlExecutor, Awaited<ReturnType<typeof readMediaContentRootBinding>>>(readMediaContentRootBinding)
   const roots = await resolveMediaContentRoots({
     sourceRoot: root.absolutePath,
     archiveRoot: root.absolutePath,
-    expectedPixivRootIdentity: root.rootIdentity ?? null
+    ...binding
   })
   return roots.source.rootIdentity
 }

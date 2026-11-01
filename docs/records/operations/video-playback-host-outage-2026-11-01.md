@@ -1,12 +1,13 @@
 ---
 status: historical
-scope: 播放副本任务期间主机失联的取证、资源限制补丁及本地验证
+scope: 主机失联取证、资源限制补丁，以及重启后归档入库的根身份误判
 last-verified: 2026-11-01
 sources:
   - packages/pixishelf-worker/src/preflight.ts
   - packages/pixishelf-worker/src/worker-application.ts
   - packages/pixishelf-worker/src/config.ts
   - packages/pixishelf-job-executors/src/video-playback/media-process.ts
+  - packages/pixishelf-job-executors/src/media-content/roots.ts
   - build/docker-compose.deploy.yml
 ---
 
@@ -117,3 +118,48 @@ sources:
 原始本地输出位于执行机器的 `/tmp/pixishelf-resource-*.log`，包括 `worker-chain-postgres`、`worker-chain-unit`、`ffmpeg-focus`、`preflight-final`、`typecheck`、`app-lint`、`app-typecheck`、`app-test`、`app-retry`、`app-build` 和 `worker-build`；这些临时日志未作为长期附件归档，摘要记录在此。
 
 本地验证不包含新的生产镜像构建、部署或重建；生产 NFS/FUSE 链路、持续温度／负载、大视频重试和其他定时任务在预算内的表现仍待验收。实际 NAS Compose 必须保存资源配置后再重建容器，不能依赖本轮的 `docker update` 跨容器继承。
+
+## 11-01 晚间：归档入库 ROOT_CHANGED
+
+本节定位的是重启后的归档发布故障，不是前述整机失联的根因。用户报告归档 `4277852` 的 1,540 张图片下载完成，但入库立即失败。DBX 只读查询确认：
+
+- 下载任务 `0a12166f-3e85-437b-bf0b-c8ae6f879ec3` 已于北京时间 21:26:34 完成，并交接发布任务。
+- 发布任务 `12565ee7-0b1a-4633-94cf-4a4887d1eb08` 于 21:26:35.466 领取，21:26:36.099 失败，错误原文为 `ROOT_CHANGED`；页面因归类为 `INTERNAL` 而展示通用错误。
+- 业务导入 `fe3ceacb-faef-4062-ac4a-2588a8af93b0` 为 `PUBLISH/FAILED`，完成 1,540、失败 0，已有封存 generation 和 manifest 摘要，无已发布作品或该任务的持久写声明；暂存保留期为 12-01 21:26:35。没有重新遍历图片验证物理完整性。
+- 最近 5 条失败发布任务均为相同错误；当前 Worker 为 READY。10-30 起查询还包括 219 条成功发布，最近成功时间为 10-31 22:08:50。
+
+只读读取根标记，并与库存绑定、用户在运行容器执行的目录 stat 交叉核对：
+
+| 证据   | 数据库旧观测                           | 当前容器／根标记                   |
+| ------ | -------------------------------------- | ---------------------------------- |
+| 路径   | 旧根哈希按 `/app/data` 可重现          | source 与 archive 均为 `/app/data` |
+| UUID   | `fa83af35-eb89-49f5-9b9a-12dd96b86216` | 一致                               |
+| inode  | `59277`                                | `59277`                            |
+| device | `61`                                   | `62`                               |
+
+`MediaContentDirectoryState` 的 2,194 条记录仍绑定 `fe7544601ecac00ecde3362b388ae5296c789ee889eefe32b201c0cc5bc6e5c7`。按 `media-content/roots.ts` 的实际算法，使用上述 UUID、路径、inode 和旧 device=61 可精确重现该值；仅将 device 改成 62 得到 `c1a7b3d4b7bd80fa70607b9aef00dcde53f1574bbbc9d3b06833bb1a3ad6ac56`。归档发布调用 `lockArchiveSourcePublication` 后进入目录锁校验，数据库保存的长期根身份与当前解析身份不等，因而在发布文件前拒绝。
+
+代码历史显示 `7bc79414`（09-11）已为 Pixiv 扫描引入稳定 UUID，允许执行之间的重挂载；`79b19167`（10-23）新增通用媒体根身份时仍将 device/inode 纳入持久哈希，没有延续同一重挂载语义。本次已确认是这条通用链路的兼容缺口；没有证据表明 CPU 配额造成此次 `ROOT_CHANGED`。
+
+`v0.55.14` 不包含该根身份修复。定位时确认需同时处理稳定逻辑身份、旧绑定兼容和执行过程中的物理根变化校验，不能简单删掉记录、替换全部哈希或让旧写入／去重证据跨根变化继续生效。本轮没有修改生产数据库、重试任务、清理暂存或改变根标记。
+
+## 共用媒体根修复
+
+补丁基于 `43dc87c2`（`v0.55.14`），目标版本 `v0.55.15`。共用解析器在已绑定 UUID、路径匹配时复用现有媒体根命名空间；新库没有媒体根记录时使用 UUID／路径生成稳定身份。App 和 Worker 各入口读取同一绑定。改动不添加表、migration、配置项或人工重绑定步骤，也不批量改写旧目录与来源证明。
+
+物理设备号仍用于一次执行内的目录／文件检查；去重冻结快照另存本次物理身份，保持旧证据跨重挂载失效的既有语义。没有绑定 UUID 或使用独立归档根的场景沿用现有物理身份规则。当前行为统一维护于[根身份说明](../../features/pixiv-root-identity.md#共用媒体根身份)。
+
+验证使用本地 macOS 和专门创建的 PostgreSQL 15 容器 `pixishelf-root-patch-20261101`、测试库 `pixishelf_root_patch`，仅包含合成记录与临时文件，应用现有 136 条正式 migration。没有读取生产图片或在生产重试任务。
+
+- 归档数据库全套 57 项通过，新增场景预置旧命名空间、完成下载并封存后模拟根设备号变化，发布成功，原命名空间和 generation 保持不变，发布图片字节一致，网络下载调用为零。
+- 根解析用例覆盖已有／新命名空间、设备号变化、UUID／路径不匹配、执行中变化和旧去重快照兼容；真实 reader 子进程验证解析、stat 与哈希。
+- 第一轮完整 Worker 测试发现临时根清理仍仅计算旧物理哈希，留下新逻辑身份记录，污染后续不同临时根的用例；已让 fixture 按其已绑定 UUID／路径清理自身记录，没有放宽生产目录锁或删除测试断言。
+- 第一轮主应用测试发现一个模块 mock 未导出新增共用读取函数；更新为保留真实模块导出后，该文件 17 项通过。
+- 修正后完整 Worker 依赖链以 `CI=true`、独立 `DATABASE_URL`、`--no-file-parallelism` 运行，1,906 项通过、592 项按既有环境条件跳过，其中扫描 PostgreSQL 69 项、播放副本发布 9 项、reader 子进程 16 项全部通过。仅要求专用连接／固定 fixture 的跳过项不计作通过。
+- 另以显式 `QUEUE_KERNEL_TEST_DATABASE_URL` 聚焦运行去重 `archive root mapping` 与 `legacy zero-version`，19 项通过、117 项按本次名称过滤跳过，覆盖目录映射变化、断点续跑、旧检测／删除证据。
+- 主应用最终全量 3,640 项通过、372 跳过，12 项在并行负载下超时或等不到异步界面；保持原断言和超时，串行重跑对应 7 个文件的 117 项全部通过。与首次模块 mock 修正的聚焦结果分别记录，不宣称单次全量零失败。
+- 主应用 lint、typecheck、提升权限的 build，以及 Worker 依赖链 typecheck／build 通过。Worker 构建仍有既有去重模块的 `import.meta`／CJS 警告，本补丁未扩展处理。文档检查通过，已安装 Chrome 的图示检查通过（34 个图源、23 个内嵌 Mermaid）；主应用路径大小写、`git diff --check` 通过。测试结束后已删除本轮临时数据库容器。
+
+原始本地日志位于 `/tmp/pixishelf-root-*.log`，为执行机器上的临时证据，不是生产备份。生产更新须使用配套 App／Worker；现有失败归档可走原有“重试入库”流程复用保留中的封存下载，无需重新下载、清表或运行身份维护命令。此次没有执行生产升级或重试，因此实际 NAS 上的修复效果尚未验证。
+
+回退代码不会还原设备号；旧版仍可能返回 `ROOT_CHANGED`，不能以删除绑定或暂存文件作为回退步骤。沿用现有部署检查点和备份流程，不执行数据回填或专用回滚 migration。

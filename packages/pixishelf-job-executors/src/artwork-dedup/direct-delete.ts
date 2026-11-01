@@ -1,3 +1,4 @@
+import { readMediaContentRootBinding } from '../media-content/roots.ts'
 import { freshQuickScope, verifyQuickScopeState } from './direct-delete-quick-verification.ts'
 import { rootFor, state, freshScope } from './direct-delete-verification.ts'
 import { randomUUID } from 'node:crypto'
@@ -111,13 +112,13 @@ export async function executeArtworkDedupDirectDelete(
       const owner = await reader.start(context.signal)
       await tx((t) => recordArtworkDedupOperationReaderOwner(t, { execution, readerToken: token, owner }))
       const inventory = await tx((t) =>
-        t.pixivMetadataInventoryState.findUnique({ where: { id: 'pixiv' }, select: { rootIdentity: true } })
+        readMediaContentRootBinding(t)
       )
       const request = {
         operation: 'roots' as const,
         sourceRoot: deps.sourceRoot,
         archiveRoot: deps.archiveRoot,
-        expectedPixivRootIdentity: inventory?.rootIdentity ?? null
+        ...inventory
       }
       const roots = await reader.resolveRoots(request, context.signal)
       if (!sameRootBindings(op.rootBindings, rootBindings(roots))) throw new ArtworkDedupOperationError('ROOT_CHANGED')

@@ -5,7 +5,7 @@ import {
   type Prisma
 } from '@pixishelf/db'
 import type { ExecutionContext, QueueSqlExecutor } from '@pixishelf/job-runtime'
-import { resolveMediaContentRoots } from '../media-content/index.ts'
+import { readMediaContentRootBinding, resolveMediaContentRoots } from '../media-content/index.ts'
 import { ScanExecutorError } from './errors.ts'
 
 /** Capture before discovery; retaining a filtered list cannot protect reconcile from a paused upload. */
@@ -16,17 +16,14 @@ export async function captureScanMediaDirectory(input: {
 }): Promise<MediaContentDirectorySnapshot> {
   const inventory = await input.context.mutateInTransaction<
     Prisma.TransactionClient & QueueSqlExecutor,
-    { rootIdentity: string | null } | null
+    Awaited<ReturnType<typeof readMediaContentRootBinding>>
   >((transaction) =>
-    transaction.pixivMetadataInventoryState.findUnique({
-      where: { id: 'pixiv' },
-      select: { rootIdentity: true }
-    })
+    readMediaContentRootBinding(transaction)
   )
   const roots = await resolveMediaContentRoots({
     sourceRoot: input.scanRoot,
     archiveRoot: input.scanRoot,
-    expectedPixivRootIdentity: inventory?.rootIdentity ?? null
+    ...inventory
   })
   return input.context.mutateInTransaction<Prisma.TransactionClient & QueueSqlExecutor, MediaContentDirectorySnapshot>(
     async (transaction) => {

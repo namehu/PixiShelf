@@ -14,7 +14,7 @@ import {
   type MediaContentDirectorySnapshot,
   type MediaContentChunkReceipt
 } from '@pixishelf/db'
-import { resolveMediaContentRoots, resolveMediaContentPath } from '@pixishelf/job-executors/media-content'
+import { readMediaContentRootBinding, resolveMediaContentRoots, resolveMediaContentPath } from '@pixishelf/job-executors/media-content'
 import { prisma, type AppTransaction } from '@/lib/prisma'
 import { resolveCreatablePathWithinRoot } from '@/lib/safe-path'
 import type { ContentWriteAuthorization, MediaUploadReceipt } from '@/schemas/media-content.dto'
@@ -41,14 +41,11 @@ export function assertContentAccount(userId: string, expectedUserId: string) {
 }
 
 export async function resolveContentPath(scanRoot: string, target: string) {
-  const inventory = await prisma.pixivMetadataInventoryState.findUnique({
-    where: { id: 'pixiv' },
-    select: { rootIdentity: true }
-  })
+  const inventory = await readMediaContentRootBinding(prisma)
   const roots = await resolveMediaContentRoots({
     sourceRoot: scanRoot,
     archiveRoot: process.env.ARCHIVE_STORAGE_PATH?.trim() || scanRoot,
-    expectedPixivRootIdentity: inventory?.rootIdentity ?? null
+    ...inventory
   })
   const configuredTarget = await resolveCreatablePathWithinRoot(scanRoot, target)
   const relativePath = path.relative(path.resolve(scanRoot), configuredTarget).split(path.sep).join('/')

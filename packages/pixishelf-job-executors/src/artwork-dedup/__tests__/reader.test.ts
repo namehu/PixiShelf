@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events'
+import { createHash, randomUUID } from 'node:crypto'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
 import * as fs from 'node:fs/promises'
@@ -55,16 +56,26 @@ describe('bounded isolated detection reader', () => {
       cooldownMs: ARTWORK_DEDUP_DEFAULTS.cooldownMs
     })
   })
-  it('validates roots, stats, and hashes only in the real fixed child and reports actual bytes', async () => {
+  it.each([false, true])('validates roots, stats, and hashes in the real child with a bound library=%s', async (bound) => {
     directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'dedup-reader-')))
     await fs.writeFile(path.join(directory, 'original.bin'), Buffer.alloc(150_000, 31))
+    const uuid = bound ? randomUUID() : null
+    if (uuid) await fs.writeFile(path.join(directory, '.pixishelf-root'), JSON.stringify({ version: 1, id: uuid }))
     reader = new DedupReaderSupervisor(options).create()
     const identity = await reader.start()
     expect(identity.childPid).not.toBe(process.pid)
     const roots = await reader.resolveRoots(
-      { operation: 'roots', sourceRoot: directory, archiveRoot: directory, expectedPixivRootIdentity: null },
+      {
+        operation: 'roots', sourceRoot: directory, archiveRoot: directory, expectedPixivRootIdentity: uuid,
+        ...(bound ? { sourceRootBinding: { pathHash: createHash('sha256').update(directory).digest('hex'), identity: 'a'.repeat(64) } } : {})
+      },
       signal
     )
+    if (bound) {
+      expect(roots.source.rootIdentity).toBe('a'.repeat(64))
+      expect(roots.source.physicalIdentity).toMatch(/^[a-f0-9]{64}$/)
+      expect(roots.source.physicalIdentity).not.toBe(roots.source.rootIdentity)
+    }
     const input = { root: roots.source, relativePath: 'original.bin', signal }
     expect((await reader.inspect(input)).state.size).toBe(150_000n)
     const result = await reader.read(input)

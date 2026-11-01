@@ -30,7 +30,8 @@ vi.mock('@pixishelf/db', async (importOriginal) => ({
   captureArtworkDedupSourceGroups: mocks.captureSources,
   assertArtworkDedupSourceGroups: mocks.assertSources
 }))
-vi.mock('@pixishelf/job-executors/media-content', () => ({
+vi.mock('@pixishelf/job-executors/media-content', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@pixishelf/job-executors/media-content')>()),
   resolveMediaContentRoots: vi
     .fn()
     .mockResolvedValue({ source: { logicalRoot: 'source-media:v1', rootIdentity: 'fixture-root' } })

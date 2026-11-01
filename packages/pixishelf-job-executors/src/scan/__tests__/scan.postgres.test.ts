@@ -217,7 +217,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
     const mappings = [{ ordinal: 0, artistDirectory: 'Artist', artistId: artist.id }]
     const work = { ordinal: 0, kind: 'MEDIA_DIRECTORY' as const, relativePath, fingerprint: null }
     const payload: LocalDirectoryImportPayload = { defaultTagIds: [], mappingCount: 1, mappingDigest: artistMappingInputDigest(mappings) }
-    const rootIdentity = await resolveScanDedupRootIdentity(await resolveSafeScanRoot(root))
+    const rootIdentity = await resolveScanDedupRootIdentity(await resolveSafeScanRoot(root), rootBindingContext)
     const jobId = await seedJob('LOCAL_DIRECTORY_IMPORT', payload, 1)
     const run = await client().$transaction(async (tx) => {
       const sources = await captureArtworkDedupSources(tx, { identities: [{ kind: 'DIRECTORY', logicalRoot: 'source-media:v1', rootIdentity, canonicalPath: relativePath }] })
@@ -365,7 +365,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
       data: { rootDeviceId: identity.deviceId + 2n }
     })
     if (foreign) {
-      retiredRootIdentities.add(await resolveScanDedupRootIdentity(await resolveSafeScanRoot(root)))
+      retiredRootIdentities.add(await resolveScanDedupRootIdentity(await resolveSafeScanRoot(root), rootBindingContext))
       await fs.writeFile(path.join(root, '.pixishelf-root'), JSON.stringify({ version: 1, id: randomUUID() }))
     }
     const payload = { mode: 'CONSISTENCY_AUDIT', verification: 'FAST' } as const
@@ -424,7 +424,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
     const progress = execution.progress.bind(execution)
     execution.progress = async (update) => {
       await progress(update)
-      retiredRootIdentities.add(await resolveScanDedupRootIdentity(await resolveSafeScanRoot(root)))
+      retiredRootIdentities.add(await resolveScanDedupRootIdentity(await resolveSafeScanRoot(root), rootBindingContext))
       await fs.writeFile(path.join(root, '.pixishelf-root'), JSON.stringify({ version: 1, id: randomUUID() }))
     }
     await executeConsistencyAudit(execution, dependencies(root))
@@ -3317,7 +3317,7 @@ async function seedAuditApplyFixture(options: {
   })
   const freshRoot = await resolveSafeScanRoot(root)
   await client().$transaction((tx) => bindPixivInventoryRoot(tx, freshRoot, clock.now()))
-  const sourceRootIdentity = await resolveScanDedupRootIdentity(freshRoot)
+  const sourceRootIdentity = await resolveScanDedupRootIdentity(freshRoot, rootBindingContext)
   const dedupSourceSnapshot = serializeArtworkDedupSourceSnapshot(await client().$transaction((tx) => captureArtworkDedupSources(tx, { identities: pixivScanSourceIdentities({ rootIdentity: sourceRootIdentity, relativePath }) })))
   const sourceItem = await client().pixivSourceAuditItem.create({
     data: {
@@ -3591,7 +3591,7 @@ async function fixtureRoot() {
 async function captureFixturePixivSources(root: string, relativePath: string) {
   const safeRoot = await resolveSafeScanRoot(root)
   await client().$transaction((tx) => bindPixivInventoryRoot(tx, safeRoot, clock.now()))
-  const rootIdentity = await resolveScanDedupRootIdentity(safeRoot)
+  const rootIdentity = await resolveScanDedupRootIdentity(safeRoot, rootBindingContext)
   return serializeArtworkDedupSourceSnapshot(await client().$transaction((tx) =>
     captureArtworkDedupSources(tx, { identities: pixivScanSourceIdentities({ rootIdentity, relativePath }) })
   ))
@@ -3774,3 +3774,7 @@ function catalogProbe<T extends object>(transaction: T): T {
     }
   })
 }
+
+const rootBindingContext = {
+  mutateInTransaction: (operation: (tx: Prisma.TransactionClient) => Promise<unknown>) => client().$transaction(operation)
+} as unknown as Pick<ExecutionContext, 'mutateInTransaction'>

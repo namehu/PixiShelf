@@ -35,7 +35,7 @@ import {
   type ArtworkDedupScanPayload
 } from '@pixishelf/job-contracts'
 import type { ExecutionContext, ExecutorDefinition, EnqueuedChildJob, QueueSqlExecutor } from '@pixishelf/job-runtime'
-import { MediaContentFileError, resolveMediaContentRoots } from '../media-content/roots.ts'
+import { MediaContentFileError, readMediaContentRootBinding, resolveMediaContentRoots } from '../media-content/roots.ts'
 import { throwIfAborted } from '../scan/bounded.ts'
 import { ARTWORK_DEDUP_LIMITS as limits } from './limits.ts'
 import {
@@ -364,14 +364,14 @@ export async function executeArtworkDedup(
     }
     throwIfAborted(context.signal)
     const inventory = await transaction((tx) =>
-      tx.pixivMetadataInventoryState.findUnique({ where: { id: 'pixiv' }, select: { rootIdentity: true } })
+      readMediaContentRootBinding(tx)
     )
     const resolveRoots = (input: Parameters<typeof resolveMediaContentRoots>[0]) => reader ? reader.resolveRoots({ operation: 'roots', ...input }, context.signal) : resolveMediaContentRoots(input)
     const roots = await resolveRoots(
       {
         sourceRoot: dependencies.sourceRoot,
         archiveRoot: dependencies.archiveRoot,
-        expectedPixivRootIdentity: inventory?.rootIdentity ?? null
+        ...inventory
       }
     )
     const bindings = rootBindings(roots)
@@ -588,7 +588,7 @@ export async function executeArtworkDedup(
       {
         sourceRoot: dependencies.sourceRoot,
         archiveRoot: dependencies.archiveRoot,
-        expectedPixivRootIdentity: inventory?.rootIdentity ?? null
+        ...inventory
       }
     )
     if (!sameRootBindings(bindings, rootBindings(verified)))

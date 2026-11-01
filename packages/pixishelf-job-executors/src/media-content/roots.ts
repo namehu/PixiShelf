@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
+import { hashScanRootIdentity } from '../scan/inventory.ts'
 import { readPixivRootMarker } from '../scan/root-identity.ts'
 import { resolveSafeScanRoot, type SafeScanRoot } from '../scan/paths.ts'
 
@@ -9,9 +10,42 @@ export type MediaContentLogicalRoot = 'source-media:v1' | 'archive-media:v1'
 export interface ResolvedMediaContentRoot {
   logicalRoot: MediaContentLogicalRoot
   rootIdentity: string
+  /** Observed mount identity, distinct from the persistent library namespace. */
+  physicalIdentity?: string
   absolutePath: string
   deviceId: bigint
   inode: bigint
+}
+
+export async function readMediaContentRootBinding(
+  database: {
+    pixivMetadataInventoryState: {
+      findUnique(args: {
+        where: { id: string }
+        select: { rootIdentity: true; rootPathHash: true }
+      }): PromiseLike<{ rootIdentity: string | null; rootPathHash: string } | null>
+    }
+    mediaContentDirectoryState: {
+      findUnique(args: {
+        where: { logicalRoot_relativeDirectory: { logicalRoot: string; relativeDirectory: string } }
+        select: { rootIdentity: true }
+      }): PromiseLike<{ rootIdentity: string } | null>
+    }
+  }
+) {
+  const inventory = await database.pixivMetadataInventoryState.findUnique({
+    where: { id: 'pixiv' },
+    select: { rootIdentity: true, rootPathHash: true }
+  })
+  if (!inventory?.rootIdentity) return { expectedPixivRootIdentity: null }
+  const directory = await database.mediaContentDirectoryState.findUnique({
+    where: { logicalRoot_relativeDirectory: { logicalRoot: 'source-media:v1', relativeDirectory: '' } },
+    select: { rootIdentity: true }
+  })
+  return {
+    expectedPixivRootIdentity: inventory.rootIdentity,
+    sourceRootBinding: { pathHash: inventory.rootPathHash, identity: directory?.rootIdentity ?? null }
+  }
 }
 
 export class MediaContentFileError extends Error {
@@ -29,12 +63,33 @@ export async function resolveMediaContentRoots(input: {
   sourceRoot: string
   archiveRoot: string
   expectedPixivRootIdentity: string | null
+  sourceRootBinding?: { pathHash: string; identity: string | null }
 }): Promise<{
   source: ResolvedMediaContentRoot
   archive: ResolvedMediaContentRoot
   archiveRelativePrefix: string
 }> {
   const source = await resolveRoot(input.sourceRoot, 'source-media:v1', input.expectedPixivRootIdentity)
+  if (input.sourceRootBinding) {
+    if (
+      !input.expectedPixivRootIdentity ||
+      hashScanRootIdentity(source.absolutePath) !== input.sourceRootBinding.pathHash
+    )
+      throw new MediaContentFileError('ROOT_CHANGED', 'Media root path does not match the bound inventory')
+    source.physicalIdentity = source.rootIdentity
+    // Keep existing namespaces and their references intact; the verified UUID/path binds the library.
+    source.rootIdentity =
+      input.sourceRootBinding.identity ??
+      createHash('sha256')
+        .update(
+          JSON.stringify([
+            'pixishelf-media-root-v2',
+            input.expectedPixivRootIdentity.toLowerCase(),
+            source.absolutePath
+          ])
+        )
+        .digest('hex')
+  }
   const archivePath = path.resolve(input.archiveRoot)
   // Source and archive frequently share a mount. Resolve to one namespace even for nested archives.
   const candidate = await resolveSafeScanRoot(archivePath)
@@ -80,7 +135,7 @@ export async function assertMediaContentRootUnchanged(root: ResolvedMediaContent
   const observed = await resolveRoot(root.absolutePath, root.logicalRoot, null).catch((error: unknown) => {
     throw new MediaContentFileError('ROOT_CHANGED', 'Media root cannot be verified', { cause: error })
   })
-  if (observed.rootIdentity !== root.rootIdentity) {
+  if (observed.rootIdentity !== (root.physicalIdentity ?? root.rootIdentity)) {
     throw new MediaContentFileError('ROOT_CHANGED', 'Media root changed during content inspection')
   }
 }

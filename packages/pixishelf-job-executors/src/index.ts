@@ -15,7 +15,7 @@ export * from './video-processing/index.ts'
 export * from './artwork-summary/executor.ts'
 
 export { readExecutorMediaRecoveryDomainSnapshot } from './scan/media-content-recovery.ts'
-export { resolveMediaContentRoots } from './media-content/roots.ts'
+export { readMediaContentRootBinding, resolveMediaContentRoots } from './media-content/roots.ts'
 
 export * from './artwork-dedup/index.ts'
 
