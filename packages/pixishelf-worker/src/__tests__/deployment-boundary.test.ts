@@ -112,6 +112,9 @@ describe('Worker deployment boundary', () => {
       expect(worker).toContain('WORKER_QUEUE_TRANSACTION_TIMEOUT_MS: ${WORKER_QUEUE_TRANSACTION_TIMEOUT_MS:-30000}')
       expect(worker).toContain(':/app/data:rw')
       expect(worker).toContain('stop_grace_period: 45s')
+      expect(worker).toContain("cpus: '${WORKER_CPU_LIMIT:-1.0}'")
+      expect(worker).toContain("mem_limit: '${WORKER_MEMORY_LIMIT:-2g}'")
+      expect(worker).toContain("memswap_limit: '${WORKER_MEMORY_LIMIT:-2g}'")
       expect(worker).toMatch(/max-size: ['"]10m['"]/)
       expect(worker).toMatch(/max-file: ['"]5['"]/)
     }

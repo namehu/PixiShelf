@@ -44,6 +44,12 @@ sources:
 
 `ARCHIVE_HTTPS_PROXY` 的出站范围与优先级见[网络边界](../security/access-control.md#服务网络和存储矩阵)。Compose 环境变更须重建对应容器；本地 App 环境变更须重启本地进程。归档媒体并发保存于数据库 Setting，不增加环境变量。扫描和探测参数以模板及对应功能规格为准。
 
+2026-11-01 局部核验：两份 Compose 对整个 Worker 及子进程默认设置 `WORKER_CPU_LIMIT=1.0`、`WORKER_MEMORY_LIMIT=2g`；`mem_limit` 与 `memswap_limit` 共用内存配置，禁止该容器使用 swap。三个执行通道共享预算，串行任务不代表资源有界；任务可能因超预算失败，增加预算前须核对主机余量。容器限制不覆盖宿主机 NFS/FUSE 服务，也不能保证硬件或远程存储稳定。
+
+已有 NAS 实例必须同步实际 Compose 的 `worker` 服务资源配置。仅拉取新镜像或重启旧容器不会更新 Compose；单独添加环境变量也不会给旧 Compose 自动增加限制。临时 `docker update` 只保留于现有容器，重建时以 Compose 为准。更新后通过 inspect 核对 `HostConfig.NanoCpus`、`Memory` 和 `MemorySwap`，并观察实际任务与主机资源；这不替代下文的备份和就绪检查。
+
+Worker 自检失败消息包含检查耗时、超时配置、子进程退出码、终止信号和 `killed`，供日志及 Worker 状态共同保留。`killed=true` 本身不能证明 OOM；应结合信号、耗时、容器状态和主机日志判断，不能仅延长自检超时来掩盖资源或存储故障。
+
 反向代理须允许 `/api/jobs/events` 长连接、禁用响应缓冲/转换并放行心跳。开发启动只遵循根 [README](../../README.md#本地开发)，不要从仓库根运行 `pnpm dev`。
 
 归档下载通道版本还必须确认旧 Worker 的操作系统进程已经退出，才能启动新 Worker；旧执行器会覆盖共享文件，不允许混跑。先执行 enum 与结构两条 migration，再核验三通道 READY 和包含 ARCHIVE_DOWNLOAD/PUBLISH 的完整 capability。兼容与文件恢复详见[归档生命周期](../features/archive-lifecycle.md#下载通道升级与恢复)。

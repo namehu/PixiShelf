@@ -29,7 +29,7 @@ export async function probePlaybackFile(input: {
 }) {
   const result = await input.runner({
     command: input.ffprobe,
-    args: ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', input.file],
+    args: ['-v', 'error', '-threads', '1', '-show_streams', '-show_format', '-of', 'json', input.file],
     timeoutMs: 60_000,
     signal: input.signal
   })
@@ -61,6 +61,11 @@ export function playbackEncoding(probe: PlaybackProbe, sourcePath: string, targe
     '-hide_banner',
     '-nostdin',
     '-y',
+    '-filter_threads',
+    '1',
+    // Input decoding and output encoding have separate thread options.
+    '-threads',
+    '1',
     '-i',
     sourcePath,
     '-map',
@@ -71,7 +76,7 @@ export function playbackEncoding(probe: PlaybackProbe, sourcePath: string, targe
     '-preset',
     'veryfast',
     '-threads',
-    '2',
+    '1',
     '-b:v',
     '4M',
     '-maxrate',

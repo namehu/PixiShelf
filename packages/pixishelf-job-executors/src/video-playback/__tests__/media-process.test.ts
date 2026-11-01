@@ -6,6 +6,17 @@ const probe = (width = 3840, height = 2160): PlaybackProbe => ({
 })
 
 describe('playback encoding profile', () => {
+  it('bounds decoder, filter and encoder threads independently', () => {
+    const { args } = playbackEncoding(probe(), 'source.mkv', 'copy.mp4')
+    const input = args.indexOf('-i')
+    const decoderThreads = args.indexOf('-threads')
+    const encoderThreads = args.lastIndexOf('-threads')
+    expect(decoderThreads).toBeLessThan(input)
+    expect(encoderThreads).toBeGreaterThan(input)
+    expect(args[decoderThreads + 1]).toBe('1')
+    expect(args[encoderThreads + 1]).toBe('1')
+    expect(args[args.indexOf('-filter_threads') + 1]).toBe('1')
+  })
   it.each([
     [3840, 2160, 1920, 1080],
     [2160, 3840, 1080, 1920],

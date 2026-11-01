@@ -66,6 +66,9 @@ services:
   # 唯一后台消费者；进程内分别串行运行解析 lane 与写入 lane。
   worker:
     image: docker.io/dockernamehu/pixishelf-worker:${IMAGE_TAG:-latest}
+    cpus: '${WORKER_CPU_LIMIT:-1.0}'
+    mem_limit: '${WORKER_MEMORY_LIMIT:-2g}'
+    memswap_limit: '${WORKER_MEMORY_LIMIT:-2g}'
     env_file:
       - .env
     environment:

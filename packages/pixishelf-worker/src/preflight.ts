@@ -20,9 +20,19 @@ async function defaultCheckPath(path: string, requiredAccess: PathAccess) {
 
 function defaultCheckExecutable(path: string, timeoutMs: number, signal?: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
-    execFile(path, ['-version'], { timeout: timeoutMs, signal, windowsHide: true, maxBuffer: 256 * 1_024 }, (error) =>
-      error ? reject(new Error(`Executable preflight failed for ${path}: ${error.message}`)) : resolve()
-    )
+    const startedAt = Date.now()
+    execFile(path, ['-version'], { timeout: timeoutMs, signal, windowsHide: true, maxBuffer: 256 * 1_024 }, (error) => {
+      if (!error) return resolve()
+      const diagnostics = {
+        elapsedMs: Date.now() - startedAt,
+        timeoutMs,
+        code: error.code ?? null,
+        signal: error.signal ?? null,
+        killed: error.killed ?? null
+      }
+      // Keep child-process evidence in the message so both logs and Worker presence retain it.
+      reject(new Error(`Executable preflight failed for ${path}: ${JSON.stringify(diagnostics)} ${error.message}`))
+    })
   })
 }
 
