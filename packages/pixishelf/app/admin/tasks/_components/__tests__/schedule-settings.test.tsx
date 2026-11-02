@@ -24,55 +24,23 @@ const task: ScheduledTaskView = {
   nextRunAt: '2026-08-18 00:00 Asia/Shanghai'
 }
 
-const draft: TaskDraft = { enabled: true, priority: '70' }
+const draft: TaskDraft = { priority: '70' }
 
 describe('ScheduleSettings cutover semantics', () => {
   afterEach(cleanup)
 
-  it('replaces per-task time editing with the global Shanghai execution window in central mode', () => {
-    const centralTask: ScheduledTaskView = {
-      ...task,
-      executionWindow: {
-        timezone: 'Asia/Shanghai',
-        startAt: '2026-08-17T16:00:00.000Z',
-        endAt: '2026-08-18T00:00:00.000Z'
-      }
-    }
-    render(
-      <ScheduleSettings task={centralTask} draft={draft} onDraftChange={vi.fn()} onSave={vi.fn()} isSaving={false} />
+  it('shows direct priority settings without duplicate schedule controls or speculative next-run text', () => {
+    const { container } = render(
+      <ScheduleSettings task={task} draft={draft} onDraftChange={vi.fn()} onSave={vi.fn()} isSaving={false} />
     )
 
-    expect(screen.getByText('中央串行窗口 · 上海时间 00:00–08:00')).toBeTruthy()
-    expect(screen.getByText('全局窗口 00:00–08:00')).toBeTruthy()
-    expect(screen.queryByLabelText('执行时间')).toBeNull()
-    expect((screen.getByRole('button', { name: '保存计划' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(getScheduledTaskUpdate(centralTask, draft)).toEqual({
-      key: task.key,
-      enabled: true,
-      priority: 70
-    })
-  })
-
-  it('never exposes retired per-task scheduling controls', () => {
-    render(<ScheduleSettings task={task} draft={draft} onDraftChange={vi.fn()} onSave={vi.fn()} isSaving={false} />)
-    expect(screen.queryByLabelText('执行时间')).toBeNull()
-    expect(getScheduledTaskUpdate(task, draft)).not.toHaveProperty('time')
-  })
-
-  it('does not let the enabled field occupy the full desktop settings row', () => {
-    render(
-      <ScheduleSettings
-        task={task}
-        draft={{ ...draft, enabled: false }}
-        onDraftChange={vi.fn()}
-        onSave={vi.fn()}
-        isSaving={false}
-      />
-    )
-
-    const enabledField = screen.getByRole('switch').closest('[data-slot="field"]')
-    expect(enabledField?.className).toContain('sm:w-auto')
-    expect((screen.getByRole('button', { name: '保存计划' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(container.querySelector('details')).toBeNull()
+    expect(screen.queryByRole('switch')).toBeNull()
+    expect(screen.queryByText(/下次|窗口|时区|模式/)).toBeNull()
+    expect(screen.getByText('数字越小越先执行（0–999）')).toBeTruthy()
+    expect(screen.getByText('上次自动入队：—')).toBeTruthy()
+    expect((screen.getByRole('button', { name: '保存优先级' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(getScheduledTaskUpdate(task, { priority: '71' })).toEqual({ key: task.key, priority: 71 })
   })
 
   it('accepts persisted priority 70 without an initial validation error', () => {
@@ -136,7 +104,7 @@ describe('ScheduleSettings cutover semantics', () => {
         expect(input.autocomplete).toBe('off')
         expect(input.inputMode).toBe('numeric')
         expect(input.getAttribute('aria-invalid')).toBe(valid ? 'false' : 'true')
-        expect((screen.getByRole('button', { name: '保存计划' }) as HTMLButtonElement).disabled).toBe(!valid)
+        expect((screen.getByRole('button', { name: '保存优先级' }) as HTMLButtonElement).disabled).toBe(!valid)
         if (valid) {
           expect(getScheduledTaskUpdate({ ...task, executionWindow }, { ...draft, priority: value }).priority).toBe(
             Number(value)

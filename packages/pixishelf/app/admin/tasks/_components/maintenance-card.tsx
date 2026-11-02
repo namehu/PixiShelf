@@ -22,9 +22,11 @@ import {
 } from './live-event-reconciliation'
 import { PixivAiDerivedTagSyncFeedback, type PixivAiDerivedTagSyncResult } from './pixiv-ai-derived-tag-sync-feedback'
 import { StandaloneTaskFeedback } from './standalone-task-feedback'
-import { ACTIVE_TASK_STATUSES, formatTaskStatus } from './task-status'
+import { ACTIVE_TASK_STATUSES } from './task-status'
 import {
   getDraftForTask,
+  getJobSummary,
+  getStandaloneSummary,
   getScheduledTaskUpdate,
   JobStatus,
   ScheduleSettings,
@@ -34,6 +36,7 @@ import {
   type JobView,
   type ScheduledTaskView
 } from './task-ui'
+import { ScheduledTaskToggle, ScheduledTaskOverview } from './scheduled-task-toggle'
 import { useScheduledTaskDrafts } from './use-scheduled-task-drafts'
 import { useTaskPolling } from './use-task-polling'
 import { VideoKeyframeSection } from './video-keyframe-section'
@@ -104,32 +107,10 @@ function toVideoChapterPreviewResult(result: unknown): VideoChapterPreviewResult
   return result && typeof result === 'object' ? (result as VideoChapterPreviewResult) : null
 }
 
-export function getJobSummary(job: JobView | null | undefined, isRunning: boolean) {
-  if (isRunning) return `${formatTaskStatus(job?.status)} · ${job?.progress ?? 0}%`
-  if (job?.status === 'FAILED') return '需要处理 · 上次执行失败'
-  return null
-}
-
 function getJobTone(job: JobView | null | undefined, isRunning: boolean): 'idle' | 'active' | 'success' | 'error' {
   if (isRunning) return 'active'
   if (job?.status === 'FAILED') return 'error'
   return 'idle'
-}
-
-function getScheduledSummary(task: ScheduledTaskView | undefined, job: JobView | null | undefined, isRunning: boolean) {
-  const jobSummary = getJobSummary(job, isRunning)
-  if (jobSummary) return jobSummary
-  if (!task?.enabled) return null
-  return '下次 · 上海 00:00–08:00'
-}
-
-export function getStandaloneSummary(task: ScheduledTaskView) {
-  if (task.lastJobStatus && ACTIVE_TASK_STATUSES.includes(task.lastJobStatus)) {
-    return formatTaskStatus(task.lastJobStatus)
-  }
-  if (task.lastJobStatus === 'FAILED') return '需要处理 · 上次执行失败'
-  if (!task.enabled) return null
-  return '下次 · 上海 00:00–08:00'
 }
 
 export function getActiveTaskActionLabel(status: string | null | undefined, runningLabel: string) {
@@ -373,6 +354,7 @@ export function MaintenanceCard() {
   const durationScheduledTask = scheduledTasksByKey.get('animation_duration_probe')
   const videoScheduledTask = scheduledTasksByKey.get('video_media_probe')
   const chapterPreviewScheduledTask = scheduledTasksByKey.get('video_chapter_preview_generation')
+  const keyframeScheduledTask = scheduledTasksByKey.get('video_keyframe_generation')
   const standaloneScheduledTasks = scheduledTasks.filter(
     (task) =>
       ![
@@ -480,7 +462,7 @@ export function MaintenanceCard() {
   const updateScheduledTaskMutation = useMutation(
     trpc.job.updateScheduledTask.mutationOptions({
       onSuccess: () => {
-        toast.success('计划任务已保存')
+        toast.success('优先级已保存')
         refetchScheduledTasks()
       },
       onError: (error) => {
@@ -571,19 +553,29 @@ export function MaintenanceCard() {
         draft={draft}
         onDraftChange={(patch) => updateTaskDraft(task.key, patch)}
         onSave={() => handleSaveScheduledTask(task)}
-        isSaving={updateScheduledTaskMutation.isPending}
+        isSaving={updateScheduledTaskMutation.isPending && updateScheduledTaskMutation.variables?.key === task.key}
       />
     )
   }
 
+  const renderScheduleToggle = (key: string) => (
+    <ScheduledTaskToggle
+      taskKey={key}
+      task={scheduledTasksByKey.get(key)}
+      loading={scheduledTasksQuery.isPending}
+      error={scheduledTasksQuery.isError}
+      onRetry={() => void refetchScheduledTasks()}
+    />
+  )
+
   return (
     <div className="flex min-w-0 flex-col gap-5">
-      {scheduledTasksQuery.isPending ? (
-        <div className="flex items-center gap-2 rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground">
-          <Spinner aria-hidden="true" />
-          正在读取自动计划…
-        </div>
-      ) : null}
+      <ScheduledTaskOverview
+        tasks={scheduledTasksQuery.data}
+        loading={scheduledTasksQuery.isPending}
+        error={scheduledTasksQuery.isError}
+        onRetry={() => void refetchScheduledTasks()}
+      />
       <TaskAccordion>
         <TaskGroup title="图库维护" description="修正作品元数据与标签关系。">
           <TaskSection
@@ -727,6 +719,8 @@ export function MaintenanceCard() {
 
         <TaskGroup title="媒体处理" description="识别媒体属性、生成预览并管理视频处理队列。">
           <TaskSection
+            schedule={renderScheduleToggle('webp_animation_scan')}
+            settings={webpScheduledTask && renderScheduleSettings(webpScheduledTask)}
             id="image-animation"
             category="可定时"
             icon={ImagePlay}
@@ -734,7 +728,7 @@ export function MaintenanceCard() {
             description={
               webpScheduledTask?.description ?? '按内容识别 WebP、GIF、PNG/APNG 的静态或动画类型，并纠正 mediaType。'
             }
-            summary={getScheduledSummary(webpScheduledTask, webpScanJob, Boolean(isWebpScanRunning))}
+            summary={getJobSummary(webpScanJob, Boolean(isWebpScanRunning))}
             tone={getJobTone(webpScanJob, Boolean(isWebpScanRunning))}
             action={
               <Button
@@ -796,7 +790,6 @@ export function MaintenanceCard() {
                 </div>
               }
             />
-            {webpScheduledTask && renderScheduleSettings(webpScheduledTask)}
           </TaskSection>
 
           <AnimationDurationProbeSection
@@ -804,10 +797,13 @@ export function MaintenanceCard() {
             triggerPending={triggerScheduledTaskMutation.isPending}
             triggeringKey={triggeringTaskKey}
             onTrigger={() => durationScheduledTask && handleTriggerScheduledTask(durationScheduledTask)}
+            schedule={renderScheduleToggle('animation_duration_probe')}
             scheduleSettings={durationScheduledTask && renderScheduleSettings(durationScheduledTask)}
           />
 
           <TaskSection
+            schedule={renderScheduleToggle('video_media_probe')}
+            settings={videoScheduledTask && renderScheduleSettings(videoScheduledTask)}
             id="video-probe"
             category="可定时"
             icon={Film}
@@ -816,7 +812,7 @@ export function MaintenanceCard() {
               videoScheduledTask?.description ??
               '分类未识别媒体，探测视频音频、编码、时长和帧率，并生成缺失的视频封面。'
             }
-            summary={getScheduledSummary(videoScheduledTask, videoProbeJob, Boolean(isVideoProbeRunning))}
+            summary={getJobSummary(videoProbeJob, Boolean(isVideoProbeRunning))}
             tone={getJobTone(videoProbeJob, Boolean(isVideoProbeRunning))}
             action={
               isVideoProbeRunning ? (
@@ -999,7 +995,6 @@ export function MaintenanceCard() {
                 </div>
               }
             />
-            {videoScheduledTask && renderScheduleSettings(videoScheduledTask)}
           </TaskSection>
 
           <VideoStreamingOptimizationSection
@@ -1009,9 +1004,16 @@ export function MaintenanceCard() {
             onSubmitted={() => setBackgroundRefreshVersion((value) => value + 1)}
           />
 
-          <VideoKeyframeSection />
+          <VideoKeyframeSection
+            scheduledTask={keyframeScheduledTask}
+            schedule={renderScheduleToggle('video_keyframe_generation')}
+            scheduleSettings={keyframeScheduledTask && renderScheduleSettings(keyframeScheduledTask)}
+            onScheduleSaved={() => void refetchScheduledTasks()}
+          />
 
           <TaskSection
+            schedule={renderScheduleToggle('video_chapter_preview_generation')}
+            settings={chapterPreviewScheduledTask && renderScheduleSettings(chapterPreviewScheduledTask)}
             id="chapter-previews"
             category="可定时"
             icon={ImagePlay}
@@ -1019,11 +1021,7 @@ export function MaintenanceCard() {
             description={
               chapterPreviewScheduledTask?.description ?? '每日增量补齐缺失章节截图，也可手动执行全量校验与重新生成。'
             }
-            summary={getScheduledSummary(
-              chapterPreviewScheduledTask,
-              chapterPreviewJob,
-              Boolean(isChapterPreviewRunning)
-            )}
+            summary={getJobSummary(chapterPreviewJob, Boolean(isChapterPreviewRunning))}
             tone={getJobTone(chapterPreviewJob, Boolean(isChapterPreviewRunning))}
             action={
               isChapterPreviewRunning ? (
@@ -1151,7 +1149,6 @@ export function MaintenanceCard() {
                 </div>
               }
             />
-            {chapterPreviewScheduledTask && renderScheduleSettings(chapterPreviewScheduledTask)}
           </TaskSection>
         </TaskGroup>
 
@@ -1161,6 +1158,8 @@ export function MaintenanceCard() {
               const isTaskRunning = Boolean(task.lastJobStatus && ACTIVE_TASK_STATUSES.includes(task.lastJobStatus))
               return (
                 <TaskSection
+                  schedule={renderScheduleToggle(task.key)}
+                  settings={renderScheduleSettings(task)}
                   key={task.key}
                   id={`scheduled-${task.key}`}
                   category="可定时"
@@ -1186,7 +1185,6 @@ export function MaintenanceCard() {
                   }
                 >
                   <StandaloneTaskFeedback task={task} />
-                  {renderScheduleSettings(task)}
                 </TaskSection>
               )
             })}

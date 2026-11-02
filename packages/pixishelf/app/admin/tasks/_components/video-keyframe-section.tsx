@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, ListChecks, Pause, Play, RotateCcw, Search, Sparkles, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -21,7 +21,7 @@ import {
   type VideoKeyframeJobView,
   type VideoKeyframeQueueView
 } from '@/types/video-keyframe'
-import { TaskSection } from './task-ui'
+import { TaskSection, type ScheduledTaskView } from './task-ui'
 import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '@/components/ui/field'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
 import { confirm } from '@/components/shared/global-confirm'
@@ -45,7 +45,17 @@ const EMPTY_FILTER: FilterDraft = {
 
 const PREVIEW_PAGE_SIZE = 20
 
-export function VideoKeyframeSection() {
+export function VideoKeyframeSection({
+  scheduledTask,
+  schedule,
+  scheduleSettings,
+  onScheduleSaved
+}: {
+  scheduledTask?: ScheduledTaskView
+  schedule?: ReactNode
+  scheduleSettings?: ReactNode
+  onScheduleSaved?: () => void
+} = {}) {
   const trpc = useTRPC()
   const [filter, setFilter] = useState<FilterDraft>(EMPTY_FILTER)
   const [previewSelection, setPreviewSelection] = useState<{ jobId: string | null; imageIds: number[] }>({
@@ -55,15 +65,13 @@ export function VideoKeyframeSection() {
   const [previewPage, setPreviewPage] = useState(1)
   const pollQueue = useTaskPolling<VideoKeyframeQueueView>((value) => shouldPollVideoKeyframeQueue(value))
   const queueQuery = useQuery(trpc.job.getVideoKeyframeQueue.queryOptions(undefined, { refetchInterval: pollQueue }))
-  const scheduledTasksQuery = useQuery(trpc.job.listScheduledTasks.queryOptions())
   const queue = queueQuery.data as VideoKeyframeQueueView | undefined
-  const scheduledTask = useMemo(
-    () => scheduledTasksQuery.data?.find((task) => task.key === 'video_keyframe_generation'),
-    [scheduledTasksQuery.data]
-  )
+  const configInitialized = useRef(false)
 
   useEffect(() => {
-    const config = scheduledTask?.config
+    if (!scheduledTask || configInitialized.current) return
+    configInitialized.current = true
+    const config = scheduledTask.config
     if (!config || typeof config !== 'object' || Array.isArray(config)) return
     const value = config as Record<string, unknown>
     setFilter({
@@ -73,14 +81,14 @@ export function VideoKeyframeSection() {
       excludePaths: arrayToLines(value.excludePaths),
       statuses: normalizeDraftStatuses(value.statuses)
     })
-  }, [scheduledTask?.config])
+  }, [scheduledTask])
 
   const normalizedFilter = useMemo(() => toApiFilter(filter), [filter])
   const saveFilter = useMutation(
     trpc.job.updateScheduledTask.mutationOptions({
       onSuccess: () => {
         toast.success('代表帧自动筛选规则已保存')
-        void scheduledTasksQuery.refetch()
+        onScheduleSaved?.()
       },
       onError: (error) => toast.error(`保存失败: ${error.message}`)
     })
@@ -177,6 +185,8 @@ export function VideoKeyframeSection() {
 
   return (
     <TaskSection
+      schedule={schedule}
+      settings={scheduleSettings}
       id="video-keyframes"
       category="持久队列"
       icon={Sparkles}

@@ -15,13 +15,15 @@ export function AnimationDurationProbeSection({
   triggerPending,
   triggeringKey,
   onTrigger,
-  scheduleSettings
+  scheduleSettings,
+  schedule
 }: {
   task: ScheduledTaskView | undefined
   triggerPending: boolean
   triggeringKey: string | null
   onTrigger(): void
   scheduleSettings: ReactNode
+  schedule?: ReactNode
 }) {
   const trpc = useTRPC()
   const queryClient = useQueryClient()
@@ -40,6 +42,8 @@ export function AnimationDurationProbeSection({
 
   return (
     <TaskSection
+      schedule={schedule}
+      settings={scheduleSettings}
       id="animation-duration-probe"
       category="可定时"
       icon={ImagePlay}
@@ -76,7 +80,6 @@ export function AnimationDurationProbeSection({
           </div>
         ) : null}
       />
-      {scheduleSettings}
     </TaskSection>
   )
 }

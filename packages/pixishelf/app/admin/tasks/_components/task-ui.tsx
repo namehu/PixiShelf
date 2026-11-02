@@ -6,15 +6,14 @@ import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
-import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import type { JobProgressData, JobStatus } from '@pixishelf/job-contracts'
-import { Activity, ChevronDown, Clock, type LucideIcon } from 'lucide-react'
+import { Activity, ChevronDown, type LucideIcon } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { createContext, type ReactNode, useContext } from 'react'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
-import { EXECUTING_TASK_STATUSES, formatTaskStatus, TERMINAL_TASK_STATUSES } from './task-status'
+import { ACTIVE_TASK_STATUSES, EXECUTING_TASK_STATUSES, formatTaskStatus, TERMINAL_TASK_STATUSES } from './task-status'
 
 export interface ScheduledTaskView {
   key: string
@@ -50,6 +49,7 @@ export interface ScheduledTaskView {
     untrackedCandidates?: number
   } | null
   nextRunAt: string | null
+  config?: unknown
   executionWindow?: {
     timezone: 'Asia/Shanghai'
     startAt: string
@@ -71,8 +71,21 @@ export interface JobView {
   updatedAt?: string
 }
 
+export function getJobSummary(job: JobView | null | undefined, isRunning: boolean) {
+  if (isRunning) return `${formatTaskStatus(job?.status)} · ${job?.progress ?? 0}%`
+  if (job?.status === 'FAILED') return '需要处理 · 上次执行失败'
+  return null
+}
+
+export function getStandaloneSummary(task: ScheduledTaskView) {
+  if (task.lastJobStatus && ACTIVE_TASK_STATUSES.includes(task.lastJobStatus)) {
+    return formatTaskStatus(task.lastJobStatus)
+  }
+  if (task.lastJobStatus === 'FAILED') return '需要处理 · 上次执行失败'
+  return null
+}
+
 export interface TaskDraft {
-  enabled: boolean
   priority: string
 }
 
@@ -92,7 +105,6 @@ export function isScheduledTaskPriorityValid(value: string) {
 export function getDraftForTask(task: ScheduledTaskView, drafts: Record<string, TaskDraft>) {
   return (
     drafts[task.key] ?? {
-      enabled: task.enabled,
       priority: String(task.priority)
     }
   )
@@ -101,7 +113,6 @@ export function getDraftForTask(task: ScheduledTaskView, drafts: Record<string, 
 export function getScheduledTaskUpdate(task: ScheduledTaskView, draft: TaskDraft) {
   return {
     key: task.key,
-    enabled: draft.enabled,
     priority: Number(draft.priority)
   }
 }
@@ -164,6 +175,8 @@ export function TaskSection({
   summary,
   tone = 'idle',
   action,
+  schedule,
+  settings,
   children
 }: {
   id: string
@@ -174,6 +187,8 @@ export function TaskSection({
   summary: ReactNode
   tone?: 'idle' | 'active' | 'success' | 'error'
   action?: ReactNode
+  schedule?: ReactNode
+  settings?: ReactNode
   children?: ReactNode
 }) {
   const accordion = useContext(TaskAccordionContext)
@@ -201,62 +216,66 @@ export function TaskSection({
         )}
         aria-hidden="true"
       />
-      <button
-        type="button"
-        aria-expanded={expanded}
-        aria-controls={panelId}
-        onClick={() => accordion.toggle(id)}
-        className="flex w-full items-start gap-3 py-3.5 pr-4 pl-5 text-left transition-colors hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:items-center sm:px-5 sm:pl-6"
-      >
-        <div
-          className={cn(
-            'mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground sm:mt-0',
-            expanded && 'bg-accent text-primary'
-          )}
+      <div className="flex flex-col sm:flex-row sm:items-center">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={panelId}
+          onClick={() => accordion.toggle(id)}
+          className="flex w-full min-w-0 flex-1 items-start gap-3 py-3.5 pr-4 pl-5 text-left transition-colors hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:items-center sm:px-5 sm:pl-6"
         >
-          <Icon className="size-4.5" aria-hidden="true" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span
-              role="heading"
-              aria-level={3}
-              className="text-sm font-semibold tracking-tight text-foreground sm:text-base"
-            >
-              {title}
-            </span>
-            <span className="rounded-md border px-1.5 py-0.5 text-[11px] leading-none text-muted-foreground">
-              {category}
-            </span>
-          </div>
-          <p className="mt-1 line-clamp-2 text-pretty text-sm leading-5 text-muted-foreground sm:line-clamp-1">
-            {description}
-          </p>
-          {summary ? <div className="mt-2 text-xs leading-5 text-muted-foreground sm:hidden">{summary}</div> : null}
-        </div>
-        <div className="ml-auto flex shrink-0 items-center gap-3 self-center">
-          {summary ? (
-            <div
-              className={cn(
-                'hidden text-right text-xs text-muted-foreground sm:block',
-                tone === 'active' && 'font-medium text-primary',
-                tone === 'error' && 'font-medium text-destructive'
-              )}
-            >
-              {summary}
-            </div>
-          ) : null}
-          <ChevronDown
+          <div
             className={cn(
-              'size-4 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
-              expanded && 'rotate-180'
+              'mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground sm:mt-0',
+              expanded && 'bg-accent text-primary'
             )}
-            aria-hidden="true"
-          />
-        </div>
-      </button>
+          >
+            <Icon className="size-4.5" aria-hidden="true" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                role="heading"
+                aria-level={3}
+                className="text-sm font-semibold tracking-tight text-foreground sm:text-base"
+              >
+                {title}
+              </span>
+              <span className="rounded-md border px-1.5 py-0.5 text-[11px] leading-none text-muted-foreground">
+                {category}
+              </span>
+            </div>
+            <p className="mt-1 line-clamp-2 text-pretty text-sm leading-5 text-muted-foreground sm:line-clamp-1">
+              {description}
+            </p>
+            {summary ? <div className="mt-2 text-xs leading-5 text-muted-foreground sm:hidden">{summary}</div> : null}
+          </div>
+          <div className="ml-auto flex shrink-0 items-center gap-3 self-center">
+            {summary ? (
+              <div
+                className={cn(
+                  'hidden text-right text-xs text-muted-foreground sm:block',
+                  tone === 'active' && 'font-medium text-primary',
+                  tone === 'error' && 'font-medium text-destructive'
+                )}
+              >
+                {summary}
+              </div>
+            ) : null}
+            <ChevronDown
+              className={cn(
+                'size-4 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+                expanded && 'rotate-180'
+              )}
+              aria-hidden="true"
+            />
+          </div>
+        </button>
+        {schedule ? <div className="shrink-0 pr-4 pb-2 pl-17 sm:pr-5 sm:pb-0 sm:pl-0">{schedule}</div> : null}
+      </div>
       {expanded ? (
         <div id={panelId} className="border-t bg-muted/10 px-4 py-4 sm:px-6 sm:py-5">
+          {settings ? <div className="mb-4">{settings}</div> : null}
           {action ? <div className="mb-4 flex flex-wrap justify-start gap-2 sm:justify-end">{action}</div> : null}
           {children ? <div className="flex flex-col gap-4">{children}</div> : null}
         </div>
@@ -339,125 +358,45 @@ export function ScheduleSettings({
   onSave: () => void
   isSaving: boolean
 }) {
-  const priority = Number(draft.priority)
-  const priorityMinimum = SCHEDULED_TASK_PRIORITY_MINIMUM
-  const priorityMaximum = SCHEDULED_TASK_PRIORITY_MAXIMUM
   const priorityInvalid = !isScheduledTaskPriorityValid(draft.priority)
-  const changed = draft.enabled !== task.enabled || priority !== task.priority
-  const enabledId = `schedule-${task.key}-enabled`
+  const changed = Number(draft.priority) !== task.priority
   const priorityId = `schedule-${task.key}-priority`
-
   return (
-    <details className="group overflow-hidden rounded-lg border border-border bg-card">
-      <summary className="flex cursor-pointer list-none items-center gap-3 bg-muted/20 px-4 py-3 outline-none transition-colors hover:bg-muted/35 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Clock className="size-4 text-muted-foreground" aria-hidden="true" />
-          <div className="min-w-0">
-            <h3 className="text-sm font-medium">计划设置</h3>
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">{'中央串行窗口 · 00:00–08:00'}</p>
-          </div>
-        </div>
-        <AdminStatusBadge status={task.enabled ? 'ACTIVE' : 'IDLE'}>
-          {task.enabled ? '已启用' : '已停用'}
-        </AdminStatusBadge>
-        <ChevronDown
-          className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180 motion-reduce:transition-none"
-          aria-hidden="true"
+    <FieldGroup className="flex-row flex-wrap items-end gap-3 rounded-lg border bg-card p-3">
+      <Field className="w-28 gap-1.5" data-invalid={priorityInvalid}>
+        <FieldLabel htmlFor={priorityId} className="text-xs text-muted-foreground">
+          优先级
+        </FieldLabel>
+        <Input
+          id={priorityId}
+          name={`${task.key}-priority`}
+          type="number"
+          inputMode="numeric"
+          autoComplete="off"
+          min={SCHEDULED_TASK_PRIORITY_MINIMUM}
+          max={SCHEDULED_TASK_PRIORITY_MAXIMUM}
+          value={draft.priority}
+          onChange={(event) => onDraftChange({ priority: event.target.value })}
+          className="min-h-11"
+          aria-invalid={priorityInvalid}
+          aria-describedby={`${priorityId}-help${priorityInvalid ? ` ${priorityId}-error` : ''}`}
         />
-      </summary>
-      <div className="flex flex-col gap-5 border-t p-4">
-        {task.executionWindow ? (
-          <div className="rounded-md border border-primary/20 bg-primary/[0.04] px-3 py-2.5 text-sm">
-            <p className="font-medium text-foreground">中央串行窗口 · 上海时间 00:00–08:00</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              任务按全局队列优先级依次执行；这里不再使用每任务时间决定调度。
-            </p>
-          </div>
-        ) : null}
-        <dl className="grid grid-cols-2 gap-4 text-sm md:grid-cols-3 lg:grid-cols-4">
-          <div className="flex flex-col gap-1">
-            <dt className="text-xs text-muted-foreground">执行模式</dt>
-            <dd className="font-medium text-foreground">中央串行窗口</dd>
-          </div>
-          <div className="flex flex-col gap-1">
-            <dt className="text-xs text-muted-foreground">时区</dt>
-            <dd className="font-medium text-foreground">{task.executionWindow?.timezone ?? task.timezone}</dd>
-          </div>
-          <div className="flex flex-col gap-1">
-            <dt className="text-xs text-muted-foreground">下次计划执行</dt>
-            <dd className="font-medium text-foreground">{task.nextRunAt || '—'}</dd>
-          </div>
-          <div className="flex flex-col gap-1">
-            <dt className="text-xs text-muted-foreground">上次计划入队</dt>
-            <dd className="font-medium text-foreground">{formatDateTime(task.lastMaterializedAt)}</dd>
-          </div>
-          <div className="flex flex-col gap-1">
-            <dt className="text-xs text-muted-foreground">上次自动日期</dt>
-            <dd className="font-medium text-foreground">{task.lastMaterializedDate || '—'}</dd>
-          </div>
-          <div className="flex flex-col gap-1">
-            <dt className="text-xs text-muted-foreground">最近任务状态</dt>
-            <dd className="font-medium text-foreground">{formatTaskStatus(task.lastJobStatus)}</dd>
-          </div>
-        </dl>
-
-        <FieldGroup className="gap-4 border-t border-dashed pt-4 sm:flex-row sm:items-end">
-          <Field
-            orientation="horizontal"
-            className="min-h-9 w-full shrink-0 rounded-md border bg-muted/25 px-3 sm:w-auto"
-          >
-            <Switch
-              id={enabledId}
-              checked={draft.enabled}
-              onCheckedChange={(checked) => onDraftChange({ enabled: checked })}
-            />
-            <FieldLabel htmlFor={enabledId} className="min-w-12 cursor-pointer text-sm font-medium">
-              {draft.enabled ? '已启用' : '已停用'}
-            </FieldLabel>
-          </Field>
-          <div className="flex flex-1 flex-wrap items-end gap-3">
-            <div className="flex min-h-9 items-center rounded-md border bg-muted/25 px-3 text-sm text-muted-foreground">
-              全局窗口 00:00–08:00
-            </div>
-            <Field className="w-auto gap-1.5" data-invalid={priorityInvalid}>
-              <FieldLabel htmlFor={priorityId} className="text-xs text-muted-foreground">
-                优先级
-              </FieldLabel>
-              <Input
-                id={priorityId}
-                name={`${task.key}-priority`}
-                type="number"
-                inputMode="numeric"
-                autoComplete="off"
-                min={priorityMinimum}
-                max={priorityMaximum}
-                value={draft.priority}
-                onChange={(event) => onDraftChange({ priority: event.target.value })}
-                className="h-9 w-[90px]"
-                title="优先级，数字越小越先执行"
-                aria-invalid={priorityInvalid}
-                aria-describedby={priorityInvalid ? `${priorityId}-error` : undefined}
-              />
-              {priorityInvalid ? (
-                <FieldError id={`${priorityId}-error`}>
-                  请输入 {priorityMinimum}–{priorityMaximum} 的整数。
-                </FieldError>
-              ) : null}
-            </Field>
-          </div>
-          <Button
-            variant={changed ? 'default' : 'outline'}
-            size="sm"
-            onClick={onSave}
-            disabled={isSaving || !changed || priorityInvalid}
-            className="h-9 shrink-0"
-          >
-            {isSaving && <Spinner data-icon="inline-start" aria-hidden="true" />}
-            {isSaving ? '保存中…' : '保存计划'}
-          </Button>
-        </FieldGroup>
+        {priorityInvalid && <FieldError id={`${priorityId}-error`}>请输入 0–999 的整数。</FieldError>}
+      </Field>
+      <Button
+        variant={changed ? 'default' : 'outline'}
+        onClick={onSave}
+        disabled={isSaving || !changed || priorityInvalid}
+        className="min-h-11"
+      >
+        {isSaving && <Spinner data-icon="inline-start" aria-hidden="true" />}
+        {isSaving ? '保存中…' : '保存优先级'}
+      </Button>
+      <div className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-muted-foreground">
+        <p id={`${priorityId}-help`}>数字越小越先执行（0–999）</p>
+        <p>上次自动入队：{formatDateTime(task.lastMaterializedAt)}</p>
       </div>
-    </details>
+    </FieldGroup>
   )
 }
 

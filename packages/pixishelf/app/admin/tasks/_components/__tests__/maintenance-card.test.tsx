@@ -11,8 +11,6 @@ vi.mock('../video-streaming-optimization-section', () => ({ VideoStreamingOptimi
 import { AnimationScanLiveFeedback } from '../animation-scan-live-feedback'
 import {
   getActiveTaskActionLabel,
-  getJobSummary,
-  getStandaloneSummary,
   getStandaloneTaskActionLabel,
   requestPixivAiDerivedTagSync,
   requestStandaloneTaskTrigger,
@@ -20,7 +18,7 @@ import {
 } from '../maintenance-card'
 import { PixivAiDerivedTagSyncFeedback } from '../pixiv-ai-derived-tag-sync-feedback'
 import { StandaloneTaskFeedback } from '../standalone-task-feedback'
-import { JobStatus, type JobView, type ScheduledTaskView } from '../task-ui'
+import { getJobSummary, getStandaloneSummary, JobStatus, type JobView, type ScheduledTaskView } from '../task-ui'
 import { VideoProbeTaskActions } from '../video-probe-task-actions'
 
 afterEach(() => {
@@ -63,6 +61,12 @@ describe('maintenance standalone tasks', () => {
       expect(getStandaloneSummary(task({ lastJobStatus: status }))).toBe(summary)
       expect(getActiveTaskActionLabel(status, '识别中…')).toBe(action)
     }
+  })
+
+  it('keeps automatic plan state separate from runtime summaries', () => {
+    expect(getStandaloneSummary(task({ enabled: true }))).toBeNull()
+    expect(getStandaloneSummary(task({ enabled: false }))).toBeNull()
+    expect(getStandaloneSummary(task({ enabled: false, lastJobStatus: 'RUNNING' }))).toBe('正在执行')
   })
 
   it('offers incremental probing and has-audio recalibration as distinct actions', () => {
