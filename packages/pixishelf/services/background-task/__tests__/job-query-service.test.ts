@@ -66,6 +66,7 @@ describe('listJobs', () => {
 })
 
 describe('getJobDashboard', () => {
+  const archiveImport = { count: vi.fn().mockResolvedValue(6) }
   it('uses fresh READY and STOPPING presence and normalizes pre-lane worker capabilities', async () => {
     const systemJob = {
       groupBy: vi.fn().mockResolvedValue([{ status: 'PENDING', _count: { _all: 3 } }]),
@@ -84,11 +85,14 @@ describe('getJobDashboard', () => {
       ])
     }
     const result = await getJobDashboard(
-      { systemJob, workerInstance } as never,
+      { systemJob, workerInstance, archiveImport } as never,
       () => new Date('2026-08-14T10:01:30.000Z')
     )
 
-    expect(result).toMatchObject({ queuedCount: 3, activeCount: 0 })
+    expect(result).toMatchObject({ queuedCount: 3, activeCount: 0, archiveUnfinishedCount: 6 })
+    expect(archiveImport.count).toHaveBeenCalledWith({
+      where: { publishedArtworkDeletedAt: null, status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'] } }
+    })
     expect(result.counts.SKIPPED).toBe(0)
     expect(result.runningJob).toBeNull()
     expect(result.workers[0]).toMatchObject({
@@ -120,7 +124,7 @@ describe('getJobDashboard', () => {
       ])
     }
     const result = await getJobDashboard(
-      { systemJob, workerInstance } as never,
+      { systemJob, workerInstance, archiveImport } as never,
       () => new Date('2026-08-14T10:01:30.001Z')
     )
 
@@ -141,7 +145,7 @@ describe('getJobDashboard', () => {
     }
     const workerInstance = { findMany: vi.fn().mockResolvedValue([workerRecord()]) }
     const result = await getJobDashboard(
-      { systemJob, workerInstance } as never,
+      { systemJob, workerInstance, archiveImport } as never,
       () => new Date('2026-08-14T10:01:30.001Z')
     )
 
@@ -194,7 +198,7 @@ describe('getJobDashboard', () => {
     }
     const workerInstance = { findMany: vi.fn().mockResolvedValue([]) }
 
-    const result = await getJobDashboard({ systemJob, workerInstance } as never)
+    const result = await getJobDashboard({ systemJob, workerInstance, archiveImport } as never)
 
     expect(result.counts.RUNNING).toBe(1)
     expect(result.activeCount).toBe(1)
@@ -242,7 +246,7 @@ describe('getJobDashboard', () => {
     }
     const workerInstance = { findMany: vi.fn().mockResolvedValue([]) }
 
-    const result = await getJobDashboard({ systemJob, workerInstance } as never)
+    const result = await getJobDashboard({ systemJob, workerInstance, archiveImport } as never)
 
     expect(result.queuedCount).toBe(1)
     expect(result.activeCount).toBe(0)
@@ -273,7 +277,7 @@ describe('getJobDashboard', () => {
     }
     const workerInstance = { findMany: vi.fn().mockResolvedValue([]) }
 
-    const result = await getJobDashboard({ systemJob, workerInstance } as never)
+    const result = await getJobDashboard({ systemJob, workerInstance, archiveImport } as never)
 
     expect(result.unacknowledgedFailureCount).toBe(27)
     expect(result.unacknowledgedFailures).toEqual([expect.objectContaining({ id: failed.id, status: 'FAILED' })])

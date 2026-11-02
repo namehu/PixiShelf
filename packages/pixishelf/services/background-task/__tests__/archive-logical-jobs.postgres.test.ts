@@ -70,11 +70,29 @@ suite('stable archive task aggregation in PostgreSQL', () => {
     expect(snapshots.items.every((item) => item.createdAt === yesterday.toISOString())).toBe(true)
   })
 
+  it('counts unfinished import identities once across phases, retry executions and status changes', async () => {
+    const baseline = (await getJobDashboard(db!)).archiveUnfinishedCount
+    const id = await seed('unfinished')
+    expect((await getJobDashboard(db!)).archiveUnfinishedCount).toBe(baseline + 1)
+    await handoff(id)
+    expect((await getJobDashboard(db!)).archiveUnfinishedCount).toBe(baseline + 1)
+    const retryId = `${id}-retry`
+    await db!.systemJob.create({ data: { id: retryId, type: 'ARCHIVE_DOWNLOAD', executionLane: 'ARCHIVE_DOWNLOAD', status: 'PENDING', triggerSource: 'RETRY', payload: { archiveImportId: id }, message: prefix } })
+    await db!.archiveImport.update({ where: { id }, data: { systemJobId: retryId, phase: 'DOWNLOAD', executions: { create: { jobId: retryId, phase: 'DOWNLOAD' } } } })
+    for (const status of ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING', 'FAILED', 'CANCELLED', 'COMPLETED'] as const) {
+      await db!.archiveImport.update({ where: { id }, data: { status } })
+      expect((await getJobDashboard(db!)).archiveUnfinishedCount).toBe(baseline + (['FAILED', 'CANCELLED', 'COMPLETED'].includes(status) ? 0 : 1))
+    }
+    await db!.archiveImport.update({ where: { id }, data: { status: 'PAUSED', publishedArtworkDeletedAt: new Date() } })
+    expect((await getJobDashboard(db!)).archiveUnfinishedCount).toBe(baseline)
+  })
+
   it('aggregates list, dashboard, detail and SSE by the current stage without reporting handoff as completion', async () => {
     const a = await seed('one')
     const before = await getJobDashboard(db!)
     await handoff(a)
     const after = await getJobDashboard(db!)
+    expect(after.archiveUnfinishedCount).toBe(before.archiveUnfinishedCount)
     expect(after.counts.COMPLETED).toBe(before.counts.COMPLETED)
     expect(after.counts.PENDING).toBe(before.counts.PENDING)
     expect(after.lanes.map((lane) => lane.executionLane)).toEqual([

@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { NuqsTestingAdapter, type UrlUpdateEvent } from 'nuqs/adapters/testing'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { toast, type Action } from 'sonner'
 import { ArchiveManagement } from '../archive-management'
 import type { ArchiveTaskOutput } from '../archive-task-list'
 
@@ -18,6 +19,8 @@ interface TaskListInput {
   unboundOnly?: boolean
 }
 
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), warning: vi.fn(), error: vi.fn() } }))
+
 const mocks = vi.hoisted(() => ({ list: vi.fn(), replace: vi.fn(), actionMany: vi.fn() }))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: mocks.replace }),
@@ -26,7 +29,7 @@ vi.mock('next/navigation', () => ({
 vi.mock('next/link', () => ({ default: ({ children, ...props }: ComponentProps<'a'>) => <a {...props}>{children}</a> }))
 vi.mock('../archive-add-dialog', () => ({ ArchiveAddDialog: () => null }))
 vi.mock('../archive-item-drawer', () => ({ ArchiveItemDrawer: () => null }))
-vi.mock('../archive-bulk-result-dialog', () => ({ ArchiveBulkResultDialog: () => null }))
+vi.mock('../archive-bulk-result-dialog', () => ({ ArchiveBulkResultDialog: ({ operation }: { operation: { id: string } | null }) => operation ? <div role="dialog" aria-label="批量操作结果">{operation.id}</div> : null }))
 vi.mock('@/components/privacy/privacy-sensitive-text', () => ({
   PrivacySensitiveText: ({ children }: { children: React.ReactNode }) => <span>{children}</span>
 }))
@@ -51,7 +54,7 @@ vi.mock('@/lib/trpc', () => ({
       backgroundDashboard: {
         queryOptions: (_input: unknown, options: object) => ({
           queryKey: ['dashboard'],
-          queryFn: async () => ({ lanes: [], activeCount: 0, queuedCount: 0 }),
+          queryFn: async () => ({ lanes: [], activeCount: 0, queuedCount: 0, archiveUnfinishedCount: 0 }),
           ...options
         })
       }
@@ -76,6 +79,9 @@ const task = {
 
 let client: QueryClient
 beforeEach(() => {
+  vi.mocked(toast.success).mockClear()
+  vi.mocked(toast.warning).mockClear()
+  vi.mocked(toast.error).mockClear()
   mocks.list.mockReset().mockImplementation(async (input: TaskListInput) => ({
     items: [task],
     nextCursor: input.cursor ? null : 'cursor-2'
@@ -175,18 +181,36 @@ describe('archive task URL filters', () => {
     const operation = {
       id: 'download-operation',
       commandType: 'RETRY',
-      counts: { applied: 1, reused: 0, skipped: 0, conflict: 0 },
+      counts: { created: 0, applied: 1, reused: 0, skipped: 0, conflict: 0, failed: 0 },
       items: []
     }
     await act(async () => {
       finishDownload(operation)
     })
-    expect(within(screen.getByLabelText('下载任务批量结果')).getByText(/已入队 1 项/)).toBeTruthy()
+    expect(screen.queryByLabelText('下载任务批量结果')).toBeNull()
+    expect(toast.success).toHaveBeenCalledWith('下载任务已入队：1 项', expect.objectContaining({ action: expect.objectContaining({ label: '查看结果' }) }))
+    expect(screen.getByRole('button', { name: '最近下载结果' })).toBeTruthy()
     expect(within(screen.getByLabelText('其他任务批量结果')).getByText('正在提交…')).toBeTruthy()
     expect(mocks.list.mock.calls.length).toBeGreaterThan(1)
     await act(async () => {
       finishPublish({ ...operation, id: 'publish-operation' })
     })
+  })
+
+  it('keeps partial conflicts in the one-time toast and recent result entry after the success card is removed', async () => {
+    mocks.list.mockResolvedValue({ items: [{ ...task, phase: 'DOWNLOAD', status: 'FAILED', systemJobStatus: 'FAILED' }], nextCursor: null })
+    mocks.actionMany.mockResolvedValue({ id: 'partial-result', commandType: 'RETRY', counts: { created: 0, applied: 1, reused: 0, skipped: 2, conflict: 3, failed: 1 }, items: [] })
+    mountPage()
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择 测试作品' }))
+    fireEvent.click(screen.getByRole('button', { name: '重试 1 项' }))
+    await screen.findByRole('button', { name: '最近下载结果（有未完成项）' })
+    expect(toast.warning).toHaveBeenCalledExactlyOnceWith('下载任务已入队：1 项', expect.objectContaining({ description: '跳过 2 项，冲突 3 项，失败 1 项' }))
+    expect(screen.queryByLabelText('下载任务批量结果')).toBeNull()
+    const action = vi.mocked(toast.warning).mock.calls[0]![1]!.action as Action
+    act(() => action.onClick({} as never))
+    expect(screen.getByRole('dialog', { name: '批量操作结果' }).textContent).toBe('partial-result')
+    fireEvent.click(screen.getByRole('button', { name: '最近下载结果（有未完成项）' }))
+    expect(toast.warning).toHaveBeenCalledTimes(1)
   })
 
   it('replays the exact failed request after refreshed state removes its original targets', async () => {
@@ -197,7 +221,7 @@ describe('archive task URL filters', () => {
     mocks.actionMany.mockRejectedValueOnce(new Error('response lost')).mockResolvedValueOnce({
       id: 'confirmed-operation',
       commandType: 'RETRY',
-      counts: { applied: 1, reused: 0, skipped: 0, conflict: 0 },
+      counts: { created: 0, applied: 1, reused: 0, skipped: 0, conflict: 0, failed: 0 },
       items: []
     })
     mountPage('?status=FAILED')
@@ -205,6 +229,9 @@ describe('archive task URL filters', () => {
     fireEvent.click(screen.getByRole('button', { name: '重试 1 项' }))
     await screen.findByRole('button', { name: '重试并确认原操作' })
     const original = mocks.actionMany.mock.calls[0]![0]
+    fireEvent.click(screen.getByRole('button', { name: '重试 1 项' }))
+    expect(mocks.actionMany).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: '重试并确认原操作' })).toBeTruthy()
     mocks.list.mockResolvedValue({ items: [], nextCursor: null })
     await act(async () => {
       await client.invalidateQueries({ queryKey: ['tasks'] })
@@ -214,7 +241,8 @@ describe('archive task URL filters', () => {
     await waitFor(() => expect(mocks.actionMany).toHaveBeenCalledTimes(2))
     expect(mocks.actionMany.mock.calls[1]![0]).toEqual(original)
     expect(original.scope).toBe('DOWNLOAD')
-    await screen.findByText(/已入队 1 项/)
+    await screen.findByRole('button', { name: '最近下载结果' })
+    expect(screen.queryByLabelText('下载任务批量结果')).toBeNull()
   })
   it('syncs pagination and restores a copied third-page URL with working previous-page navigation', async () => {
     mocks.list.mockImplementation(async (input: TaskListInput) => ({

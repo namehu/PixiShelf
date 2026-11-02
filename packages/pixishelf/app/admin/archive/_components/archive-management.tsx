@@ -265,7 +265,7 @@ function ArchiveTaskManagement() {
     if (!isActiveArchiveDownloadStatus(authoritativeStatus)) return null
     const transfer =
       cachedLive?.transfer ??
-      (task.id === liveTransferEntry?.transfer?.archiveImportId ? liveTransferEntry.transfer : null)
+      (task.systemJobId === liveTransferEntry?.item.job.id && task.id === liveTransferEntry?.transfer?.archiveImportId ? liveTransferEntry.transfer : null)
     return {
       ...task,
       ...(live
@@ -361,8 +361,19 @@ function ArchiveTaskManagement() {
       }
       setBulkOperations((current) => ({ ...current, [group]: operation }))
       releaseArchiveTaskBulkKey(bulkIdempotencyKeys.current, variables.action, variables.taskIds, variables.scope)
-      const changed = operation.counts.applied + operation.counts.reused
-      toast.success(group === 'DOWNLOAD' ? `下载任务已入队：${changed} 项` : `批量操作完成：已处理 ${changed} 项`)
+      const changed = operation.counts.created + operation.counts.applied + operation.counts.reused
+      const summary = [
+        operation.counts.created > 0 ? `新建 ${operation.counts.created} 项` : null,
+        operation.counts.reused > 0 ? `复用 ${operation.counts.reused} 项` : null,
+        operation.counts.skipped > 0 ? `跳过 ${operation.counts.skipped} 项` : null,
+        operation.counts.conflict > 0 ? `冲突 ${operation.counts.conflict} 项` : null,
+        operation.counts.failed > 0 ? `失败 ${operation.counts.failed} 项` : null
+      ].filter(Boolean).join('，')
+      const notify = operation.counts.conflict > 0 || operation.counts.failed > 0 ? toast.warning : toast.success
+      notify(group === 'DOWNLOAD' ? `下载任务已入队：${changed} 项` : `批量操作完成：已处理 ${changed} 项`, {
+        description: summary || undefined,
+        action: { label: '查看结果', onClick: () => setBulkOperation(operation) }
+      })
       setSelectedTaskIds((current) => new Set([...current].filter((id) => !variables.taskIds.includes(id))))
       await refreshPage()
     },
@@ -394,6 +405,11 @@ function ArchiveTaskManagement() {
         [otherIds, undefined, bulkActionMutation]
       ] as const) {
         if (!ids.length) continue
+        const group = scope === 'DOWNLOAD' ? 'DOWNLOAD' : 'OTHER'
+        if (bulkErrors[group]) {
+          toast.error('请先重试并确认该组上次操作，再提交新的任务操作')
+          continue
+        }
         const idempotencyKey = getOrCreateArchiveTaskBulkKey(
           bulkIdempotencyKeys.current,
           action,
@@ -432,26 +448,29 @@ function ArchiveTaskManagement() {
         />
       }
     >
-      {activeTask && (
         <ArchiveDownloadFloater
-          key={activeTask.id}
           task={activeTask}
+          unfinishedCount={dashboardQuery.data?.archiveUnfinishedCount}
+          dashboardError={dashboardQuery.isError}
+          refreshedAt={dashboardQuery.dataUpdatedAt}
+          realtimeConnected={realtimeConnected}
+          liveJobById={liveJobById}
           bottomOffset={bulkToolbarHeight}
-          pausePending={pendingSingleActions.has(singleActionKey(activeTask.id, 'PAUSE'))}
-          cancelPending={pendingSingleActions.has(singleActionKey(activeTask.id, 'CANCEL'))}
+          pausePending={Boolean(activeTask && pendingSingleActions.has(singleActionKey(activeTask.id, 'PAUSE')))}
+          cancelPending={Boolean(activeTask && pendingSingleActions.has(singleActionKey(activeTask.id, 'CANCEL')))}
           onViewItems={() => setDetailTask(activeTask)}
+          onViewTask={setDetailTask}
           onPause={() =>
-            requestSingleTaskAction(activeTask, 'PAUSE', (action) =>
+            activeTask && requestSingleTaskAction(activeTask, 'PAUSE', (action) =>
               singleActionMutation.mutate({ taskId: activeTask.id, action })
             )
           }
           onCancel={() =>
-            requestSingleTaskAction(activeTask, 'CANCEL', (action) =>
+            activeTask && requestSingleTaskAction(activeTask, 'CANCEL', (action) =>
               singleActionMutation.mutate({ taskId: activeTask.id, action })
             )
           }
         />
-      )}
 
       {requestedTaskId &&
       (deepLinkedTaskQuery.isError ||
@@ -473,12 +492,20 @@ function ArchiveTaskManagement() {
         onSubmit={() => applyFilters(draftFilters)}
         onReset={clearFilters}
       />
+      {Object.values(bulkOperations).some(Boolean) && <div className="flex flex-wrap justify-end gap-2" aria-label="最近批量结果">
+        {(['DOWNLOAD', 'OTHER'] as const).map((group) => {
+          const operation = bulkOperations[group]
+          return operation ? <Button key={group} variant="link" size="sm" onClick={() => setBulkOperation(operation)}>
+            {group === 'DOWNLOAD' ? '最近下载结果' : '最近其他任务结果'}
+            {operation.counts.conflict + operation.counts.failed > 0 ? '（有未完成项）' : ''}
+          </Button> : null
+        })}
+      </div>}
       {(['DOWNLOAD', 'OTHER'] as const).map((group) => {
-        const operation = bulkOperations[group]
         const error = bulkErrors[group]
         const mutation = group === 'DOWNLOAD' ? downloadActionMutation : bulkActionMutation
         const pending = mutation.isPending
-        if (!operation && !error && !pending) return null
+        if (!error && !pending) return null
         return (
           <Alert
             key={group}
@@ -487,16 +514,7 @@ function ArchiveTaskManagement() {
           >
             <AlertTitle>{group === 'DOWNLOAD' ? '下载任务' : '发布与其他任务'}</AlertTitle>
             <AlertDescription>
-              {operation
-                ? group === 'DOWNLOAD'
-                  ? `已入队 ${operation!.counts.applied} 项，跳过 ${operation!.counts.skipped} 项，冲突 ${operation!.counts.conflict} 项。下载准备由后台任务执行。`
-                  : `已处理 ${operation!.counts.applied + operation!.counts.reused} 项。`
-                : (error ?? (pending ? '正在提交…' : ''))}
-              {operation && (
-                <Button variant="link" size="sm" onClick={() => setBulkOperation(operation)}>
-                  查看结果
-                </Button>
-              )}
+              {error ?? (pending ? '正在提交…' : '')}
               {error && mutation.variables && (
                 <Button
                   variant="outline"

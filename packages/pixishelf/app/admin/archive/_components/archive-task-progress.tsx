@@ -1,6 +1,5 @@
 import { Progress } from '@/components/ui/progress'
-import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
-import { archiveTaskDisplayStatus, archiveTaskStatusLabel } from './archive-task-view-state'
+import { archiveTaskDisplayStatus } from './archive-task-view-state'
 
 interface ArchiveTaskProgressValue {
   title: string | null
@@ -17,29 +16,11 @@ interface ArchiveTaskProgressValue {
 
 export function TaskProgress({ task }: { task: ArchiveTaskProgressValue }) {
   const displayStatus = archiveTaskDisplayStatus(task)
-  if (displayStatus === 'FAILED') {
-    return (
-      <div className="flex min-w-0 flex-col gap-1 text-xs text-destructive">
-        {task.errorMessage && (
-          <PrivacySensitiveText as="p" className="line-clamp-2 break-words [overflow-wrap:anywhere]">
-            {task.errorMessage}
-          </PrivacySensitiveText>
-        )}
-        <p>{task.errorCode === 'PARTIAL_FAILURE' ? '打开任务详情可重试失败图片' : '可在任务操作中重试'}</p>
-      </div>
-    )
-  }
   if (!['RUNNING', 'CANCELLING'].includes(displayStatus)) return null
   return (
     <div className="flex w-full min-w-0 flex-col gap-1.5">
       <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-        <span className="min-w-0 flex-1 truncate">
-          {task.message ? (
-            <PrivacySensitiveText>{task.message}</PrivacySensitiveText>
-          ) : (
-            archiveTaskStatusLabel(displayStatus, task.errorCode)
-          )}
-        </span>
+        <span>进度</span>
         <span className="tabular-nums">{task.progress}%</span>
       </div>
       <Progress value={task.progress} aria-label={`${task.title || task.externalId} 完成 ${task.progress}%`} />

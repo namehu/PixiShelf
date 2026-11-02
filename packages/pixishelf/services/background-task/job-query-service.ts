@@ -81,8 +81,11 @@ export async function listJobs(input: z.input<typeof listJobsInputSchema>, clien
 }
 
 // lane 级状态依赖 worker 心跳，保留 now 注入便于在测试中冻结时间，避免偶发 heartbeat 边界抖动导致断言不稳。
-export async function getJobDashboard(client?: JobQueryClient, now: () => Date = () => new Date()) {
-  const database = queryClient(client)
+export async function getJobDashboard(
+  client?: JobQueryClient & Pick<Prisma.TransactionClient, 'archiveImport'>,
+  now: () => Date = () => new Date()
+) {
+  const database = client ?? (prisma as unknown as NonNullable<typeof client>)
   const [
     groups,
     running,
@@ -90,7 +93,8 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
     workers,
     activePixivBatchParents,
     unacknowledgedFailureCount,
-    unacknowledgedFailures
+    unacknowledgedFailures,
+    archiveUnfinishedCount
   ] = await Promise.all([
     database.systemJob.groupBy({
       by: ['status'],
@@ -129,7 +133,10 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
     readLogicalJobPage(
       (args) => database.systemJob.findMany({ ...args, select: { ...systemJobWireSelect, ...logicalArchiveSelect } }),
       { where: unacknowledgedFailureWhere, take: 10 }
-    )
+    ),
+    database.archiveImport.count({
+      where: { publishedArtworkDeletedAt: null, status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'] } }
+    })
   ])
 
   const activeBatchParentIds = activePixivBatchParents.flatMap((job) => (job.parentJobId ? [job.parentJobId] : []))
@@ -215,6 +222,7 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
     counts,
     queuedCount: counts.PENDING + counts.RETRY_WAIT,
     activeCount: counts.RUNNING + counts.PAUSING + counts.CANCELLING,
+    archiveUnfinishedCount,
     runningJob: runningJobs[0] ?? null,
     runningJobs,
     activeBatches,

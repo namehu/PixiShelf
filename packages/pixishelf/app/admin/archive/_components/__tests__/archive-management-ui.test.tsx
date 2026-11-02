@@ -1,5 +1,5 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ArchiveImageCounts,
   ArchiveTaskCard,
@@ -85,9 +85,11 @@ const activeTask = createTask('active', {
 })
 
 describe('archive management UI', () => {
+  beforeEach(() => vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }))
   afterEach(() => {
     cleanup()
     vi.useRealTimers()
+    vi.unstubAllGlobals()
   })
 
   it.each(['TRASHING', 'TRASHED', 'RESTORING', 'PURGING'])('opens task details for %s artworks', (lifecycle) => {
@@ -185,14 +187,24 @@ describe('archive management UI', () => {
     expect(source.getAttribute('rel')).toContain('noreferrer')
   })
 
-  it('keeps partial failure guidance actionable without a completed progress bar', () => {
+  it('shows full titles on keyboard focus without a native title leaking privacy text', async () => {
+    render(<ArchiveTaskCard task={activeTask as any} selected={false} pendingActions={new Set()} onToggle={vi.fn()} onViewItems={vi.fn()} onAction={vi.fn()} />)
+    const link = screen.getByRole('link', { name: '任务 active' })
+    expect(link.getAttribute('title')).toBeNull()
+    fireEvent.focus(link)
+    expect((await screen.findByRole('tooltip')).querySelector('[data-privacy-sensitive]')?.textContent).toBe('任务 active')
+  })
+
+  it('keeps partial failure guidance under the title and outside the compact status cell', () => {
     render(
-      <TaskProgress
-        task={{ ...activeTask, status: 'FAILED', errorCode: 'PARTIAL_FAILURE', errorMessage: '图片下载失败' } as any}
-      />
+      <ArchiveTaskTable tasks={[{ ...activeTask, status: 'FAILED', errorCode: 'PARTIAL_FAILURE', errorMessage: '图片下载失败' }] as any}
+        selectedTaskIds={new Set()} selectionState={false} pendingActions={new Set()} onToggleAll={vi.fn()} onToggleTask={vi.fn()} onViewItems={vi.fn()} onAction={vi.fn()} />
     )
     expect(screen.getByText('打开任务详情可重试失败图片')).toBeTruthy()
     expect(screen.getByText('图片下载失败').hasAttribute('data-privacy-sensitive')).toBe(true)
+    const cells = screen.getAllByRole('cell')
+    expect(within(cells[2]!).getByText('图片下载失败')).toBeTruthy()
+    expect(within(cells[3]!).queryByText('图片下载失败')).toBeNull()
     expect(screen.queryByRole('progressbar')).toBeNull()
   })
 
@@ -397,6 +409,19 @@ describe('archive management UI', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('hides transfer speeds immediately on disconnect while retaining the sampled progress', () => {
+    render(<ActiveArchiveDownloadPanel task={{ ...activeTask, systemJobStatus: 'RUNNING', liveTransfer: {
+      version: 1, kind: 'archive.transfer', archiveImportId: 'active', downloadedBytes: '1024', bytesPerSecond: 1024,
+      activeDownloads: 1, concurrencyLimit: 1, completedItems: 1, failedItems: 0, totalItems: 4, sampledAt: new Date().toISOString(),
+      activeItems: [{ itemId: 'one', pageIndex: 0, expectedFilename: 'one.jpg', attempt: 1, phase: 'DOWNLOADING', downloadedBytes: '1024', totalBytes: '4096', bytesPerSecond: 1024 }]
+    } }} realtimeConnected={false} pausePending={false} cancelPending={false} onViewItems={vi.fn()} onPause={vi.fn()} onCancel={vi.fn()} />)
+    expect(screen.getByText('实时数据中断')).toBeTruthy()
+    expect(screen.getByText('速度 —')).toBeTruthy()
+    expect(screen.queryByText(/KB\/s/)).toBeNull()
+    expect(screen.getByLabelText('当前归档完成 25%')).toBeTruthy()
+    expect(screen.getByLabelText('第 1 张下载 25%')).toBeTruthy()
+  })
+
   it('keeps slot counts out of the historical task progress row', () => {
     render(
       <TaskProgress
@@ -416,7 +441,8 @@ describe('archive management UI', () => {
       />
     )
 
-    expect(screen.getByText('等待远端响应')).toBeTruthy()
+    expect(screen.queryByText('等待远端响应')).toBeNull()
+    expect(screen.getByText('38%')).toBeTruthy()
     expect(screen.queryByText(/1\s*\/\s*4\s*路/)).toBeNull()
   })
 

@@ -62,10 +62,10 @@ describe('archive task layout interactions', () => {
         onAction={vi.fn()}
       />
     )
-    const bound = screen.getByRole('link', { name: '已绑定艺术家' })
+    const bound = screen.getByRole('link', { name: '已绑定艺术家（已绑定）' })
     expect(bound.getAttribute('href')).toBe('/artists/11')
     expect(bound.querySelector('[data-privacy-sensitive]')).toBeTruthy()
-    expect(screen.getByRole('link', { name: '待生效艺术家（待生效）' }).getAttribute('href')).toBe('/artists/12')
+    expect(screen.getByRole('link', { name: '待生效艺术家（归档发布后生效）' }).getAttribute('href')).toBe('/artists/12')
     expect(screen.queryByRole('button', { name: '管理艺术家' })).toBeNull()
     fireEvent.keyDown(screen.getByRole('button', { name: '打开任务操作菜单' }), { key: 'Enter' })
     fireEvent.click(await screen.findByRole('menuitem', { name: '管理艺术家' }))
@@ -81,6 +81,8 @@ describe('archive task layout interactions', () => {
     render(
       <ArchiveDownloadFloater
         task={task}
+        unfinishedCount={6}
+        onViewTask={vi.fn()}
         pausePending={false}
         cancelPending={false}
         onViewItems={onViewItems}
@@ -89,7 +91,7 @@ describe('archive task layout interactions', () => {
       />
     )
     expect(screen.queryByRole('region', { name: '当前归档下载' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '当前下载 25%，点击展开' }))
+    fireEvent.click(screen.getByRole('button', { name: '当前下载 25%，待完成 6 项，点击展开' }))
     expect(screen.getByRole('region', { name: '当前归档下载' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '暂停' }))
     fireEvent.click(screen.getByRole('button', { name: '取消' }))
@@ -98,8 +100,8 @@ describe('archive task layout interactions', () => {
     fireEvent.click(screen.getByRole('button', { name: '查看全部图片' }))
     expect(onViewItems).toHaveBeenCalledOnce()
     expect(screen.queryByRole('region', { name: '当前归档下载' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '当前下载 25%，点击展开' }))
-    fireEvent.click(screen.getByRole('button', { name: '收起当前下载' }))
+    fireEvent.click(screen.getByRole('button', { name: '当前下载 25%，待完成 6 项，点击展开' }))
+    fireEvent.click(screen.getByRole('button', { name: '收起下载任务' }))
     expect(screen.queryByRole('region', { name: '当前归档下载' })).toBeNull()
   })
 
@@ -109,6 +111,8 @@ describe('archive task layout interactions', () => {
     render(
       <ArchiveDownloadFloater
         task={{ ...task, systemJobStatus: 'CANCELLING' }}
+        unfinishedCount={6}
+        onViewTask={vi.fn()}
         pausePending={true}
         cancelPending={true}
         onViewItems={vi.fn()}
@@ -116,7 +120,7 @@ describe('archive task layout interactions', () => {
         onCancel={onCancel}
       />
     )
-    fireEvent.click(screen.getByRole('button', { name: '正在取消 25%，点击展开' }))
+    fireEvent.click(screen.getByRole('button', { name: '当前下载 25%，待完成 6 项，点击展开' }))
     fireEvent.click(screen.getByRole('button', { name: /暂停$/ }))
     fireEvent.click(screen.getByRole('button', { name: /正在取消$/ }))
     expect(onPause).not.toHaveBeenCalled()

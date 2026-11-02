@@ -31,7 +31,8 @@ export function ActiveArchiveDownloadPanel({
   onViewItems,
   onPause,
   onCancel,
-  onClose
+  onClose,
+  realtimeConnected = true
 }: {
   task: ActiveArchiveDownloadTask
   pausePending: boolean
@@ -40,6 +41,7 @@ export function ActiveArchiveDownloadPanel({
   onPause: () => void
   onCancel: () => void
   onClose?: () => void
+  realtimeConnected?: boolean
 }) {
   const telemetry = task.liveTransfer
   const [now, setNow] = useState(() => Date.now())
@@ -54,7 +56,7 @@ export function ActiveArchiveDownloadPanel({
   const activeItems = telemetry?.activeItems ?? []
   const activeWorkers = telemetry?.activeWorkers ?? (activeItems.length || telemetry?.activeDownloads || 0)
   // 下载每 5 秒保存一批进度，为提交和 SSE 送达留出余量。
-  const stale = telemetry ? now - new Date(telemetry.sampledAt).getTime() > 15_000 : false
+  const stale = !realtimeConnected || (telemetry ? now - new Date(telemetry.sampledAt).getTime() > 15_000 : false)
   const completedItems = telemetry?.completedItems ?? task.completedItems
   const failedItems = telemetry?.failedItems ?? task.failedItems
   const totalItems = telemetry?.totalItems ?? task.totalItems

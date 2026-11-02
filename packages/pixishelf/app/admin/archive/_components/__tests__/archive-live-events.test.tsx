@@ -37,6 +37,15 @@ describe('archive live events', () => {
     ).toBe(1)
   })
 
+  it('does not invalidate global counts for ordinary download progress', () => {
+    mocks.subscription.mockReturnValue({ status: 'connected', items: [streamItem('100', 'job.progress', 'RUNNING', [1, 1], transferTelemetry(1, 0, 10))], readyVersion: 1, resetVersion: 0 })
+    const view = renderHook(() => useArchiveLiveEvents())
+    expect(view.result.current.lifecycleVersion).toBe(0)
+    mocks.subscription.mockReturnValue({ status: 'connected', items: [streamItem('101', 'job.progress', 'RUNNING', [1, 1], transferTelemetry(2, 0, 10))], readyVersion: 1, resetVersion: 0 })
+    view.rerender()
+    expect(view.result.current.lifecycleVersion).toBe(0)
+  })
+
   it('resets its handled cursor after jobs.reset and accepts lower event IDs', async () => {
     mocks.subscription.mockReturnValue({
       status: 'connected',

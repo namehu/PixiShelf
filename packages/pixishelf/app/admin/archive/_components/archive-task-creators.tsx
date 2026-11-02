@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { DiscoveryCreatorStatus } from './discovery-creator-status'
 import { ArchiveTaskCreatorDialog } from './archive-task-creator-dialog'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 
 export type ArchiveCreatorTask = inferRouterOutputs<AppRouter>['archive']['listTasks']['items'][number]
 
@@ -24,14 +26,24 @@ export function ArchiveTaskCreators({ task, compact = false }: { task: ArchiveCr
       <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-foreground">
         {creators.length === 0 && <span className="truncate">未绑定艺术家</span>}
         {creators.map((creator, index) => (
-          <Link
-            key={creator.id}
-            href={`/artists/${creator.id}`}
-            className="min-w-0 max-w-40 flex-1 truncate rounded-sm hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <PrivacySensitiveText>{creator.name}</PrivacySensitiveText>
-            {index >= effective.length && <span>（待生效）</span>}
-          </Link>
+          <Tooltip key={creator.id}>
+            <TooltipTrigger asChild>
+              <Link
+                href={`/artists/${creator.id}`}
+                className={cn(
+                  'min-w-0 max-w-40 flex-1 truncate rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  index < effective.length ? 'text-foreground' : 'text-muted-foreground'
+                )}
+              >
+                <PrivacySensitiveText>{creator.name}</PrivacySensitiveText>
+                <span className="sr-only">{index < effective.length ? '（已绑定）' : '（归档发布后生效）'}</span>
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent>
+              <PrivacySensitiveText>{creator.name}</PrivacySensitiveText> ·{' '}
+              {index < effective.length ? '已绑定当前作品' : '归档发布后生效'}
+            </TooltipContent>
+          </Tooltip>
         ))}
         {hidden > 0 && <span className="shrink-0">+{hidden}</span>}
       </div>

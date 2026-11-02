@@ -31,6 +31,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Spinner } from '@/components/ui/spinner'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
@@ -92,10 +93,10 @@ export function ArchiveTaskTable({
             />
           </TableHead>
           <TableHead>作品 / 来源</TableHead>
-          <TableHead className="w-44">状态</TableHead>
+          <TableHead className="w-32">状态</TableHead>
           <TableHead className="w-20">图片</TableHead>
           <TableHead className="w-28">创建时间</TableHead>
-          <TableHead className="w-32 text-right">操作</TableHead>
+          <TableHead className="w-24 text-right">操作</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -241,15 +242,24 @@ function TaskIdentity({ task, onViewItems }: { task: ArchiveTaskOutput; onViewIt
     'block min-w-0 w-full rounded-sm text-left font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      {artworkHref ? (
-        <Link href={artworkHref} className={titleClass}>
-          {title}
-        </Link>
-      ) : (
-        <button type="button" className={titleClass} onClick={onViewItems}>
-          {title}
-        </button>
-      )}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          {artworkHref ? (
+            <Link href={artworkHref} className={titleClass}>
+              {title}
+            </Link>
+          ) : (
+            <button type="button" className={titleClass} onClick={onViewItems}>
+              {title}
+            </button>
+          )}
+        </TooltipTrigger>
+        <TooltipContent className="max-w-sm whitespace-normal break-words">
+          <PrivacySensitiveText>
+            {task.title || archiveSourceLabel(task.providerKey, task.externalId)}
+          </PrivacySensitiveText>
+        </TooltipContent>
+      </Tooltip>
       <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
         <PrivacySensitiveText className="max-w-[45%] shrink-0 truncate">
           {archiveSourceLabel(task.providerKey, task.externalId)}
@@ -257,12 +267,38 @@ function TaskIdentity({ task, onViewItems }: { task: ArchiveTaskOutput; onViewIt
         <span aria-hidden="true">·</span>
         <ArchiveTaskCreators task={task} compact />
       </div>
+      {archiveTaskDisplayStatus(task) === 'FAILED' && (
+        <div className="flex flex-col gap-1 text-xs text-destructive">
+          {task.errorMessage && (
+            <PrivacySensitiveText className="line-clamp-2 break-words [overflow-wrap:anywhere]">
+              {task.errorMessage}
+            </PrivacySensitiveText>
+          )}
+          <span>{task.errorCode === 'PARTIAL_FAILURE' ? '打开任务详情可重试失败图片' : '可在任务操作中重试'}</span>
+        </div>
+      )}
+      {['RUNNING', 'CANCELLING'].includes(archiveTaskDisplayStatus(task)) && task.message && (
+        <PrivacySensitiveText className="line-clamp-2 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+          {task.message}
+        </PrivacySensitiveText>
+      )}
+      {task.decisionCode === 'USE_DISPLAY_QUALITY' && (
+        <p className="text-xs text-warning">可按原质量继续，或在操作中改用展示质量</p>
+      )}
+      {task.publishedArtwork?.archiveLifecycleState === 'TRASHING' && (
+        <p className="text-xs text-warning">正在移入回收站</p>
+      )}
+      {task.publishedArtwork?.archiveLifecycleState === 'RESTORING' && (
+        <p className="text-xs text-warning">正在从回收站恢复</p>
+      )}
+      {task.publishedArtwork?.archiveLifecycleState === 'TRASHED' && (
+        <p className="text-xs text-muted-foreground">作品已在回收站</p>
+      )}
     </div>
   )
 }
 
 function TaskStatus({ task }: { task: ArchiveTaskOutput }) {
-  const lifecycleState = task.publishedArtwork?.archiveLifecycleState
   const displayStatus = archiveTaskDisplayStatus(task)
   return (
     <div className="flex flex-col items-start gap-1">
@@ -271,12 +307,6 @@ function TaskStatus({ task }: { task: ArchiveTaskOutput }) {
       ) : (
         <AdminStatusBadge status={displayStatus}>{archiveTaskPhaseLabel(task)}</AdminStatusBadge>
       )}
-      {task.decisionCode === 'USE_DISPLAY_QUALITY' && (
-        <span className="text-xs text-warning">可按原质量继续，或在操作中改用展示质量</span>
-      )}
-      {lifecycleState === 'TRASHING' && <span className="text-xs text-warning">正在移入回收站</span>}
-      {lifecycleState === 'RESTORING' && <span className="text-xs text-warning">正在从回收站恢复</span>}
-      {lifecycleState === 'TRASHED' && <span className="text-xs text-muted-foreground">作品已在回收站</span>}
     </div>
   )
 }
@@ -302,15 +332,25 @@ function TaskActions({
   const active = ACTIVE_STATUSES.has(displayStatus)
   return (
     <div className="flex shrink-0 justify-end gap-1">
-      <Button asChild variant="ghost" size="sm">
-        <a href={archiveTaskSourceHref(task.id)} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">
-          <ExternalLink data-icon="inline-start" aria-hidden="true" />
-          打开原站
-        </a>
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button asChild variant="ghost" size="icon" className="size-11 md:size-9">
+            <a
+              href={archiveTaskSourceHref(task.id)}
+              target="_blank"
+              rel="noopener noreferrer"
+              referrerPolicy="no-referrer"
+              aria-label="打开原站"
+            >
+              <ExternalLink data-icon="inline-start" aria-hidden="true" />
+            </a>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>打开原站</TooltipContent>
+      </Tooltip>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label="打开任务操作菜单">
+          <Button variant="ghost" size="icon" className="size-11 md:size-9" aria-label="打开任务操作菜单">
             <MoreHorizontal data-icon="inline-start" aria-hidden="true" />
           </Button>
         </DropdownMenuTrigger>
