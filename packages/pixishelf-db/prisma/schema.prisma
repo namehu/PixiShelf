@@ -1219,6 +1219,7 @@ model ArchiveImportExecution {
   jobId           String             @id
   archiveImportId String
   phase           ArchiveImportPhase
+  pendingDownloadPreparation Json?
   createdAt       DateTime           @default(now())
   job             SystemJob          @relation(fields: [jobId], references: [id], onDelete: Cascade)
   archiveImport   ArchiveImport      @relation(fields: [archiveImportId], references: [id], onDelete: Cascade)

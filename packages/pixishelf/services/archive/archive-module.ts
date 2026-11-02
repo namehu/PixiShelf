@@ -24,6 +24,7 @@ import { ARCHIVE_PUBLISH_ADVISORY_LOCK_ID } from './archive-coordination'
 import type { ArchiveItemStatusFilter, ArchiveTaskAction } from './types'
 import { requestArchiveArtworkMaintenance, requestArchiveStagingCleanup } from './archive-maintenance-service'
 import { archiveImportDefaultTagIdsForRetry } from './archive-job-payload'
+import { controlArchiveDownloads, type ArchiveDownloadControlInput } from './archive-download-control'
 
 const FAILED_STAGING_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -134,6 +135,15 @@ export class ArchiveModule {
   }
 
   async retryTaskItem(taskId: string, itemId: string, options: { requestedByUserId?: string } = {}) {
+    const binding = await prisma.archiveImport.findUnique({ where: { id: taskId }, select: { phase: true } })
+    if (binding?.phase === 'DOWNLOAD') {
+      return requestDownloadControl({
+        taskIds: [taskId],
+        action: 'RETRY',
+        retryItemId: itemId,
+        requestedByUserId: requireCentralRequestedBy(options.requestedByUserId)
+      })
+    }
     const task = await prisma.archiveImport.findUnique({ where: { id: taskId }, include: { systemJob: true } })
     if (!task) throw new ArchiveError('INTERNAL', '归档任务不存在')
     if (task.status !== 'FAILED' || task.errorCode !== 'PARTIAL_FAILURE' || task.failedItems <= 0) {
@@ -153,6 +163,15 @@ export class ArchiveModule {
   }
 
   async requestJobAction(jobId: string, action: 'PAUSE' | 'RESUME' | 'CANCEL' | 'RETRY', requestedByUserId: string) {
+    if (action === 'RETRY' || action === 'RESUME') {
+      const binding = await prisma.archiveImport.findUnique({
+        where: { systemJobId: jobId },
+        select: { id: true, phase: true }
+      })
+      if (binding?.phase === 'DOWNLOAD') {
+        return requestDownloadControl({ taskIds: [binding.id], action, requestedByUserId, expectedSystemJobId: jobId })
+      }
+    }
     const task = await prisma.archiveImport.findUnique({ where: { systemJobId: jobId }, include: { systemJob: true } })
     if (!task) throw stateConflict('该后台任务已不再绑定归档，请从归档详情查看当前任务')
     if (task.cleanupRequestedAt) throw stateConflict('暂存目录正在清理，请等待清理完成')
@@ -167,6 +186,23 @@ export class ArchiveModule {
   }
 
   async requestAction(taskId: string, action: ArchiveTaskAction, options: { requestedByUserId?: string } = {}) {
+    if (action === 'RETRY' || action === 'RESUME' || action === 'USE_DISPLAY_QUALITY') {
+      const binding = await prisma.archiveImport.findUnique({
+        where: { id: taskId },
+        select: { phase: true, status: true }
+      })
+      if (binding?.phase === 'DOWNLOAD') {
+        if (action === 'USE_DISPLAY_QUALITY' && !['FAILED', 'PAUSED'].includes(binding.status)) {
+          throw stateConflict('只有失败或暂停的任务可以切换展示画质')
+        }
+        return requestDownloadControl({
+          taskIds: [taskId],
+          action: action === 'USE_DISPLAY_QUALITY' ? (binding.status === 'FAILED' ? 'RETRY' : 'RESUME') : action,
+          useDisplayQuality: action === 'USE_DISPLAY_QUALITY',
+          requestedByUserId: requireCentralRequestedBy(options.requestedByUserId)
+        })
+      }
+    }
     const task = await prisma.archiveImport.findUnique({ where: { id: taskId }, include: { systemJob: true } })
     if (!task) throw new ArchiveError('INTERNAL', '归档任务不存在')
     const now = new Date()
@@ -361,6 +397,13 @@ export class ArchiveModule {
 }
 
 export const archiveModule = new ArchiveModule()
+
+async function requestDownloadControl(input: Omit<ArchiveDownloadControlInput, 'idempotencyKey'>) {
+  const operation = await controlArchiveDownloads({ ...input, idempotencyKey: `archive-download:${randomUUID()}` })
+  const result = operation?.items[0]
+  if (result?.result !== 'APPLIED') throw stateConflict(result?.message ?? '归档任务状态已改变，请刷新后重试')
+  return archiveMutationAck(input.taskIds[0]!)
+}
 
 async function requestCentralArchiveMaintenance(
   task: ArchiveControlTaskRecord,

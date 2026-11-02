@@ -136,6 +136,8 @@ function ArchiveTaskManagement() {
   const liveEvents = useArchiveLiveEvents(detailTask?.systemJobId)
   const { liveJobById, realtimeConnected } = liveEvents
   const [bulkOperation, setBulkOperation] = useState<ArchiveBulkOperation | null>(null)
+  const [bulkOperations, setBulkOperations] = useState<Partial<Record<'DOWNLOAD' | 'OTHER', ArchiveBulkOperation>>>({})
+  const [bulkErrors, setBulkErrors] = useState<Partial<Record<'DOWNLOAD' | 'OTHER', string>>>({})
   const [pendingSingleActions, setPendingSingleActions] = useState<Set<string>>(new Set())
   const bulkIdempotencyKeys = useRef(new Map<string, string>())
 
@@ -344,36 +346,64 @@ function ArchiveTaskManagement() {
       }
     })
   )
-  const bulkActionMutation = useMutation(
-    trpc.archive.actionMany.mutationOptions({
-      onSuccess: async (operation, variables) => {
-        if (!operation) {
-          toast.error('批量操作记录暂不可用，请刷新后重试')
-          return
-        }
-        setBulkOperation(operation)
-        releaseArchiveTaskBulkKey(bulkIdempotencyKeys.current, variables.action, variables.taskIds)
-        const changed = operation.counts.applied + operation.counts.reused
-        toast.success(`批量操作完成：已处理 ${changed} 项`)
-        setSelectedTaskIds(new Set())
-        await refreshPage()
-      },
-      onError: () => toast.error('批量操作失败，请刷新任务状态后重试')
-    })
-  )
+  const bulkOptions = trpc.archive.actionMany.mutationOptions({
+    onMutate: (variables) => {
+      const group = variables.scope === 'DOWNLOAD' ? 'DOWNLOAD' : 'OTHER'
+      setBulkErrors((current) => ({ ...current, [group]: undefined }))
+      setBulkOperations((current) => ({ ...current, [group]: undefined }))
+    },
+    onSuccess: async (operation, variables) => {
+      const group = variables.scope === 'DOWNLOAD' ? 'DOWNLOAD' : 'OTHER'
+      if (!operation) {
+        setBulkErrors((current) => ({ ...current, [group]: '操作记录暂不可用，请点击“重试并确认原操作”。' }))
+        toast.error('批量操作记录暂不可用，请点击“重试并确认原操作”')
+        return
+      }
+      setBulkOperations((current) => ({ ...current, [group]: operation }))
+      releaseArchiveTaskBulkKey(bulkIdempotencyKeys.current, variables.action, variables.taskIds, variables.scope)
+      const changed = operation.counts.applied + operation.counts.reused
+      toast.success(group === 'DOWNLOAD' ? `下载任务已入队：${changed} 项` : `批量操作完成：已处理 ${changed} 项`)
+      setSelectedTaskIds((current) => new Set([...current].filter((id) => !variables.taskIds.includes(id))))
+      await refreshPage()
+    },
+    onError: (_error, variables) => {
+      const group = variables.scope === 'DOWNLOAD' ? 'DOWNLOAD' : 'OTHER'
+      setBulkErrors((current) => ({
+        ...current,
+        [group]: '提交失败或结果尚未确认，请点击“重试并确认原操作”，将复用原请求和幂等键。'
+      }))
+      toast.error(
+        group === 'DOWNLOAD' ? '下载任务提交失败，请点击“重试并确认原操作”' : '批量操作失败，请点击“重试并确认原操作”'
+      )
+    }
+  })
+  const bulkActionMutation = useMutation(bulkOptions)
+  const downloadActionMutation = useMutation(bulkOptions)
 
   const runBulkAction = (action: ArchiveTaskBulkAction) => {
     const taskIds = eligibleArchiveTaskIds(tasks, selectedTaskIds, action)
     if (taskIds.length === 0) return
-    const idempotencyKey = getOrCreateArchiveTaskBulkKey(bulkIdempotencyKeys.current, action, taskIds, () =>
-      createIdempotencyKey(`archive-task-${action.toLowerCase()}`)
-    )
-    const execute = () =>
-      bulkActionMutation.mutate({
-        idempotencyKey,
-        taskIds,
-        action
-      })
+    const downloadIds =
+      action === 'RETRY' || action === 'RESUME'
+        ? taskIds.filter((id) => tasks.find((task) => task.id === id)?.phase === 'DOWNLOAD')
+        : []
+    const otherIds = taskIds.filter((id) => !downloadIds.includes(id))
+    const execute = () => {
+      for (const [ids, scope, mutation] of [
+        [downloadIds, 'DOWNLOAD', downloadActionMutation],
+        [otherIds, undefined, bulkActionMutation]
+      ] as const) {
+        if (!ids.length) continue
+        const idempotencyKey = getOrCreateArchiveTaskBulkKey(
+          bulkIdempotencyKeys.current,
+          action,
+          ids,
+          () => createIdempotencyKey(`archive-task-${action.toLowerCase()}`),
+          scope
+        )
+        mutation.mutate({ idempotencyKey, taskIds: ids, action, ...(scope ? { scope } : {}) })
+      }
+    }
     if (action === 'CANCEL') {
       confirm({
         title: `取消 ${taskIds.length} 个归档任务？`,
@@ -443,6 +473,44 @@ function ArchiveTaskManagement() {
         onSubmit={() => applyFilters(draftFilters)}
         onReset={clearFilters}
       />
+      {(['DOWNLOAD', 'OTHER'] as const).map((group) => {
+        const operation = bulkOperations[group]
+        const error = bulkErrors[group]
+        const mutation = group === 'DOWNLOAD' ? downloadActionMutation : bulkActionMutation
+        const pending = mutation.isPending
+        if (!operation && !error && !pending) return null
+        return (
+          <Alert
+            key={group}
+            variant={error ? 'destructive' : 'default'}
+            aria-label={group === 'DOWNLOAD' ? '下载任务批量结果' : '其他任务批量结果'}
+          >
+            <AlertTitle>{group === 'DOWNLOAD' ? '下载任务' : '发布与其他任务'}</AlertTitle>
+            <AlertDescription>
+              {operation
+                ? group === 'DOWNLOAD'
+                  ? `已入队 ${operation!.counts.applied} 项，跳过 ${operation!.counts.skipped} 项，冲突 ${operation!.counts.conflict} 项。下载准备由后台任务执行。`
+                  : `已处理 ${operation!.counts.applied + operation!.counts.reused} 项。`
+                : (error ?? (pending ? '正在提交…' : ''))}
+              {operation && (
+                <Button variant="link" size="sm" onClick={() => setBulkOperation(operation)}>
+                  查看结果
+                </Button>
+              )}
+              {error && mutation.variables && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() => mutation.mutate(mutation.variables!)}
+                >
+                  重试并确认原操作
+                </Button>
+              )}
+            </AlertDescription>
+          </Alert>
+        )
+      })}
       <section aria-label="归档任务列表" className="flex min-w-0 flex-col gap-4">
         {tasksQuery.isError ? (
           <Alert variant="destructive">
@@ -543,8 +611,12 @@ function ArchiveTaskManagement() {
                   RETRY: eligibleArchiveTaskIds(tasks, selectedTaskIds, 'RETRY').length,
                   CANCEL: eligibleArchiveTaskIds(tasks, selectedTaskIds, 'CANCEL').length
                 }}
-                pending={bulkActionMutation.isPending}
-                pendingAction={bulkActionMutation.variables?.action}
+                pending={bulkActionMutation.isPending || downloadActionMutation.isPending}
+                pendingAction={
+                  downloadActionMutation.isPending
+                    ? downloadActionMutation.variables?.action
+                    : bulkActionMutation.variables?.action
+                }
                 onAction={runBulkAction}
                 onClear={() => setSelectedTaskIds(new Set())}
               />
@@ -605,6 +677,7 @@ function ArchiveTaskManagement() {
       />
       <ArchiveBulkResultDialog
         operation={bulkOperation}
+        queued={Boolean(bulkOperation && bulkOperation.id === bulkOperations.DOWNLOAD?.id)}
         onOpenChange={(open) => {
           if (!open) setBulkOperation(null)
         }}

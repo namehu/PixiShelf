@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto'
-import type { createDatabaseClient } from '@pixishelf/db'
+import { captureArtworkDedupSources, type createDatabaseClient } from '@pixishelf/db'
+import { serializeArtworkDedupSourceSnapshot } from '@pixishelf/job-contracts'
 import { archiveModule } from '../archive-module'
 import { actionArchiveTasksMany } from '../archive-task-service'
 
-export function createArchiveTaskFixture(database: ReturnType<typeof createDatabaseClient>, suitePrefix: string, requestedByUserId: string) {
+export function createArchiveTaskFixture(
+  database: ReturnType<typeof createDatabaseClient>,
+  suitePrefix: string,
+  requestedByUserId: string
+) {
   async function seedTask(
     suffix: string,
     importStatus: 'PENDING' | 'RUNNING' | 'PAUSED' | 'CANCELLING' | 'COMPLETED' | 'FAILED' | 'CANCELLED',
@@ -59,6 +64,13 @@ export function createArchiveTaskFixture(database: ReturnType<typeof createDatab
         systemJobId: jobId,
         providerKey: 'archive-task-test-provider',
         externalId: suffix,
+        dedupSourceSnapshot: await database.$transaction(async (transaction) =>
+          serializeArtworkDedupSourceSnapshot(
+            await captureArtworkDedupSources(transaction, {
+              identities: [{ kind: 'PROVIDER', providerKey: 'archive-task-test-provider', externalId: suffix }]
+            })
+          )
+        ),
         submittedUrl: options.submittedUrl ?? `https://e-hentai.org/g/${suffix}/private-token/`,
         canonicalUrl: `https://e-hentai.org/g/${suffix}/private-token/`,
         locator: { token: 'private-token' },

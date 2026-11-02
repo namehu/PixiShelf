@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { NuqsTestingAdapter, type UrlUpdateEvent } from 'nuqs/adapters/testing'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -18,7 +18,7 @@ interface TaskListInput {
   unboundOnly?: boolean
 }
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), replace: vi.fn() }))
+const mocks = vi.hoisted(() => ({ list: vi.fn(), replace: vi.fn(), actionMany: vi.fn() }))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: mocks.replace }),
   useSearchParams: () => new URLSearchParams()
@@ -45,7 +45,7 @@ vi.mock('@/lib/trpc', () => ({
         })
       },
       action: { mutationOptions: (options: object) => options },
-      actionMany: { mutationOptions: (options: object) => options }
+      actionMany: { mutationOptions: (options: object) => ({ ...options, mutationFn: mocks.actionMany }) }
     },
     job: {
       backgroundDashboard: {
@@ -81,6 +81,7 @@ beforeEach(() => {
     nextCursor: input.cursor ? null : 'cursor-2'
   }))
   mocks.replace.mockReset()
+  mocks.actionMany.mockReset()
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
   vi.stubGlobal(
     'ResizeObserver',
@@ -134,6 +135,87 @@ function withCursors(search: string, cursors: string[]) {
 }
 
 describe('archive task URL filters', () => {
+  it('submits mixed selections independently and presents queued downloads while the other group waits', async () => {
+    const download = {
+      ...task,
+      id: 'download',
+      title: '下载失败',
+      phase: 'DOWNLOAD',
+      status: 'FAILED',
+      systemJobStatus: 'FAILED'
+    }
+    const publish = {
+      ...task,
+      id: 'publish',
+      title: '发布失败',
+      phase: 'PUBLISH',
+      status: 'FAILED',
+      systemJobStatus: 'FAILED'
+    }
+    mocks.list.mockResolvedValue({ items: [download, publish], nextCursor: null })
+    let finishDownload!: (value: unknown) => void
+    let finishPublish!: (value: unknown) => void
+    const downloadResponse = new Promise((resolve) => {
+      finishDownload = resolve
+    })
+    const publishResponse = new Promise((resolve) => {
+      finishPublish = resolve
+    })
+    mocks.actionMany.mockImplementation((input) => (input.scope === 'DOWNLOAD' ? downloadResponse : publishResponse))
+    mountPage()
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择 下载失败' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 发布失败' }))
+    fireEvent.click(screen.getByRole('button', { name: '重试 2 项' }))
+    await waitFor(() => expect(mocks.actionMany).toHaveBeenCalledTimes(2))
+    const [first, second] = mocks.actionMany.mock.calls.map(([input]) => input)
+    expect(first).toMatchObject({ scope: 'DOWNLOAD', taskIds: ['download'], action: 'RETRY' })
+    expect(second).toMatchObject({ taskIds: ['publish'], action: 'RETRY' })
+    expect(second.scope).toBeUndefined()
+    expect(first.idempotencyKey).not.toBe(second.idempotencyKey)
+    const operation = {
+      id: 'download-operation',
+      commandType: 'RETRY',
+      counts: { applied: 1, reused: 0, skipped: 0, conflict: 0 },
+      items: []
+    }
+    await act(async () => {
+      finishDownload(operation)
+    })
+    expect(within(screen.getByLabelText('下载任务批量结果')).getByText(/已入队 1 项/)).toBeTruthy()
+    expect(within(screen.getByLabelText('其他任务批量结果')).getByText('正在提交…')).toBeTruthy()
+    expect(mocks.list.mock.calls.length).toBeGreaterThan(1)
+    await act(async () => {
+      finishPublish({ ...operation, id: 'publish-operation' })
+    })
+  })
+
+  it('replays the exact failed request after refreshed state removes its original targets', async () => {
+    mocks.list.mockResolvedValue({
+      items: [{ ...task, phase: 'DOWNLOAD', status: 'FAILED', systemJobStatus: 'FAILED' }],
+      nextCursor: null
+    })
+    mocks.actionMany.mockRejectedValueOnce(new Error('response lost')).mockResolvedValueOnce({
+      id: 'confirmed-operation',
+      commandType: 'RETRY',
+      counts: { applied: 1, reused: 0, skipped: 0, conflict: 0 },
+      items: []
+    })
+    mountPage('?status=FAILED')
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择 测试作品' }))
+    fireEvent.click(screen.getByRole('button', { name: '重试 1 项' }))
+    await screen.findByRole('button', { name: '重试并确认原操作' })
+    const original = mocks.actionMany.mock.calls[0]![0]
+    mocks.list.mockResolvedValue({ items: [], nextCursor: null })
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ['tasks'] })
+    })
+    await waitFor(() => expect(screen.queryByRole('checkbox', { name: '选择 测试作品' })).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: '重试并确认原操作' }))
+    await waitFor(() => expect(mocks.actionMany).toHaveBeenCalledTimes(2))
+    expect(mocks.actionMany.mock.calls[1]![0]).toEqual(original)
+    expect(original.scope).toBe('DOWNLOAD')
+    await screen.findByText(/已入队 1 项/)
+  })
   it('syncs pagination and restores a copied third-page URL with working previous-page navigation', async () => {
     mocks.list.mockImplementation(async (input: TaskListInput) => ({
       items: [task],

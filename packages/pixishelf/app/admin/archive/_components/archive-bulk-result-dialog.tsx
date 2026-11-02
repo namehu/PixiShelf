@@ -23,6 +23,7 @@ export type ArchiveBulkOperationView = NonNullable<RouterOutputs['archive']['get
 export interface ArchiveBulkResultDialogProps {
   operation: ArchiveBulkOperationView | null
   onOpenChange: (open: boolean) => void
+  queued?: boolean
 }
 
 const resultLabel = {
@@ -34,7 +35,7 @@ const resultLabel = {
   FAILED: '失败'
 } as const
 
-export function ArchiveBulkResultDialog({ operation, onOpenChange }: ArchiveBulkResultDialogProps) {
+export function ArchiveBulkResultDialog({ operation, onOpenChange, queued = false }: ArchiveBulkResultDialogProps) {
   return (
     <Dialog open={Boolean(operation)} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl">
@@ -42,7 +43,7 @@ export function ArchiveBulkResultDialog({ operation, onOpenChange }: ArchiveBulk
           <DialogTitle>批量操作结果</DialogTitle>
           <DialogDescription>
             {operation
-              ? `${commandLabel(operation.commandType)}已处理 ${operation.items.length}/${operation.requestedCount} 项，逐项结果已持久保存。`
+              ? `${commandLabel(operation.commandType)}已处理 ${operation.items.length}/${operation.requestedCount} 项，逐项结果已持久保存。${queued ? '下载任务已入队，后台执行前将准备重试范围。' : ''}`
               : '逐项结果由持久操作记录提供。'}
           </DialogDescription>
         </DialogHeader>
@@ -72,13 +73,17 @@ export function ArchiveBulkResultDialog({ operation, onOpenChange }: ArchiveBulk
                       <TableRow key={item.id}>
                         <TableCell className="font-mono text-xs tabular-nums">…{item.targetId.slice(-10)}</TableCell>
                         <TableCell>
-                          <ResultBadge result={item.result} />
+                          {queued && item.result === 'APPLIED' ? (
+                            <Badge variant="success">已入队</Badge>
+                          ) : (
+                            <ResultBadge result={item.result} />
+                          )}
                         </TableCell>
                         <TableCell className="max-w-md whitespace-normal text-muted-foreground">
                           {item.message ? (
                             <PrivacySensitiveText>{item.message}</PrivacySensitiveText>
                           ) : (
-                            item.code || '操作已完成'
+                            item.code || (queued ? '下载任务已入队' : '操作已完成')
                           )}
                         </TableCell>
                       </TableRow>

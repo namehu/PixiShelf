@@ -29,6 +29,7 @@ export async function inspectArtworkDedupArchiveDrain(tx: Prisma.TransactionClie
         jobId: item.systemJobId,
         archiveImportId: item.id,
         phase: item.phase,
+        pendingDownloadPreparation: null,
         createdAt: item.createdAt,
         job: item.systemJob
       })

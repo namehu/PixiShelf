@@ -1,7 +1,7 @@
 ---
 status: current
 scope: URL 归档的文件准备、数据库发布、维护保留及版本恢复边界
-last-verified: 2026-10-22
+last-verified: 2026-11-02
 sources:
   - packages/pixishelf-job-executors/src/archive/executor.ts
   - packages/pixishelf-job-executors/src/archive/provider-governor.ts
@@ -9,6 +9,7 @@ sources:
   - packages/pixishelf-job-executors/src/archive/storage.ts
   - packages/pixishelf-job-executors/src/archive/maintenance-executor.ts
   - packages/pixishelf-db/prisma/schema.prisma
+  - packages/pixishelf/services/archive/archive-download-control.ts
 ---
 
 # 归档生命周期与恢复
@@ -40,6 +41,20 @@ sources:
 正常暂停后继续、Worker 正常停机后重启均复用已经保存的图片。突然退出时，最后一批结果可能尚未写库；下次执行复用数据库已有结果指向的完整文件；最后尚未写库的一批图片重新下载，不额外维护文件恢复索引。页面的速度、逐图状态与下载地址随批次刷新，不保证逐秒更新；当前下载面板超过 15 秒未收到新采样才提示数据中断，为提交及 SSE 送达留出余量。
 
 下载和文件校验不占用数据库事务；不再为每张图的开始、拿到响应地址、完成分别开启事务。批次保存的已知回滚或未启动错误最多尝试三次，持续故障仍停止任务并保留文件。
+
+### 下载重试与继续
+
+DOWNLOAD 阶段的整项重试、单张重试和继续共用轻量控制服务。请求只提交入队状态和执行准备意图，不读取完整来源元数据或来源证明、不重置图片明细、不重算图片汇总。页面显示“已入队”，原图片状态和汇总可暂时保留到 Worker 开始准备；这不表示已经下载完成。画质限制、冻结的默认标签、优先级、重试父任务和旧失败确认继续保留。PUBLISH 与 LEGACY 阶段沿用原恢复路径。
+
+`ArchiveImportExecution.pendingDownloadPreparation` 保存 `{scope:'ALL_INCOMPLETE'}` 或 `{scope:'ITEM',itemId}`，历史记录默认 SQL NULL，不回填；不改变 SystemJob payload 或 definition version。重试为新 job 写意图，继续为当前 job 写 `ALL_INCOMPLETE`。Worker 在原有 fenced start 事务中验证当前绑定、DOWNLOAD 阶段、来源和清理门禁，然后按意图重置未完成图片的状态、尝试次数、错误和起止时间，并在同事务清空意图。COMPLETED 检查点不重置。随后重新加载图片、计算汇总，再冻结未选中旧失败的 INHERITED 诊断。
+
+准备事务回滚时意图和旧图片状态共同保留；提交后重启只恢复当前执行，不会再次抹除本轮产生的新失败。用户再次显式继续会写入新的整项准备意图。NULL 的旧记录沿用原有恢复行为。每次入队事件记录原重试范围，已消费意图无需永久留在执行记录上。
+
+`archive.actionMany` 的 `scope:'DOWNLOAD'` 只接受 RETRY/RESUME，最多 100 个目标，且 scope 进入幂等指纹。新范围在一个短事务内创建并锁定操作头、批量读取轻量目标、按旧 job ID 排序锁定候选任务，再复核绑定。非下载目标逐项返回 CONFLICT，不转入旧串行路径。无效状态、清理中的任务和已有活动来源逐项排除；本批多个失败归档指向同一 Provider/外部 ID 时按 task ID 字典序选取一个候选。现有活动来源部分唯一索引继续约束并发。
+
+归档状态通过带旧 job、旧状态、DOWNLOAD 阶段和无清理意图条件的批量 CAS 先转为 PENDING，只为返回的赢家批量创建重试 job 或恢复原 job，再一次提交阶段绑定、确认、事件、目录摘要和逐项结果。锁顺序为旧 job → 归档 CAS；不取得创作者目录、发布、上传者或来源全局锁，不删除旧 lease。业务无效项不阻止其他项；任何数据库错误使该 DOWNLOAD 组连同操作头一起原子回滚。响应丢失时必须用原幂等键、原目标和 scope 重放确认，不能通过当前列表重新推导目标。
+
+原来不带 scope 的批量调用仍保留逐项事务和未完成操作续跑语义。前端将混合选择分为下载组和发布／旧任务组并行提交，各自保存幂等键、操作 ID 和结果；下载响应返回即可刷新和展示入队结果，另一组失败不影响已提交下载。结果未知的组保留原请求并提供直接重试入口，即使目标已移出当前筛选也能确认原操作。
 
 ### 原站请求的内存限速
 
@@ -89,6 +104,28 @@ URL 解析、来源扫描、发现批次及标题预览使用 `ARCHIVE_RESOLVE`�
 旧 `ARCHIVE_IMPORT@1/@2` 保留原 type/lane，兼容执行器仅在 fenced 事务中创建下载后继并写 HANDOFF 结果。v1 默认标签为空，v2 沿用冻结值；不可可靠辨认的旧来源保持未知。原可执行时间、退避和重试预算保留；暂停需用户恢复，PAUSING/CANCELLING 优先服从控制，耗尽预算的失败任务不自动复活。显式重试创建新阶段任务。旧部分完成 staging 在下载阶段核验复用，已 rename 的完整版本只读核验后封存原目录，不搬回、不重复下载。
 
 正常重启不需要人工解除目录锁。失联旧代不妨碍新代下载；离线清理 orphan 前必须确认所有写入者退出，对照 generation、manifest、当前指针和发布 revision 保存恢复依据。任何已发布目录不能作为 staging 清理目标。
+
+### 下载控制准备意图升级与回退
+
+`20261102120000_archive_download_preparation` 只增加可空 JSON 字段、删除 `system_jobs.artist_job_enqueue_lock` 语句触发器，并使 `guard_artist_job_command` 对 ARCHIVE_DOWNLOAD 提前返回；其他任务行级创作者校验、创作者表触发器和共享 `lock_artist_merge_catalog` 函数保留。迁移不回填图片、不读取媒体、不改历史迁移。正常 PAUSED 由运行时状态转换原子释放 lease，claim 保留过期 lease 回收。
+
+发布前按[一致性检查点](../operations/backup-and-recovery.md#发布前一致性检查点)保存匹配数据库、媒体、配置及 App／Worker 镜像，记录 migration 状态；停止旧 Worker 后执行 generate/deploy，配套切换 App 和 Worker。旧 Worker 不理解准备意图，禁止混跑。保持当前 payload/version 不能作为旧 Worker 可安全执行的证明。独立 PostgreSQL 升级与回归结果见[验证记录](../records/features/archive-download-control-2026-11-02.md)；该记录不代表已部署生产。
+
+回退先停止新提交，保持新 Worker 消费当前绑定且仍可执行的下载准备意图，确认以下只读查询为 0 后停止新 Worker，再评估其余版本门禁并切换匹配旧版本。历史已失败／已取消执行可能保留意图，不要求历史全表归零，不手工清空意图伪造完成。
+
+```sql
+SELECT count(*)
+FROM archive_import_executions AS execution
+JOIN archive_imports AS import ON import.id = execution."archiveImportId"
+  AND import."systemJobId" = execution."jobId"
+JOIN system_jobs AS job ON job.id = execution."jobId"
+WHERE execution."pendingDownloadPreparation" IS NOT NULL
+  AND import.phase = 'DOWNLOAD'
+  AND import.status IN ('PENDING', 'RUNNING', 'PAUSED')
+  AND job.status IN ('PENDING', 'RUNNING', 'RETRY_WAIT', 'PAUSING', 'PAUSED');
+```
+
+无法安全消费、存在不能确认的执行状态，或其他 schema／媒体协议不兼容时，保留现场并使用配套数据库、媒体、配置和镜像检查点恢复；不新增补偿队列或手工媒体重置工具。正式覆盖与数据损失仍须按备份基线由实例管理员批准。本次仅准备发布方案，不执行生产迁移。
 
 ## 自动入队升级与恢复
 

@@ -9,6 +9,12 @@ sources:
 
 # PixiShelf 数据库设计补充文档
 
+## 归档下载控制
+
+`20261102120000_archive_download_preparation` 为执行记录新增可空 JSON 准备意图，SQL NULL 保留旧恢复行为，不回填历史行。DOWNLOAD 控制只锁旧 SystemJob 并通过归档 CAS 取得赢家；原有活动来源部分唯一索引继续限制同 Provider/外部 ID 的活动归档。重试批量写入准备范围，Worker 在 fenced start 事务内消费；协议和版本回退门禁统一见[归档生命周期](../../../docs/features/archive-lifecycle.md#下载重试与继续)。
+
+迁移删除 `system_jobs.artist_job_enqueue_lock` 语句触发器；`guard_artist_job_command` 最前面对 ARCHIVE_DOWNLOAD 提前返回，使入队、恢复和 claim 不再等待创作者全局锁。其他任务的行级 guard、创作者表触发器及 `lock_artist_merge_catalog` 保留，创作者合并仍约束正式发布与创作者关系写入。
+
 ## 归档删除意图
 
 `20261012160000_archive_deleted_identities` 增加独立来源身份删除表及归档任务历史删除字段。`artwork_preserve_archive_deletion` 在作品生命周期更新和删除前原子保存/解除删除意图；`archive_import_clear_published_deletion` 仅在成功发布时解除对应身份的删除标记。表不引用 Artwork 或发现来源，永久清理不级联移除删除意图。迁移还创建正常任务和回收站分页的部分索引；这些部分索引不能完整表示在 Prisma Schema 中。保留期及文件操作仍由服务/Worker 负责，触发器不操作文件。完整生命周期、回填边界和回退要求见[归档回收站](../../../docs/features/archive-trash.md)。

@@ -62,6 +62,14 @@ describe('archive task bulk action eligibility', () => {
     expect(archiveTaskBulkPayloadKey('RESUME', ['a', 'b'])).not.toBe(archiveTaskBulkPayloadKey('PAUSE', ['a', 'b']))
   })
 
+  it('keeps DOWNLOAD and legacy request keys independent', () => {
+    const keys = new Map<string, string>()
+    expect(getOrCreateArchiveTaskBulkKey(keys, 'RETRY', ['a'], () => 'download', 'DOWNLOAD')).toBe('download')
+    expect(getOrCreateArchiveTaskBulkKey(keys, 'RETRY', ['a'], () => 'legacy')).toBe('legacy')
+    releaseArchiveTaskBulkKey(keys, 'RETRY', ['a'])
+    expect(getOrCreateArchiveTaskBulkKey(keys, 'RETRY', ['a'], () => 'unexpected', 'DOWNLOAD')).toBe('download')
+  })
+
   it('keeps uncertain payload keys across selection changes and releases only a success', () => {
     const keys = new Map<string, string>()
     const generated = ['key-a', 'key-b', 'key-a-next']

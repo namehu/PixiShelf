@@ -52,7 +52,7 @@ vi.mock('../storage.js', () => storageMocks)
 vi.mock('../phase-handoff.js', () => ({ handoffArchivePhase: handoffMock, ARCHIVE_PUBLICATION_LOCK: 7341902117 }))
 vi.mock('../publisher.js', () => ({ publishArchiveImportInTransaction: publishMock }))
 
-import { createArchiveExecutorRegistrations, executeArchiveImport } from '../executor.js'
+import { createArchiveExecutorRegistrations, executeArchiveImport, startArchiveImport } from '../executor.js'
 import { ArchiveExecutorError } from '../errors.js'
 import { DefaultArchiveMediaProviderRegistry } from '../provider-registry.js'
 import {
@@ -140,6 +140,78 @@ const completedArchiveItem = {
 }
 
 describe('archive executor', () => {
+  it.each(['ALL_INCOMPLETE', 'ITEM'] as const)(
+    'consumes %s preparation once and counts the prepared rows',
+    async (scope) => {
+      const transaction = createTransaction()
+      const rows = [
+        { ...completedArchiveItem },
+        { ...archiveItem, id: 'selected', pageIndex: 1, status: 'FAILED', attempts: 3, errorCode: 'OLD_FAILURE' },
+        { ...archiveItem, id: 'other', pageIndex: 2, status: 'FAILED', attempts: 2, errorCode: 'INHERITED_FAILURE' }
+      ]
+      transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, totalItems: 3, items: rows })
+      let pending: unknown = scope === 'ITEM' ? { scope, itemId: 'selected' } : { scope }
+      transaction.archiveImportExecution.findUnique.mockImplementation(
+        async () =>
+          ({
+            jobId: 'job-1',
+            archiveImportId: 'import-1',
+            phase: 'DOWNLOAD',
+            pendingDownloadPreparation: pending
+          }) as never
+      )
+      transaction.archiveImportExecution.update.mockImplementation(async () => {
+        pending = null
+        return {} as never
+      })
+      transaction.archiveImportItem.updateMany.mockImplementation(async ({ where, data }) => {
+        let count = 0
+        for (const row of rows) {
+          if (where.id && row.id !== where.id) continue
+          if (typeof where.status === 'string' ? row.status !== where.status : row.status === 'COMPLETED') continue
+          Object.assign(row, data)
+          count++
+        }
+        return { count }
+      })
+      transaction.archiveImportItem.findMany.mockImplementation(async () => rows.map((row) => ({ ...row })))
+      const context = createContext(transaction)
+      const first = await startArchiveImport(context, dependencies(transaction), new Date())
+      expect(first.archiveImport.items.find((row) => row.id === 'selected')).toMatchObject({
+        status: 'PENDING',
+        attempts: 0,
+        errorCode: null
+      })
+      expect(first.archiveImport.completedItems).toBe(1)
+      expect(first.archiveImport.failedItems).toBe(scope === 'ITEM' ? 1 : 0)
+      expect(rows[0]).toMatchObject(completedArchiveItem)
+      expect(pending).toBeNull()
+      expect(transaction.archiveImportExecution.update).toHaveBeenCalledOnce()
+      Object.assign(rows[1]!, { status: 'FAILED', attempts: 1, errorCode: 'THIS_EXECUTION_FAILURE' })
+      await startArchiveImport(context, dependencies(transaction), new Date())
+      expect(rows[1]).toMatchObject({ status: 'FAILED', attempts: 1, errorCode: 'THIS_EXECUTION_FAILURE' })
+      expect(transaction.archiveImportExecution.update).toHaveBeenCalledOnce()
+      pending = { scope: 'ALL_INCOMPLETE' }
+      await startArchiveImport(context, dependencies(transaction), new Date())
+      expect(rows[1]).toMatchObject({ status: 'PENDING', attempts: 0, errorCode: null })
+      expect(transaction.archiveImportExecution.update).toHaveBeenCalledTimes(2)
+    }
+  )
+
+  it.each(['source', 'cleanup'] as const)('does not consume preparation when the %s gate fails', async (gate) => {
+    const transaction = createTransaction()
+    transaction.archiveImport.findUnique.mockResolvedValue({
+      ...archiveImport,
+      ...(gate === 'source' ? { dedupSourceSnapshot: null } : { cleanupRequestedAt: new Date() })
+    })
+    await expect(
+      startArchiveImport(createContext(transaction), dependencies(transaction), new Date())
+    ).rejects.toBeInstanceOf(ArchiveExecutorError)
+    expect(transaction.archiveImportExecution.findUnique).not.toHaveBeenCalled()
+    expect(transaction.archiveImportExecution.update).not.toHaveBeenCalled()
+    expect(transaction.archiveImportItem.updateMany).not.toHaveBeenCalled()
+  })
+
   it('settles a legacy paused import without a fatal finalization or media writes', async () => {
     const transaction = createTransaction()
     transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, status: 'PAUSED' })
@@ -1059,6 +1131,7 @@ function createTransaction() {
       })
     },
     archiveDeletedIdentity: { findUnique: vi.fn(async () => null) },
+    archiveImportExecution: { findUnique: vi.fn(async () => null), update: vi.fn() },
     archiveImport: {
       findUnique,
       findUniqueOrThrow: vi.fn(async () => (await findUnique.mock.results.at(-1)?.value) ?? current),
@@ -1082,6 +1155,7 @@ function createTransaction() {
   } as unknown as Prisma.TransactionClient & {
     $queryRawUnsafe: ReturnType<typeof vi.fn>
     setting: { findUnique: ReturnType<typeof vi.fn> }
+    archiveImportExecution: { findUnique: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> }
     archiveImport: {
       findUnique: ReturnType<typeof vi.fn>
       updateMany: ReturnType<typeof vi.fn>

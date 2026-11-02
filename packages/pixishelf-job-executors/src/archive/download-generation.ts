@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { ArchiveExecutorError } from './errors.ts'
-import { assertArchiveDownloadGeneration, assertArchiveSourceSnapshot } from './dedup-source-snapshot.ts'
+import { assertArchiveDownloadGeneration } from './dedup-source-snapshot.ts'
 import {
   buildArchiveStoragePaths,
   copyArchiveCheckpoint,
@@ -25,7 +25,6 @@ export async function registerArchiveDownloadGeneration(
   archiveImport: LoadedArchiveImport,
   scanRoot: string
 ) {
-  await assertArchiveSourceSnapshot(transaction, archiveImport)
   const paths = buildArchiveStoragePaths({
     scanRoot,
     archiveImportId: archiveImport.id,

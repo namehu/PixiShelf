@@ -1,4 +1,11 @@
 import { z } from 'zod'
+
+export const archiveDownloadPreparationSchema = z.discriminatedUnion('scope', [
+  z.object({ scope: z.literal('ALL_INCOMPLETE') }).strict(),
+  z.object({ scope: z.literal('ITEM'), itemId: z.string().min(1) }).strict()
+])
+
+export type ArchiveDownloadPreparation = z.infer<typeof archiveDownloadPreparationSchema>
 import { bigintStringSchema, isoDateTimeSchema } from './dtos.ts'
 
 export const ARCHIVE_MEDIA_CONCURRENCY_SETTING_KEY = 'archive_media_concurrency' as const

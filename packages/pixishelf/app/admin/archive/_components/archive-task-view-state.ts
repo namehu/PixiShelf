@@ -82,17 +82,22 @@ export function eligibleArchiveTaskIds(
     .map((task) => task.id)
 }
 
-export function archiveTaskBulkPayloadKey(action: ArchiveTaskBulkAction, taskIds: readonly string[]): string {
-  return `${action}:${[...taskIds].sort().join(',')}`
+export function archiveTaskBulkPayloadKey(
+  action: ArchiveTaskBulkAction,
+  taskIds: readonly string[],
+  scope?: 'DOWNLOAD'
+): string {
+  return `${scope ?? 'ALL'}:${action}:${[...taskIds].sort().join(',')}`
 }
 
 export function getOrCreateArchiveTaskBulkKey(
   keys: Map<string, string>,
   action: ArchiveTaskBulkAction,
   taskIds: readonly string[],
-  createKey: () => string
+  createKey: () => string,
+  scope?: 'DOWNLOAD'
 ): string {
-  const payloadKey = archiveTaskBulkPayloadKey(action, taskIds)
+  const payloadKey = archiveTaskBulkPayloadKey(action, taskIds, scope)
   const existing = keys.get(payloadKey)
   if (existing) return existing
   const next = createKey()
@@ -103,9 +108,10 @@ export function getOrCreateArchiveTaskBulkKey(
 export function releaseArchiveTaskBulkKey(
   keys: Map<string, string>,
   action: ArchiveTaskBulkAction,
-  taskIds: readonly string[]
+  taskIds: readonly string[],
+  scope?: 'DOWNLOAD'
 ): void {
-  keys.delete(archiveTaskBulkPayloadKey(action, taskIds))
+  keys.delete(archiveTaskBulkPayloadKey(action, taskIds, scope))
 }
 
 export function archiveTaskDeepLinkId(value: string | null): string | undefined {

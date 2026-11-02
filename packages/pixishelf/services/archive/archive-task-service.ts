@@ -32,6 +32,7 @@ import { archiveImportDefaultTagIdsForRetry } from './archive-job-payload'
 
 import { archiveTaskCreatorSummaries } from './archive-task-creators'
 import { unboundArchiveTaskIds } from './archive-task-unbound-query'
+import { controlArchiveDownloads } from './archive-download-control'
 
 const FAILED_STAGING_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000
 
@@ -60,9 +61,14 @@ export const archiveTaskActionManySchema = z
       .min(1)
       .max(100)
       .transform((values) => [...new Set(values)]),
-    action: z.enum(['PAUSE', 'RESUME', 'CANCEL', 'RETRY'])
+    action: z.enum(['PAUSE', 'RESUME', 'CANCEL', 'RETRY']),
+    scope: z.literal('DOWNLOAD').optional()
   })
   .strict()
+  .refine((input) => !input.scope || input.action === 'RETRY' || input.action === 'RESUME', {
+    message: 'DOWNLOAD 范围只支持 RETRY 或 RESUME',
+    path: ['scope']
+  })
 
 export interface ArchiveTaskServiceDependencies {
   database?: PrismaClient
@@ -155,6 +161,9 @@ export async function actionArchiveTasksMany(
   const database = getDatabase(dependencies)
   const now = dependencies.now ?? (() => new Date())
   const uuid = dependencies.uuid ?? randomUUID
+  if (parsed.scope && (parsed.action === 'RETRY' || parsed.action === 'RESUME')) {
+    return controlArchiveDownloads({ ...parsed, action: parsed.action, requestedByUserId }, { database, now, uuid })
+  }
   // 批量动作用统一的 archiveBulkOperation 路由，保持与收件箱动作一致的审计与幂等重放模型。
   return runArchiveBulkOperation(
     {

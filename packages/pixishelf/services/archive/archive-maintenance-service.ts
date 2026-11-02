@@ -160,6 +160,7 @@ export async function requestArchiveStagingCleanup(
     const changed = await tx.archiveImport.updateMany({
       where: {
         id: archiveImport.id,
+        systemJobId: archiveImport.systemJobId,
         status: archiveImport.status,
         cleanupRequestedAt: archiveImport.cleanupRequestedAt
       },

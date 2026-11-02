@@ -249,6 +249,7 @@ async function prepareStagingReconcileChild(
     const changed = await transaction.archiveImport.updateMany({
       where: {
         id: archiveImport.id,
+        systemJobId: archiveImport.systemJobId,
         status: archiveImport.status,
         cleanupRequestedAt: archiveImport.cleanupRequestedAt
       },
@@ -680,7 +681,12 @@ async function executeStagingCleanup(
         })
       }
       const changed = await scope.transaction.archiveImport.updateMany({
-        where: { id: current.id, status: current.status, cleanupRequestedAt: current.cleanupRequestedAt },
+        where: {
+          id: current.id,
+          systemJobId: current.systemJobId,
+          status: current.status,
+          cleanupRequestedAt: current.cleanupRequestedAt
+        },
         data: {
           cleanupRequestedAt: null,
           completedItems: 0,

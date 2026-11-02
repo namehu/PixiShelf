@@ -28,6 +28,7 @@ import {
   ARCHIVE_IMPORT_DEFINITION_VERSION,
   ARCHIVE_COVERAGE_DEFINITION_VERSION,
   archiveImportPayloadSchema,
+  archiveDownloadPreparationSchema,
   archiveMediaConcurrencySchema,
   archiveImportV2PayloadSchema,
   type ArchiveImportV2Payload,
@@ -311,7 +312,7 @@ export async function executeArchiveImport(
   }
 }
 
-async function startArchiveImport(
+export async function startArchiveImport(
   context: ArchiveExecutorContext,
   dependencies: ArchiveExecutorDependencies,
   startedAt: Date
@@ -337,6 +338,37 @@ async function startArchiveImport(
     if (archiveImport.cleanupRequestedAt) throw new ArchiveCleanupRequestedError()
     if (!['PENDING', 'RUNNING'].includes(archiveImport.status)) {
       throw new ArchiveExecutorError('STATE_CONFLICT', '归档导入当前状态不允许启动')
+    }
+    if (archiveImport.phase === 'DOWNLOAD') {
+      const execution = await transaction.archiveImportExecution.findUnique({ where: { jobId: context.job.id } })
+      if (execution?.pendingDownloadPreparation != null) {
+        const preparation = archiveDownloadPreparationSchema.parse(execution.pendingDownloadPreparation)
+        await transaction.archiveImportItem.updateMany({
+          where: {
+            archiveImportId: archiveImport.id,
+            status: { not: 'COMPLETED' },
+            ...(preparation.scope === 'ITEM' ? { id: preparation.itemId } : {})
+          },
+          data: {
+            status: 'PENDING',
+            attempts: 0,
+            errorCode: null,
+            errorMessage: null,
+            errorStage: null,
+            remoteHost: null,
+            startedAt: null,
+            finishedAt: null
+          }
+        })
+        await transaction.archiveImportExecution.update({
+          where: { jobId: context.job.id },
+          data: { pendingDownloadPreparation: Prisma.DbNull }
+        })
+        archiveImport.items = await transaction.archiveImportItem.findMany({
+          where: { archiveImportId: archiveImport.id },
+          orderBy: { pageIndex: 'asc' }
+        })
+      }
     }
     const registeredStagingPath =
       archiveImport.phase === 'DOWNLOAD'

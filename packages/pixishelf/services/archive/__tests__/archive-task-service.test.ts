@@ -7,6 +7,18 @@ import {
 } from '../archive-task-service'
 
 describe('archive task service input contracts', () => {
+  it('accepts DOWNLOAD scope only for retry and resume', () => {
+    for (const action of ['RETRY', 'RESUME', 'PAUSE', 'CANCEL']) {
+      expect(
+        archiveTaskActionManySchema.safeParse({
+          idempotencyKey: 'download-scope',
+          taskIds: ['task-1'],
+          action,
+          scope: 'DOWNLOAD'
+        }).success
+      ).toBe(['RETRY', 'RESUME'].includes(action))
+    }
+  })
   it('keeps task page filters strict and bounded', () => {
     expect(
       archiveTaskListSchema.safeParse({

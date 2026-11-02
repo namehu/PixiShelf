@@ -35,13 +35,49 @@ vi.mock('@/lib/prisma', () => ({ prisma: prismaMock }))
 vi.mock('@/services/background-task/job-event-service', () => ({ writeJobEvent: writeJobEventMock }))
 
 // Persisted original proofs and their matching OPEN database rows; production guards remain real.
-const sourceRows = new Map<string, { id: string; identityKey: string; kind: string; providerKey: string; externalId: string; logicalRoot: null; rootIdentity: null; canonicalPath: null; status: string; ownerOperationId: null; generation: bigint }>()
+const sourceRows = new Map<
+  string,
+  {
+    id: string
+    identityKey: string
+    kind: string
+    providerKey: string
+    externalId: string
+    logicalRoot: null
+    rootIdentity: null
+    canonicalPath: null
+    status: string
+    ownerOperationId: null
+    generation: bigint
+  }
+>()
 function withSourceProof<T extends { id: string; providerKey?: string; externalId?: string }>(task: T) {
-  const providerKey = task.providerKey ?? 'test-provider', externalId = task.externalId ?? task.id
+  const providerKey = task.providerKey ?? 'test-provider',
+    externalId = task.externalId ?? task.id
   const identityKey = `${providerKey}:${externalId}`
-  const source = { id: `source:${identityKey}`, identityKey, kind: 'PROVIDER', providerKey, externalId, logicalRoot: null, rootIdentity: null, canonicalPath: null, status: 'OPEN', ownerOperationId: null, generation: 3n }
+  const source = {
+    id: `source:${identityKey}`,
+    identityKey,
+    kind: 'PROVIDER',
+    providerKey,
+    externalId,
+    logicalRoot: null,
+    rootIdentity: null,
+    canonicalPath: null,
+    status: 'OPEN',
+    ownerOperationId: null,
+    generation: 3n
+  }
   sourceRows.set(identityKey, source)
-  return { ...task, providerKey, externalId, dedupSourceSnapshot: { version: 1, sources: [{ identity: { kind: 'PROVIDER', providerKey, externalId }, sourceId: source.id, generation: '3' }] } }
+  return {
+    ...task,
+    providerKey,
+    externalId,
+    dedupSourceSnapshot: {
+      version: 1,
+      sources: [{ identity: { kind: 'PROVIDER', providerKey, externalId }, sourceId: source.id, generation: '3' }]
+    }
+  }
 }
 
 describe('archive module', () => {
@@ -57,7 +93,11 @@ describe('archive module', () => {
       if (sql.includes('SELECT id FROM "Artwork"')) return [{ id: 7 }]
       if (sql.includes('SELECT EXISTS') && sql.includes(' held')) return [{ held: false }]
       if (sql.includes('WITH keys AS')) {
-        const slots = JSON.parse(query.values[0] as string) as { ordinal: number; providerKey: string; externalId: string }[]
+        const slots = JSON.parse(query.values[0] as string) as {
+          ordinal: number
+          providerKey: string
+          externalId: string
+        }[]
         return slots.map((slot) => {
           const source = sourceRows.get(`${slot.providerKey}:${slot.externalId}`)
           if (!source) throw new Error('Unexpected source identity in fixture query')
@@ -97,19 +137,37 @@ describe('archive module', () => {
     delete process.env.ARCHIVE_STORAGE_PATH
   })
 
-  it('still rejects a retry whose persisted original source proof is missing', async () => {
-    const task = withSourceProof({ id: 'missing-proof', systemJobId: 'missing-proof-job', status: 'FAILED', phase: 'DOWNLOAD', cleanupRequestedAt: null, systemJob: { id: 'missing-proof-job', type: 'ARCHIVE_DOWNLOAD', status: 'FAILED', attempt: 1, maxAttempts: 3 } })
+  it('keeps source proof validation on the legacy retry path', async () => {
+    const task = withSourceProof({
+      id: 'missing-proof',
+      systemJobId: 'missing-proof-job',
+      status: 'FAILED',
+      phase: 'LEGACY',
+      cleanupRequestedAt: null,
+      systemJob: { id: 'missing-proof-job', type: 'ARCHIVE_IMPORT', status: 'FAILED', attempt: 1, maxAttempts: 3 }
+    })
     prismaMock.archiveImport.findUnique.mockResolvedValue({ ...task, dedupSourceSnapshot: null })
-    await expect(module.requestJobAction(task.systemJobId, 'RETRY', 'admin-1')).rejects.toMatchObject({ code: 'STATE_CONFLICT', message: expect.stringContaining('原归档来源证明') })
+    await expect(module.requestJobAction(task.systemJobId, 'RETRY', 'admin-1')).rejects.toMatchObject({
+      code: 'STATE_CONFLICT',
+      message: expect.stringContaining('原归档来源证明')
+    })
     expect(prismaMock.systemJob.create).not.toHaveBeenCalled()
     expect(prismaMock.archiveImport.updateMany).not.toHaveBeenCalled()
   })
 
   it('still rejects staging cleanup for a held source before any lifecycle mutation', async () => {
-    const task = withSourceProof({ id: 'held-source', systemJobId: 'held-job', status: 'FAILED', cleanupRequestedAt: null, systemJob: { id: 'held-job', status: 'FAILED', attempt: 1 } })
+    const task = withSourceProof({
+      id: 'held-source',
+      systemJobId: 'held-job',
+      status: 'FAILED',
+      cleanupRequestedAt: null,
+      systemJob: { id: 'held-job', status: 'FAILED', attempt: 1 }
+    })
     prismaMock.archiveImport.findUnique.mockResolvedValue(task)
     prismaMock.artworkDedupSourceIdentity.findFirst.mockResolvedValue({ id: 'held-source-identity' })
-    await expect(module.requestAction(task.id, 'DELETE_STAGING', { requestedByUserId: 'admin-1' })).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+    await expect(
+      module.requestAction(task.id, 'DELETE_STAGING', { requestedByUserId: 'admin-1' })
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
     expect(prismaMock.systemJob.create).not.toHaveBeenCalled()
     expect(prismaMock.archiveImport.updateMany).not.toHaveBeenCalled()
   })
@@ -240,7 +298,10 @@ describe('archive module', () => {
       cleanupRequestedAt: null,
       systemJob: { id: 'job-paused', status: 'PAUSED', attempt: 1, queuePriority: 10, maxAttempts: 3 }
     })
-    prismaMock.archiveImport.findUnique.mockResolvedValueOnce(task).mockResolvedValueOnce(task)
+    prismaMock.archiveImport.findUnique
+      .mockResolvedValueOnce(task)
+      .mockResolvedValueOnce(task)
+      .mockResolvedValueOnce(task)
     prismaMock.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
     prismaMock.jobResourceLease.deleteMany.mockResolvedValue({ count: 1 })
 
@@ -276,6 +337,7 @@ describe('archive module', () => {
       systemJob: { id: 'job-paused', status: 'PAUSED' }
     })
     prismaMock.archiveImport.findUnique
+      .mockResolvedValueOnce(task)
       .mockResolvedValueOnce(task)
       .mockResolvedValueOnce({ ...task, cleanupRequestedAt: new Date() })
     await expect(module.requestJobAction('job-paused', 'RESUME', 'admin-1')).rejects.toMatchObject({
@@ -329,6 +391,7 @@ describe('archive module', () => {
       }
     })
     prismaMock.archiveImport.findUnique
+      .mockResolvedValueOnce(task)
       .mockResolvedValueOnce(task)
       .mockResolvedValueOnce(task)
       .mockResolvedValueOnce(null)
@@ -785,6 +848,7 @@ describe('archive module', () => {
     prismaMock.archiveImport.findUnique
       .mockResolvedValueOnce(task)
       .mockResolvedValueOnce(task)
+      .mockResolvedValueOnce(task)
       .mockResolvedValueOnce(null)
     prismaMock.archiveImportItem.findFirst.mockResolvedValue({ id: 'item-99', status: 'FAILED' })
     prismaMock.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
@@ -822,6 +886,7 @@ describe('archive module', () => {
       }
     })
     prismaMock.archiveImport.findUnique
+      .mockResolvedValueOnce(task)
       .mockResolvedValueOnce(task)
       .mockResolvedValueOnce(task)
       .mockResolvedValueOnce(null)
