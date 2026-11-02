@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useEffect, type Ref } from 'react'
+import { useAutoBrowseInterruption } from '../use-auto-browse-interruption'
 import { usePreviewControlsPreferences } from '@/store/use-preview-controls-preferences'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import AdaptiveMediaPreview, { canPreloadAdaptiveNeighbor } from '../adaptive-media-preview'
@@ -11,17 +12,11 @@ const mediaMark = vi.hoisted(() => ({
   available: true,
   isLoading: false,
   likedAt: null as string | null,
-  set: vi.fn()
+  set: vi.fn(),
+  isSaving: false,
+  error: null as Error | null
 }))
 vi.mock('@/hooks/use-media-mark', () => ({ usePrefetchMediaMarks: vi.fn(), useMediaMark: () => mediaMark }))
-
-vi.mock('@/components/media-mark/media-mark-actions', () => ({
-  MediaMarkActions: ({ mediaId, children }: { mediaId: number | null; children?: React.ReactNode }) => (
-    <div data-testid="media-mark-actions" data-media-id={mediaId}>
-      {children}
-    </div>
-  )
-}))
 
 // Keep legacy image timing covered explicitly; WASM lifecycle has its own integration suite.
 vi.mock('@/components/players/streaming-webp-surface', () => ({
@@ -193,6 +188,17 @@ function createMedia(index: number, path = `/media-${index + 1}.jpg`): ArtworkIm
   }
 }
 
+function InterruptedPreview({ images }: { images: ArtworkImageResponseDto[] }) {
+  useAutoBrowseInterruption(1)
+  return <AdaptiveMediaPreview images={images} initialIndex={0} open onClose={vi.fn()} />
+}
+
+function tap(target: Element) {
+  fireEvent.pointerDown(target, { pointerType: 'touch', pointerId: 1, button: 0 })
+  fireEvent.pointerUp(target, { pointerType: 'touch', pointerId: 1, button: 0 })
+  fireEvent.click(target)
+}
+
 describe('AdaptiveMediaPreview', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -216,6 +222,8 @@ describe('AdaptiveMediaPreview', () => {
       }
     )
     mediaMark.set.mockClear()
+    mediaMark.isSaving = false
+    mediaMark.error = null
     mediaMark.likedAt = null
     mediaMark.available = true
     mediaMark.isLoading = false
@@ -263,6 +271,61 @@ describe('AdaptiveMediaPreview', () => {
     fireEvent.doubleClick(image)
     fireEvent.keyDown(image, { code: 'Space' })
     expect(mediaMark.set).toHaveBeenCalledTimes(calls)
+  })
+
+  it('keeps the original slideshow deadline through real like buttons, image taps, double taps and Space', () => {
+    vi.useFakeTimers()
+    const images = [createMedia(0), createMedia(1)]
+    const view = render(<InterruptedPreview images={images} />)
+    const image = screen.getByAltText('作品媒体 1')
+    expect(screen.queryByRole('button', { name: /书签/ })).toBeNull()
+    fireEvent.load(image)
+    act(() => {
+      autoBrowseStore.getState().setPreferences({ slideSeconds: 0.5 })
+      autoBrowseStore.getState().start('slideshow')
+    })
+    const revision = autoBrowseStore.getState().revision
+    act(() => vi.advanceTimersByTime(100))
+    tap(screen.getByRole('button', { name: '喜欢这张图片' }))
+    expect(mediaMark.set).toHaveBeenLastCalledWith('like', true)
+    mediaMark.likedAt = 'saved'
+    mediaMark.isSaving = true
+    view.rerender(<InterruptedPreview images={images} />)
+    act(() => vi.advanceTimersByTime(100))
+    tap(screen.getByRole('button', { name: '取消图片喜欢' }))
+    expect(mediaMark.set).toHaveBeenLastCalledWith('like', false)
+    // Save failure rolls the mark back without taking over playback.
+    mediaMark.isSaving = false
+    mediaMark.error = new Error('save failed')
+    view.rerender(<InterruptedPreview images={images} />)
+    tap(image)
+    tap(image)
+    fireEvent.doubleClick(image)
+    act(() => vi.advanceTimersByTime(100))
+    fireEvent.keyDown(image, { code: 'Space', key: ' ' })
+    expect(mediaMark.set).toHaveBeenLastCalledWith('like', false)
+    expect(autoBrowseStore.getState()).toMatchObject({ status: 'running', revision })
+    act(() => vi.advanceTimersByTime(199))
+    expect(swiperMocks.instance.slideNext).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    expect(swiperMocks.instance.slideNext).toHaveBeenCalledOnce()
+  })
+
+  it('still pauses for actual touch movement, zoom and navigation after a preview tap', () => {
+    render(<InterruptedPreview images={[createMedia(0), createMedia(1)]} />)
+    const image = screen.getByAltText('作品媒体 1')
+    act(() => autoBrowseStore.getState().start('slideshow'))
+    tap(image)
+    expect(autoBrowseStore.getState().status).not.toBe('paused')
+    fireEvent.touchMove(image)
+    expect(autoBrowseStore.getState().status).toBe('paused')
+    act(() => autoBrowseStore.getState().resume())
+    fireEvent.click(screen.getByRole('button', { name: '模拟缩放' }))
+    expect(autoBrowseStore.getState()).toMatchObject({ status: 'paused', reason: 'zoom' })
+    fireEvent.click(screen.getByRole('button', { name: '模拟切换' }))
+    act(() => autoBrowseStore.getState().resume())
+    tap(screen.getByRole('button', { name: '上一张媒体' }))
+    expect(autoBrowseStore.getState().status).toBe('paused')
   })
 
   it('only exposes diagnostics for the current WebP with an explicit URL flag', () => {

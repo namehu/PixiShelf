@@ -59,7 +59,6 @@ interface VerticalMediaPreviewCoreProps<T> {
   bottomChrome?: (context: VerticalMediaPreviewChromeContext) => ReactNode
   onActiveIndexChange?: (index: number) => void
   onZoomChange?: (scale: number) => void
-  onTouchStart?: () => void
   onTransitioningChange?: (transitioning: boolean) => void
   onControllerChange?: (controller: VerticalMediaPreviewController | null) => void
   onBeforeClose?: () => void
@@ -105,7 +104,6 @@ export function VerticalMediaPreviewCore<T>({
   bottomChrome,
   onActiveIndexChange,
   onZoomChange,
-  onTouchStart,
   onTransitioningChange,
   onControllerChange,
   onBeforeClose,
@@ -337,10 +335,7 @@ export function VerticalMediaPreviewCore<T>({
             swiper.allowSlidePrev = !isZoomed
             onZoomChange?.(scale)
           }}
-          onTouchStart={() => {
-            onManualNavigation?.()
-            onTouchStart?.()
-          }}
+          onSliderFirstMove={() => onManualNavigation?.()}
           onSlideChangeTransitionStart={() => {
             setTransitioning(true)
             onTransitioningChange?.(true)

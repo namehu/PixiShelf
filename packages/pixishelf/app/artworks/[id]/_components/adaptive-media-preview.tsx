@@ -319,13 +319,11 @@ function AdaptiveMediaPreviewContent({
       onEscapeKeyDown={dock.onEscapeKeyDown}
       onLike={(point) => {
         if (!mark.available || mark.isLoading || activeMedia?.detailsPending) return
-        useArtworkAutoBrowseStore.getState().pause('manual')
         if (!mark.likedAt) mark.set('like', true)
         hearts.current?.show(point)
       }}
       onToggleLike={() => {
         if (mark.available && !mark.isLoading && !activeMedia?.detailsPending) {
-          useArtworkAutoBrowseStore.getState().pause('manual')
           mark.set('like', !mark.likedAt)
         }
       }}
@@ -346,7 +344,6 @@ function AdaptiveMediaPreviewContent({
       onActiveIndexChange={handleSlideChange}
       onZoomChange={handleZoomChange}
       onManualNavigation={() => useArtworkAutoBrowseStore.getState().pause()}
-      onTouchStart={() => useArtworkAutoBrowseStore.getState().pause()}
       onTransitioningChange={setTransitioning}
       onBeforeClose={() => useArtworkAutoBrowseStore.getState().pause('overlay')}
       renderSlide={(media, { index }) => {
@@ -477,8 +474,8 @@ function AdaptiveMediaPreviewContent({
                 artworkId={activeMedia.artworkId ?? 0}
                 mediaId={activeMedia.id}
                 overlay
+                showBookmark={false}
                 orientation={dock.orientation}
-                onAction={() => useArtworkAutoBrowseStore.getState().pause('manual')}
               >
                 {!diagnosticRunning &&
                   (images.length > 1 ? (

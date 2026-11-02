@@ -5,6 +5,7 @@ import ArtworkCard from '@/components/artwork/artwork-card'
 import { useArtworkDisplayMode } from '@/components/user-setting'
 import { PageState } from '@/components/layout/page-state'
 import { cn } from '@/lib/utils'
+import { useReadingSummaries } from '@/lib/reading/reading-provider'
 
 interface ArtworkGridProps {
   initialData: ArtworkCardListResponse
@@ -16,6 +17,7 @@ interface ArtworkGridProps {
  */
 export default function ArtworkGrid({ initialData }: ArtworkGridProps) {
   const displayMode = useArtworkDisplayMode()
+  const readingSummaries = useReadingSummaries(initialData.items.map((artwork) => artwork.id))
 
   if (initialData?.items?.length) {
     return (
@@ -26,7 +28,7 @@ export default function ArtworkGrid({ initialData }: ArtworkGridProps) {
         )}
       >
         {initialData.items.map((artwork, index) => (
-          <ArtworkCard key={artwork.id} artwork={artwork} priority={index < 4} displayMode={displayMode} />
+          <ArtworkCard key={artwork.id} artwork={artwork} priority={index < 4} displayMode={displayMode} reading={readingSummaries.byArtworkId.get(artwork.id)} showReadingStatus />
         ))}
       </div>
     )

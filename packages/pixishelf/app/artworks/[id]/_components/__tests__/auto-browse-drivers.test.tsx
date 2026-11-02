@@ -455,6 +455,38 @@ describe('scroll driver', () => {
 })
 
 describe('human takeover', () => {
+  it('limits tap exemptions to fullscreen likes and media, while movement and other controls still pause', () => {
+    renderHook(() => useAutoBrowseInterruption(4))
+    document.body.insertAdjacentHTML('beforeend', `
+      <div data-preview-like-shortcut>
+        <div class="swiper-zoom-container"><img alt="preview" /><button>media control</button></div>
+        <button data-media-mark="like"><span>like</span></button>
+        <button data-media-mark="bookmark">bookmark</button>
+        <button data-handle>handle</button>
+      </div>
+      <div class="swiper-zoom-container"><img alt="detail" /></div>
+      <button data-media-mark="like">detail like</button>
+    `)
+    const previewImage = document.querySelector('[alt="preview"]')!
+    const likeIcon = document.querySelector('[data-preview-like-shortcut] [data-media-mark="like"] span')!
+    for (const target of [previewImage, likeIcon]) {
+      act(() => store.getState().start('slideshow'))
+      act(() => target.dispatchEvent(new Event('pointerdown', { bubbles: true })))
+      expect(store.getState().status).toBe('running')
+      act(() => target.dispatchEvent(new Event('touchmove', { bubbles: true })))
+      expect(store.getState().status).toBe('paused')
+    }
+    for (const target of document.querySelectorAll('[alt="detail"], button:not([data-auto-browse-controls])')) {
+      if (target.contains(likeIcon)) continue
+      act(() => store.getState().start('slideshow'))
+      act(() => target.dispatchEvent(new Event('pointerdown', { bubbles: true })))
+      expect(store.getState().status).toBe('paused')
+    }
+    act(() => store.getState().start('slideshow'))
+    act(() => previewImage.dispatchEvent(new Event('wheel', { bubbles: true })))
+    expect(store.getState().status).toBe('paused')
+  })
+
   it('pauses keyboard navigation even when a preview button has focus', () => {
     renderHook(() => useAutoBrowseInterruption(4))
     const button = document.createElement('button')

@@ -51,7 +51,8 @@ export function MediaMarkActions({
       className={cn(
         'relative flex gap-1',
         (layout === 'menu' || orientation === 'vertical') && 'flex-col',
-        overlay && 'max-w-full items-center justify-center gap-1 sm:gap-6'
+        overlay && 'max-w-full items-center justify-center gap-1 sm:gap-6',
+        overlay && !showBookmark && orientation === 'horizontal' && 'gap-4 sm:gap-8'
       )}
     >
       {(

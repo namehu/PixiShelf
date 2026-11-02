@@ -12,6 +12,7 @@ import { useArtworkDisplayMode } from '@/components/user-setting'
 import { PageState } from '@/components/layout/page-state'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
+import { useReadingSummaries } from '@/lib/reading/reading-provider'
 
 interface InfiniteArtworkGridProps {
   initialData: ArtworkCardListResponse & { nextCursor?: number }
@@ -103,6 +104,11 @@ export default function InfiniteArtworkGrid({ initialData, selectedTags = [] }: 
   useLayoutEffect(() => {
     rowVirtualizer.measure()
   }, [containerWidth, columns, displayMode, rowVirtualizer])
+
+  const visibleArtworkIds = rowVirtualizer
+    .getVirtualItems()
+    .flatMap((row) => allItems.slice(row.index * columns, (row.index + 1) * columns).map((artwork) => artwork.id))
+  const readingSummaries = useReadingSummaries(visibleArtworkIds)
 
   const { ref: loadMoreRef, inView } = useInView({
     rootMargin: '200px'
@@ -196,7 +202,7 @@ export default function InfiniteArtworkGrid({ initialData, selectedTags = [] }: 
               }}
             >
               {rowItems.map((artwork, index) => (
-                <ArtworkCard key={`${artwork.id}-${startIndex + index}`} artwork={artwork} displayMode={displayMode} />
+                <ArtworkCard key={`${artwork.id}-${startIndex + index}`} artwork={artwork} displayMode={displayMode} reading={readingSummaries.byArtworkId.get(artwork.id)} showReadingStatus />
               ))}
             </div>
           )

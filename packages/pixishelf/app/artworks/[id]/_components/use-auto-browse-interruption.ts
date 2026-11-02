@@ -14,7 +14,17 @@ export function useAutoBrowseInterruption(artworkId: number) {
     }
     const pointer = (event: Event) => {
       const target = event.target
-      if (target instanceof Element && target.closest('[data-auto-browse-controls]')) return
+      if (target instanceof Element) {
+        if (target.closest('[data-auto-browse-controls]')) return
+        if (event.type === 'pointerdown' && target.closest('[data-preview-like-shortcut]')) {
+          if (target.closest('[data-media-mark="like"]')) return
+          // A preview tap can become a like gesture; actual drag/zoom still interrupts.
+          if (
+            target.closest('.swiper-zoom-container') &&
+            !target.closest('button, a, input, textarea, select, [role="button"]')
+          ) return
+        }
+      }
       pause()
     }
     const keydown = (event: KeyboardEvent) => {

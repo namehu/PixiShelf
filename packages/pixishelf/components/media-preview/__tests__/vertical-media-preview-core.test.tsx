@@ -27,6 +27,8 @@ vi.mock('swiper/react', () => ({
     onSwiper: (value: typeof swiper) => void
     onSlideChange: (value: typeof swiper) => void
     onZoomChange: (value: typeof swiper, scale: number) => void
+    onTouchStart?: () => void
+    onSliderFirstMove?: () => void
     onDoubleTap?: (value: typeof swiper, event: MouseEvent | TouchEvent) => void
     'data-testid'?: string
   }) => {
@@ -36,6 +38,8 @@ vi.mock('swiper/react', () => ({
       <div
         data-testid={props['data-testid']}
         data-page-keys={String(props.keyboard.pageUpDown)}
+        onTouchStart={() => props.onTouchStart?.()}
+        onPointerMove={() => props.onSliderFirstMove?.()}
         onDoubleClick={(event) => props.onDoubleTap?.(swiper, event.nativeEvent)}
         data-effect={props.effect}
         data-cross-fade={String(props.fadeEffect?.crossFade ?? false)}
@@ -153,6 +157,16 @@ describe('VerticalMediaPreviewCore', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: '切到第四张' }))
     expect(screen.getByText('4 / 4')).toBeTruthy()
+  })
+
+  it('starts manual navigation on the first slider movement rather than on touch start', () => {
+    const onManualNavigation = vi.fn()
+    render(<VerticalMediaPreviewCore items={[1, 2]} itemKey={(item) => item} initialIndex={0} open onClose={vi.fn()} historyKey="gesture-preview" title="预览" description="说明" closeLabel="关闭" onManualNavigation={onManualNavigation} renderSlide={(item) => <span>图 {item}</span>} />)
+    const preview = screen.getByTestId('vertical-media-preview-swiper')
+    fireEvent.touchStart(preview)
+    expect(onManualNavigation).not.toHaveBeenCalled()
+    fireEvent.pointerMove(preview)
+    expect(onManualNavigation).toHaveBeenCalledOnce()
   })
 
   it('uses crossfade only when requested and removes its duration for reduced motion', () => {

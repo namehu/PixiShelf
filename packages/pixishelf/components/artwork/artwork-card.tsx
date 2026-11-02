@@ -33,7 +33,7 @@ export default function ArtworkCard({ artwork, priority = false, className, disp
   const { mediaType } = cover ?? {}
   const { name } = artist ?? {}
   const preferredTag = useMemo(() => getPreferredTagName(preferredTags, tags), [preferredTags, tags])
-  const showReadingMarker = showReadingStatus && reading?.status !== 'COMPLETED'
+  const showReadingMarker = showReadingStatus && reading && reading.status !== 'COMPLETED'
 
   return (
     <article data-slot="artwork-card" className={cn('group min-w-0', className)}>
@@ -63,15 +63,13 @@ export default function ArtworkCard({ artwork, priority = false, className, disp
           </div>
         )}
         {showReadingMarker ? (
-          <svg
+          <span
             data-slot="reading-marker"
-            aria-hidden="true"
-            viewBox="0 0 12 12"
-            className={cn('pointer-events-none absolute top-0 left-0 size-3',
-              reading?.status === 'IN_PROGRESS' ? 'text-primary' : 'text-destructive')}
+            className="pointer-events-none absolute right-2 bottom-2 flex items-center gap-1 rounded-sm bg-black/60 px-1.5 py-1 text-[9px] leading-none text-white/85"
           >
-            <path d="M0 0H12L0 12Z" fill="currentColor" />
-          </svg>
+            <span aria-hidden="true" className={cn('size-[5px] rounded-full', reading.status === 'IN_PROGRESS' ? 'bg-primary' : 'bg-destructive')} />
+            {reading.status === 'IN_PROGRESS' ? '阅读中' : '未读'}
+          </span>
         ) : null}
 
         <div className="absolute top-2 right-2 flex flex-col gap-1">

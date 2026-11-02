@@ -10,6 +10,16 @@ import { webpFixture } from '@/lib/__tests__/webp-fixture'
 import { useArtworkAnimation } from '../use-artwork-animation'
 import { useArtworkAutoScroll } from '../use-artwork-auto-scroll'
 import { useArtworkSlideshow } from '../use-artwork-slideshow'
+import AdaptiveMediaPreview from '../adaptive-media-preview'
+import { useAutoBrowseInterruption } from '../use-auto-browse-interruption'
+
+const previewMark = vi.hoisted(() => ({
+  available: true, isLoading: false, isSaving: false, error: null as Error | null,
+  likedAt: null as string | null, set: vi.fn()
+}))
+vi.mock('@/hooks/use-media-mark', () => ({
+  usePrefetchMediaMarks: vi.fn(), useMediaMark: () => previewMark
+}))
 
 // Decode/HTTP are verified by the package's real-browser suite. Only the Worker
 // boundary and drawing environment are replaced here; player, clock, React,
@@ -91,6 +101,17 @@ function ManualReader({ id, mode, label }: { id: number; mode: AutoBrowseMode; l
     </div>
   )
 }
+function FullscreenReader({ images }: { images: ArtworkImageResponseDto[] }) {
+  useAutoBrowseInterruption(1)
+  return <AdaptiveMediaPreview images={images} initialIndex={0} open onClose={() => {}} />
+}
+
+function tap(target: Element) {
+  fireEvent.pointerDown(target, { pointerType: 'touch', pointerId: 1, button: 0 })
+  fireEvent.pointerUp(target, { pointerType: 'touch', pointerId: 1, button: 0 })
+  fireEvent.click(target)
+}
+
 async function advance(ms: number) {
   await act(async () => {
     vi.advanceTimersByTime(ms)
@@ -116,6 +137,10 @@ beforeEach(() => {
   vi.useFakeTimers({
     toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame', 'performance']
   })
+  previewMark.likedAt = null
+  previewMark.isSaving = false
+  previewMark.error = null
+  previewMark.set.mockClear()
   store.getState().initialize(1)
   store.getState().setPreferences({ loop: false })
   Transport.instances = []
@@ -247,6 +272,67 @@ describe.each<AutoBrowseMode>(['scroll', 'slideshow'])('%s streaming integration
       completedAnimationIds: []
     })
     expect(screen.queryByRole('status')).toBeNull()
+  })
+})
+
+describe('fullscreen likes during streaming playback', () => {
+  it.each(['manual', 'automatic'] as const)('preserves the %s Worker, progress and completion across mark updates', async (mode) => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1200)
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(794)
+    const images = [
+      { ...media[0], artworkId: 1, updatedAt: '2026-11-02', size: 100, animationMetadata: metadata },
+      { ...media[0], id: 2, artworkId: 1, path: '/second.webp', updatedAt: '2026-11-02', animationMetadata: metadata }
+    ] as ArtworkImageResponseDto[]
+    const view = render(<FullscreenReader images={images} />)
+    await advance(100)
+    fireEvent.load(screen.getByAltText('作品 WEBP 动图 1'))
+    if (mode === 'automatic') tap(screen.getByRole('button', { name: '开始或继续自动浏览' }))
+    else tap(screen.getByRole('button', { name: '播放 WEBP 动图' }))
+    await act(async () => { await vi.dynamicImportSettled() })
+    expect(Transport.instances).toHaveLength(1)
+    const worker = Transport.instances[0]!
+    await act(async () => worker.emit(frame(0)))
+    await advance(200)
+    const canvas = document.querySelector('canvas[data-webp-player="wasm"]')!
+    const progress = () => parseFloat(document.querySelector('[data-animation-progress-fill]')!.getAttribute('style')!.split(':')[1]!)
+    const before = progress()
+    const state = store.getState()
+    const attempt = state.animationAttempt
+    const revision = state.revision
+    tap(screen.getByRole('button', { name: '喜欢这张图片' }))
+    expect(previewMark.set).toHaveBeenLastCalledWith('like', true)
+    previewMark.likedAt = 'saved'
+    previewMark.isSaving = true
+    view.rerender(<FullscreenReader images={images} />)
+    await advance(100)
+    tap(screen.getByRole('button', { name: '取消图片喜欢' }))
+    expect(previewMark.set).toHaveBeenLastCalledWith('like', false)
+    previewMark.isSaving = false
+    previewMark.error = new Error('save failed')
+    view.rerender(<FullscreenReader images={images} />)
+    tap(canvas)
+    tap(canvas)
+    fireEvent.doubleClick(canvas)
+    fireEvent.keyDown(canvas, { code: 'Space', key: ' ' })
+    await advance(100)
+    expect(progress()).toBeGreaterThan(before)
+    expect(document.querySelector('canvas[data-webp-player="wasm"]')).toBe(canvas)
+    expect(Transport.instances).toHaveLength(1)
+    expect(worker.terminate).not.toHaveBeenCalled()
+    expect(store.getState()).toMatchObject({ animationAttempt: attempt, revision })
+    if (mode === 'automatic') {
+      expect(store.getState().status).toBe('running')
+      await act(async () => {
+        worker.emit({ type: 'input', receivedBytes: 100, inputComplete: true })
+        worker.emit({ type: 'drained' })
+      })
+      await advance(650)
+      expect(store.getState().completedAnimationIds).toEqual([1])
+      await advance(1)
+      expect(screen.getByRole('button', { name: '自动浏览设置' }).textContent).toBe('2/2')
+    } else expect(screen.getByRole('button', { name: /暂停 WEBP 动图/ }).getAttribute('aria-pressed')).toBe('true')
   })
 })
 
