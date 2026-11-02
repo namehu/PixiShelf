@@ -4,7 +4,7 @@ import {
   type MediaContentDirectorySnapshot,
   type Prisma
 } from '@pixishelf/db'
-import type { ExecutionContext, QueueSqlExecutor } from '@pixishelf/job-runtime'
+import type { ExecutionContext, FencedMutationTransactionObserver, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import { readMediaContentRootBinding, resolveMediaContentRoots } from '../media-content/index.ts'
 import { ScanExecutorError } from './errors.ts'
 
@@ -13,13 +13,12 @@ export async function captureScanMediaDirectory(input: {
   context: Pick<ExecutionContext, 'mutateInTransaction'>
   scanRoot: string
   relativeDirectory: string
+  observeTiming?: FencedMutationTransactionObserver
 }): Promise<MediaContentDirectorySnapshot> {
   const inventory = await input.context.mutateInTransaction<
     Prisma.TransactionClient & QueueSqlExecutor,
     Awaited<ReturnType<typeof readMediaContentRootBinding>>
-  >((transaction) =>
-    readMediaContentRootBinding(transaction)
-  )
+  >((transaction) => readMediaContentRootBinding(transaction), input.observeTiming)
   const roots = await resolveMediaContentRoots({
     sourceRoot: input.scanRoot,
     archiveRoot: input.scanRoot,
@@ -36,7 +35,8 @@ export async function captureScanMediaDirectory(input: {
       })
       if (result.status !== 'READY') throw conflict(result.status)
       return result.value
-    }
+    },
+    input.observeTiming
   )
 }
 

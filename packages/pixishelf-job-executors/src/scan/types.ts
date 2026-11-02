@@ -43,6 +43,13 @@ export type ScanDatabase = Pick<
 
 export type ScanTransaction = Prisma.TransactionClient
 
+/** Sampled inside the settlement transaction; finishedAt does not claim to be commit time. */
+export interface ScanItemTiming {
+  startedAt: Date
+  finishedAt: Date
+  durationMs: number
+}
+
 export interface ScanExecutorDependencies {
   database: ScanDatabase
   config: ScanExecutorConfig

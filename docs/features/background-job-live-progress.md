@@ -7,6 +7,7 @@ sources:
   - packages/pixishelf-job-runtime/src/queue-repository.ts
   - packages/pixishelf-worker/src/dispatcher.ts
   - packages/pixishelf-job-executors/src/maintenance/webp-animation-scan.ts
+  - packages/pixishelf-job-executors/src/scan/scan-executor.ts
   - packages/pixishelf/app/admin/_components/background-job-event-provider.tsx
   - packages/pixishelf/app/admin/tasks/_components/maintenance-card.tsx
 ---
@@ -30,6 +31,17 @@ sources:
 成为 durable state 的计数。
 
 `animation-scan@v1` 只包含初始化数、总数、已尝试、成功、失败、动图、静态、剩余、活动探测数、并发上限、滚动速率、ETA 和采样时间。不得写入路径、标题、URL 或凭据。消息、错误和失败样本路径继续由隐私模式组件处理，聚合数字不遮挡。
+
+## 普通 Pixiv 扫描
+
+`SCAN@v1` 的普通 Pixiv 执行在处理开始时报告当前已持久的完成数；新运行从 0 开始，恢复运行从冻结输入对应的 SUCCESS、SKIPPED、FAILED 检查点恢复。
+每个作品事务提交或持久失败记录完成后推进观察进度，不等待整页或凑满 100 条。完成顺序可以不同于输入顺序，计数单调，重放和已计数失败项的重试不会再次增加完成数。
+
+该路径为普通快照显式选择 `REALTIME`，沿用两秒持久化限频，并在处理结束前强制刷新最后快照。
+进度写入错误属于任务执行控制，不归类为输入失败；已取出的当前页处理收束后再结算任务，避免进度异常导致仍在提交的作品被提前终态化。
+审计、选定同步和本地导入继续使用各自的进度策略。
+
+恢复边界仍是每个作品的数据库事务，观察快照可被合并；统计和耗时定义见[Pixiv 来源维护](../architecture/source-maintenance.md#发布批次统计与计时)。
 
 ## 动画识别
 

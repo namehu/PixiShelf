@@ -228,3 +228,109 @@ function paged<T extends { ordinal: number }>(rows: T[]) {
     rows.filter((row) => row.ordinal > input.where.ordinal.gt).slice(0, input.take)
   )
 }
+
+describe('nullable Pixiv execution metrics', () => {
+  function fixture(mode: 'CLIENT_LIST' | 'RESCAN' | 'INCREMENTAL', executed: boolean) {
+    const current = {
+      id: 'run-1',
+      systemJobId: 'job-1',
+      type: 'PIXIV',
+      mode,
+      status: executed ? 'RETRY_WAIT' : 'PENDING',
+      startedAt: executed ? frozenAt : null,
+      checkpointOrdinal: executed ? 4 : 0,
+      inputCount: 5,
+      parsedInputs: null,
+      publishedInputs: null,
+      failedInputs: null,
+      publishDurationMs: null,
+      metadataCandidates: null,
+      walkedEntries: null,
+      inventoryUnchanged: null,
+      contentHashed: null,
+      contentChanged: null,
+      missingInputs: null,
+      discoveryDurationMs: null,
+      hashDurationMs: null
+    }
+    const groups = executed
+      ? [
+          { status: 'SUCCESS', action: 'CREATE', _count: { _all: 2 } },
+          { status: 'SKIPPED', action: 'SKIP_EXISTING', _count: { _all: 1 } },
+          { status: 'FAILED', action: 'FAILED_COLLECT', _count: { _all: 1 } },
+          { status: 'FAILED', action: 'FAILED_PARSE', _count: { _all: 1 } }
+        ]
+      : []
+    const transaction = {
+      scanRun: {
+        findUnique: vi.fn(async () => current),
+        update: vi.fn(async ({ data }) => Object.assign(current, data))
+      },
+      scanRunItem: { groupBy: vi.fn(async () => groups) }
+    }
+    const context = contextFixture({ mode: 'INCREMENTAL' })
+    context.mutateInTransaction = vi.fn(async (operation) =>
+      operation(transaction as never)
+    ) as typeof context.mutateInTransaction
+    return {
+      current,
+      transaction,
+      input: {
+        context,
+        database: transaction as unknown as ScanDatabase,
+        kind: 'SCAN' as const,
+        mode,
+        now: frozenAt,
+        requireFrozen: true
+      }
+    }
+  }
+
+  it.each(['CLIENT_LIST', 'RESCAN', 'INCREMENTAL'] as const)(
+    'initializes applicable counts before the first %s execution',
+    async (mode) => {
+      const f = fixture(mode, false)
+      await startOrResumeScanRun(f.input)
+      expect(f.current).toMatchObject({
+        parsedInputs: 0,
+        publishedInputs: 0,
+        failedInputs: 0,
+        publishDurationMs: 0,
+        metadataCandidates: 5
+      })
+      if (mode !== 'INCREMENTAL')
+        expect(f.current).toMatchObject({
+          discoveryDurationMs: null,
+          hashDurationMs: null,
+          contentHashed: null,
+          contentChanged: null
+        })
+    }
+  )
+
+  it.each(['CLIENT_LIST', 'RESCAN', 'INCREMENTAL'] as const)(
+    'recovers %s counts idempotently without inventing elapsed history',
+    async (mode) => {
+      const f = fixture(mode, true)
+      await startOrResumeScanRun(f.input)
+      expect(f.current).toMatchObject({
+        parsedInputs: 4,
+        publishedInputs: 2,
+        failedInputs: 2,
+        publishDurationMs: null,
+        discoveryDurationMs: null,
+        hashDurationMs: null
+      })
+      await startOrResumeScanRun(f.input)
+      expect(f.current).toMatchObject({ parsedInputs: 4, publishedInputs: 2, failedInputs: 2, publishDurationMs: null })
+    }
+  )
+
+  it('does not initialize or backfill a completed run', async () => {
+    const f = fixture('CLIENT_LIST', true)
+    Object.assign(f.current, { status: 'COMPLETED' })
+    await expect(startOrResumeScanRun(f.input)).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+    expect(f.transaction.scanRunItem.groupBy).not.toHaveBeenCalled()
+    expect(f.transaction.scanRun.update).not.toHaveBeenCalled()
+  })
+})

@@ -450,10 +450,11 @@ describePostgres('scan executor PostgreSQL integration', () => {
         checkpointKey: 'metadata:0:pg',
         metadataRelativePath: `pg/${externalId}-meta.json`,
         metadataContentHash: 'a'.repeat(64),
-        metadata: metadata(externalId),
-        media: [],
+        metadata: { ...metadata(externalId), tags: [`${testPrefix}-batch-tag`] },
+        media: Array.from({ length: 501 }, (_, index) => media(`pg/${testPrefix}/${externalId}_p${index}.jpg`, index)),
         existingPolicy: 'REFRESH',
-        now: clock.now()
+        now: clock.now(),
+        checkpointTiming: () => ({ startedAt: clock.now(), finishedAt: new Date(clock.now().getTime() + 37), durationMs: 36 })
       })
 
     await expect(
@@ -467,6 +468,8 @@ describePostgres('scan executor PostgreSQL integration', () => {
     ).rejects.toThrow('fault injection')
     expect(await client().artwork.count({ where: { externalId } })).toBe(0)
     expect(await client().scanRunItem.count({ where: { scanRunId: run.id } })).toBe(0)
+    expect(await client().image.count({ where: { path: { startsWith: `pg/${testPrefix}/${externalId}_p` } } })).toBe(0)
+    expect(await client().tag.count({ where: { name: `${testPrefix}-batch-tag` } })).toBe(0)
 
     await repository.withFencedMutationTransaction<ScanTransaction & QueueSqlExecutor>(
       fence(claimed),
@@ -474,6 +477,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
         await publish(transaction)
       }
     )
+    const settledItem = await client().scanRunItem.findFirstOrThrow({ where: { scanRunId: run.id } })
     await repository.withFencedMutationTransaction<ScanTransaction & QueueSqlExecutor>(
       fence(claimed),
       async (transaction) => {
@@ -482,6 +486,10 @@ describePostgres('scan executor PostgreSQL integration', () => {
     )
     expect(await client().artwork.count({ where: { externalId } })).toBe(1)
     expect(await client().scanRunItem.count({ where: { scanRunId: run.id } })).toBe(1)
+    expect(await client().image.count({ where: { path: { startsWith: `pg/${testPrefix}/${externalId}_p` } } })).toBe(501)
+    expect(await client().scanRunItem.findFirstOrThrow({ where: { scanRunId: run.id } })).toEqual(settledItem)
+    expect(settledItem).toMatchObject({ mediaCount: 501, newImageCount: 501, durationMs: 36 })
+    expect(settledItem.finishedAt!.getTime()).toBeGreaterThanOrEqual(settledItem.startedAt.getTime())
     const sourceRef = await client().artworkExternalRef.findUniqueOrThrow({
       where: { providerKey_externalId: { providerKey: 'pixiv', externalId } }
     })
@@ -728,7 +736,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
     expect(await client().artworkExternalRef.count({ where: { providerKey: 'pixiv', externalId } })).toBe(0)
   })
 
-  it('retries a retryable checkpoint in the same ScanRun without double-counting input metrics', async () => {
+  it('recovers NULL metrics and retries a checkpoint in the same ScanRun without double-counting', async () => {
     const root = await fixtureRoot()
     await executeIncremental(root, 'retryable-empty-baseline')
     const directory = path.join(root, 'pixiv')
@@ -747,6 +755,12 @@ describePostgres('scan executor PostgreSQL integration', () => {
       lastErrorRetryable: true
     })
     expect(run).toMatchObject({ status: 'RETRY_WAIT', failedInputs: 1, parsedInputs: 1, publishedInputs: 0 })
+    const failedItem = await client().scanRunItem.findFirstOrThrow({ where: { scanRunId: run.id } })
+    expect(failedItem.durationMs).toEqual(expect.any(Number))
+    expect(failedItem.finishedAt!.getTime()).toBeGreaterThanOrEqual(failedItem.startedAt.getTime())
+    await client().scanRun.update({ where: { id: run.id }, data: {
+      parsedInputs: null, publishedInputs: null, failedInputs: null, publishDurationMs: null
+    } })
     expect(await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).toMatchObject({
       status: 'RETRY_WAIT',
       errorCode: 'PRECONDITION_FAILED',
@@ -768,7 +782,8 @@ describePostgres('scan executor PostgreSQL integration', () => {
       status: 'COMPLETED',
       failedInputs: 0,
       parsedInputs: 1,
-      publishedInputs: 1
+      publishedInputs: 1,
+      publishDurationMs: null
     })
     expect(await client().pixivMetadataInventory.findUniqueOrThrow({ where: { relativePath } })).toMatchObject({
       lastErrorCode: null,
@@ -3039,9 +3054,9 @@ describePostgres('scan executor PostgreSQL integration', () => {
     expect(await client().scanRunItem.count({ where: { scanRunId: run.id } })).toBe(0)
     expect(await client().pixivMetadataInventory.count({ where: { relativePath } })).toBe(0)
     expect(await client().scanRun.findUniqueOrThrow({ where: { id: run.id } })).toMatchObject({
-      failedInputs: null,
-      parsedInputs: null,
-      publishedInputs: null
+      failedInputs: 0,
+      parsedInputs: 0,
+      publishedInputs: 0
     })
   })
 
@@ -3611,6 +3626,7 @@ async function cleanup() {
   await prisma.scanRun.deleteMany({ where: { systemJobId: { startsWith: testPrefix } } })
   await prisma.jobResourceLease.deleteMany({ where: { ownerJobId: { startsWith: testPrefix } } })
   await prisma.systemJob.deleteMany({ where: { id: { startsWith: testPrefix } } })
+  await prisma.image.deleteMany({ where: { path: { startsWith: `pg/${testPrefix}/` } } })
   await prisma.artwork.deleteMany({ where: { title: { startsWith: testPrefix } } })
   await prisma.artist.deleteMany({ where: { name: { startsWith: testPrefix } } })
   await prisma.tag.deleteMany({ where: { name: { startsWith: testPrefix } } })

@@ -82,6 +82,56 @@ export async function startOrResumeScanRun(input: {
     if (current.status === 'COMPLETED' || current.status === 'CANCELLED') {
       throw new ScanExecutorError('STATE_CONFLICT', 'The ScanRun is already terminal')
     }
+    let metrics: Prisma.ScanRunUpdateInput = {}
+    if (expectedType === 'PIXIV') {
+      // Old CLIENT_LIST/RESCAN rows never initialized nullable metrics. Recover counts from
+      // durable outcomes once, before future transitions apply deltas to these aggregates.
+      const checkpoints =
+        current.parsedInputs === null ||
+        current.publishedInputs === null ||
+        current.failedInputs === null ||
+        current.publishDurationMs === null
+          ? await transaction.scanRunItem.groupBy({
+              by: ['status', 'action'],
+              where: { scanRunId: current.id, status: { not: 'PENDING' } },
+              _count: { _all: true }
+            })
+          : []
+      const hasExecuted = current.startedAt !== null || current.checkpointOrdinal > 0 || checkpoints.length > 0
+      const parsed = checkpoints.reduce(
+        (sum, item) =>
+          sum +
+          (['CREATE', 'UPDATE', 'SKIP_EXISTING', 'FAILED_COLLECT', 'FAILED_WRITE'].includes(item.action)
+            ? item._count._all
+            : 0),
+        0
+      )
+      const published = checkpoints.reduce(
+        (sum, item) =>
+          sum + (item.status === 'SUCCESS' && ['CREATE', 'UPDATE'].includes(item.action) ? item._count._all : 0),
+        0
+      )
+      const failed = checkpoints.reduce((sum, item) => sum + (item.status === 'FAILED' ? item._count._all : 0), 0)
+      metrics = {
+        ...(input.mode === 'INCREMENTAL'
+          ? {
+              walkedEntries: current.walkedEntries ?? (hasExecuted ? null : 0),
+              inventoryUnchanged: current.inventoryUnchanged ?? 0,
+              contentHashed: current.contentHashed ?? (hasExecuted ? null : 0),
+              contentChanged: current.contentChanged ?? current.inputCount,
+              missingInputs: current.missingInputs ?? 0,
+              discoveryDurationMs: current.discoveryDurationMs ?? (hasExecuted ? null : 0),
+              hashDurationMs: current.hashDurationMs ?? (hasExecuted ? null : 0)
+            }
+          : {}),
+        metadataCandidates: current.metadataCandidates ?? current.inputCount,
+        parsedInputs: current.parsedInputs ?? parsed,
+        publishedInputs: current.publishedInputs ?? published,
+        failedInputs: current.failedInputs ?? failed,
+        // Historical elapsed time cannot be reconstructed from outcome counters.
+        publishDurationMs: current.publishDurationMs ?? (hasExecuted ? null : 0)
+      }
+    }
     return transaction.scanRun.update({
       where: { id: current.id },
       data: {
@@ -89,22 +139,7 @@ export async function startOrResumeScanRun(input: {
         startedAt: current.startedAt ?? input.now,
         finishedAt: null,
         errorMessage: null,
-        ...(expectedType === 'PIXIV' && input.mode === 'INCREMENTAL'
-          ? {
-              walkedEntries: current.walkedEntries ?? 0,
-              metadataCandidates: current.metadataCandidates ?? current.inputCount,
-              inventoryUnchanged: current.inventoryUnchanged ?? 0,
-              contentHashed: current.contentHashed ?? 0,
-              contentChanged: current.contentChanged ?? current.inputCount,
-              parsedInputs: current.parsedInputs ?? 0,
-              publishedInputs: current.publishedInputs ?? 0,
-              failedInputs: current.failedInputs ?? 0,
-              missingInputs: current.missingInputs ?? 0,
-              discoveryDurationMs: current.discoveryDurationMs ?? 0,
-              hashDurationMs: current.hashDurationMs ?? 0,
-              publishDurationMs: current.publishDurationMs ?? 0
-            }
-          : {})
+        ...metrics
       }
     })
   })

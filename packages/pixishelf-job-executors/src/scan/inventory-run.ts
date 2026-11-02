@@ -26,7 +26,7 @@ import {
 import { logFrozenSnapshotPage } from './progress.ts'
 import type { ScanRunRecord } from './run-store.ts'
 import { DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES } from './types.ts'
-import type { ScanDatabase, ScanExecutorLimits, ScanTransaction } from './types.ts'
+import type { ScanDatabase, ScanExecutorLimits, ScanItemTiming, ScanTransaction } from './types.ts'
 import type { SafeScanRoot } from './paths.ts'
 import { bindPixivInventoryRoot, assertPixivRootUnchanged } from './root-identity.ts'
 
@@ -490,6 +490,7 @@ export async function recordExistingInventoryDecision(input: {
   inventoryRootPathHash: string
   dedupSourceSnapshot?: unknown
   now: Date
+  checkpointTiming?: () => ScanItemTiming
 }) {
   const previousCheckpoint = await input.transaction.scanRunItem.findUnique({
     where: { scanRunId_checkpointKey: { scanRunId: input.runId, checkpointKey: input.checkpointKey } },
@@ -504,8 +505,9 @@ export async function recordExistingInventoryDecision(input: {
     where: { providerKey_externalId: { providerKey: 'pixiv', externalId: input.externalId } },
     select: { artworkId: true }
   })
-  if (guardedRef)
-    {await assertArtworkDedupWritable(input.transaction, { artworkId: guardedRef.artworkId, kind: 'CONTENT' })}
+  if (guardedRef) {
+    await assertArtworkDedupWritable(input.transaction, { artworkId: guardedRef.artworkId, kind: 'CONTENT' })
+  }
   // Besides recording the full-reconcile sighting, this update locks the source reference before
   // the exact Artwork/metaSource check below, keeping baseline classification inside one CAS boundary.
   const locked = await input.transaction.artworkExternalRef.updateMany({
@@ -582,6 +584,7 @@ export async function recordExistingInventoryDecision(input: {
       lastErrorRetryable: null
     }
   })
+  const timing = input.checkpointTiming?.() ?? { startedAt: input.now, finishedAt: input.now }
   await input.transaction.scanRunItem.upsert({
     where: { scanRunId_checkpointKey: { scanRunId: input.runId, checkpointKey: input.checkpointKey } },
     create: {
@@ -595,7 +598,7 @@ export async function recordExistingInventoryDecision(input: {
       action: 'SKIP_EXISTING',
       inventoryDecision: decision,
       attempt: 1,
-      finishedAt: input.now
+      ...timing
     },
     update: {
       externalId: input.externalId,
@@ -607,7 +610,7 @@ export async function recordExistingInventoryDecision(input: {
       inventoryDecision: decision,
       attempt: { increment: 1 },
       errorMessage: null,
-      finishedAt: input.now
+      ...timing
     }
   })
   await advanceRunCheckpoint(input.transaction, input.runId, input.checkpointOrdinal)
@@ -701,6 +704,7 @@ export async function recordInventoryFailure(input: {
   parsed: boolean
   updateInventory?: boolean
   now: Date
+  checkpointTiming?: () => ScanItemTiming
 }) {
   const classified = classifyInventoryFailure(input.error)
   const existing = await input.transaction.scanRunItem.findUnique({
@@ -737,6 +741,7 @@ export async function recordInventoryFailure(input: {
       data: inventoryErrorData
     })
   }
+  const timing = input.checkpointTiming?.() ?? { startedAt: input.now, finishedAt: input.now }
   await input.transaction.scanRunItem.upsert({
     where: { scanRunId_checkpointKey: { scanRunId: input.runId, checkpointKey: input.checkpointKey } },
     create: {
@@ -748,14 +753,14 @@ export async function recordInventoryFailure(input: {
       action: input.parsed ? 'FAILED_COLLECT' : 'FAILED_PARSE',
       attempt: 1,
       errorMessage: classified.summary,
-      finishedAt: input.now
+      ...timing
     },
     update: {
       status: 'FAILED',
       action: input.parsed ? 'FAILED_COLLECT' : 'FAILED_PARSE',
       attempt: { increment: 1 },
       errorMessage: classified.summary,
-      finishedAt: input.now
+      ...timing
     }
   })
   await advanceRunCheckpoint(input.transaction, input.runId, input.checkpointOrdinal)

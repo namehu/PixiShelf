@@ -7,7 +7,13 @@ import { createHash } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import { Prisma } from '@pixishelf/db'
 import type { ScanPayload } from '@pixishelf/job-contracts'
-import type { EnqueuedChildJob, ExecutionContext, JobExecutionOutcome, QueueSqlExecutor } from '@pixishelf/job-runtime'
+import type {
+  EnqueuedChildJob,
+  ExecutionContext,
+  FencedMutationTransactionTiming,
+  JobExecutionOutcome,
+  QueueSqlExecutor
+} from '@pixishelf/job-runtime'
 import { mapBounded, throwIfAborted } from './bounded.ts'
 import { readStableFileContent, type StableFileState } from './content-reader.ts'
 import { collectArtworkMedia } from './discovery.ts'
@@ -24,7 +30,6 @@ import { finalizeScanError, finalizeScanSuccess } from './lifecycle.ts'
 import { executeLocalArtworkRescan } from './local-rescan.ts'
 import { metadataCandidateFromPath, parseMetadataDocument } from './metadata.ts'
 import { publishPixivArtwork, type ExistingArtworkPolicy } from './pixiv-publisher.ts'
-import { reportScanPageProgress } from './progress.ts'
 import { resolveSafeExistingPath, resolveSafeScanRoot } from './paths.ts'
 import {
   iterateFrozenMetadataPages,
@@ -40,7 +45,8 @@ import {
   type ScanExecutionResult,
   type ScanExecutorDependencies,
   type ScanExecutorLimits,
-  type ScanTransaction
+  type ScanTransaction,
+  type ScanItemTiming
 } from './types.ts'
 
 const DEFAULT_RETRY_DELAY_MS = 60_000
@@ -117,13 +123,58 @@ export async function executeScan(
     })
     context.logger.info('scan.snapshot.validated', { mode: context.payload.mode, inputCount: snapshot.count })
 
+    const completedInputs = new Set(
+      (
+        await dependencies.database.scanRunItem.findMany({
+          where: {
+            scanRunId: run.id,
+            checkpointKey: { startsWith: 'metadata:' },
+            status: { in: ['SUCCESS', 'SKIPPED', 'FAILED'] }
+          },
+          select: { checkpointKey: true }
+        })
+      ).map((item) => item.checkpointKey)
+    )
+    let progressTail = Promise.resolve()
+    const reportProgress = (forcePersistence = false) => {
+      const processed = completedInputs.size
+      progressTail = progressTail.then(() =>
+        context.progress({
+          progress: snapshot.count === 0 ? 95 : Math.min(95, Math.round((processed / snapshot.count) * 95)),
+          stage: 'PROCESSING',
+          message: `Processed ${processed}/${snapshot.count} frozen inputs`,
+          data: { processed, total: snapshot.count },
+          persistenceMode: 'REALTIME',
+          ...(forcePersistence ? { forcePersistence: true } : {})
+        })
+      )
+      return progressTail
+    }
+    await reportProgress()
     const results: Array<{ status: 'SUCCESS' | 'SKIPPED' | 'FAILED'; newImages: number }> = []
     for await (const page of iterateFrozenMetadataPages(dependencies.database, run.id, limits.pageSize)) {
       throwIfAborted(context.signal)
       await assertPixivRootUnchanged(root)
+      let progressFailure: { error: unknown } | undefined
       const pageResults = await mapBounded(page, limits.concurrency, context.signal, async (row) => {
+        const started = performance.now()
+        const startedAt = now()
+        const checkpointTiming = () => ({
+          startedAt,
+          finishedAt: now(),
+          durationMs: Math.min(2_147_483_647, Math.max(0, Math.round(performance.now() - started)))
+        })
+        const timing: MetadataInputTiming = {
+          checkpointReadMs: null,
+          directoryGuardMs: null,
+          metadataReadMs: null,
+          mediaEnumerationMs: null,
+          mediaCount: null,
+          transactions: []
+        }
+        let result
         try {
-          return await processMetadataInput({
+          result = await processMetadataInput({
             context,
             dependencies,
             root,
@@ -132,7 +183,9 @@ export async function executeScan(
             inventoryRootPathHash,
             row,
             policy: policyFor(context.payload),
-            now: now(),
+            now,
+            checkpointTiming,
+            timing,
             limits
           })
         } catch (error) {
@@ -141,17 +194,38 @@ export async function executeScan(
           throwIfAborted(context.signal)
           const failure = unwrapInputFailure(error)
           context.logger.warn('scan.input.failed', { ordinal: row.ordinal, code: safeInputCode(failure.error) })
-          return recordInputFailure(context, run.id, row, failure.error, failure.parsed, failure.state, now())
+          result = await recordInputFailure(
+            context,
+            run.id,
+            row,
+            failure.error,
+            failure.parsed,
+            failure.state,
+            now(),
+            checkpointTiming,
+            (transactionTiming) => timing.transactions.push({ phase: 'failure', ...transactionTiming })
+          )
         }
+        context.logger.info('scan.input.completed', {
+          jobId: context.job.id,
+          runId: run.id,
+          ordinal: row.ordinal,
+          status: result.status,
+          ...timing,
+          totalMs: Math.max(0, performance.now() - started)
+        })
+        completedInputs.add(checkpointKey(row))
+        // Execution/progress errors must never be classified as invalid metadata.
+        // Drain the current page before finalization if observation persistence fails.
+        await reportProgress().catch((error: unknown) => {
+          progressFailure ??= { error }
+        })
+        return result
       })
       results.push(...pageResults)
-      await reportScanPageProgress({
-        context,
-        event: 'scan.progress.page',
-        processed: results.length,
-        total: snapshot.count
-      })
+      if (progressFailure) throw progressFailure.error
     }
+    await reportProgress(true)
     await assertPixivRootUnchanged(root)
     const result = summarize(run.id, snapshot.metadataCandidates, results, {
       skipped: snapshot.inventoryUnchanged,
@@ -250,6 +324,15 @@ async function ensureMetadataSnapshot(input: {
   })
 }
 
+interface MetadataInputTiming {
+  checkpointReadMs: number | null
+  directoryGuardMs: number | null
+  metadataReadMs: number | null
+  mediaEnumerationMs: number | null
+  mediaCount: number | null
+  transactions: Array<FencedMutationTransactionTiming & { phase: string }>
+}
+
 async function processMetadataInput(input: {
   context: ExecutionContext<ScanPayload, EnqueuedChildJob>
   dependencies: ScanExecutorDependencies
@@ -259,14 +342,21 @@ async function processMetadataInput(input: {
   inventoryRootPathHash: string
   row: MetadataInputRow
   policy: ExistingArtworkPolicy
-  now: Date
+  now: () => Date
+  checkpointTiming: () => ScanItemTiming
+  timing: MetadataInputTiming
   limits: ScanExecutorLimits
 }) {
   throwIfAborted(input.context.signal)
-  const checkpoint = await input.dependencies.database.scanRunItem.findUnique({
-    where: { scanRunId_checkpointKey: { scanRunId: input.runId, checkpointKey: checkpointKey(input.row) } },
-    select: { status: true, newImageCount: true }
-  })
+  const checkpointStarted = performance.now()
+  const checkpoint = await input.dependencies.database.scanRunItem
+    .findUnique({
+      where: { scanRunId_checkpointKey: { scanRunId: input.runId, checkpointKey: checkpointKey(input.row) } },
+      select: { status: true, newImageCount: true }
+    })
+    .finally(() => {
+      input.timing.checkpointReadMs = performance.now() - checkpointStarted
+    })
   if (checkpoint?.status === 'SUCCESS' || checkpoint?.status === 'SKIPPED') {
     return { status: checkpoint.status, newImages: checkpoint.newImageCount }
   }
@@ -291,135 +381,159 @@ async function processMetadataInput(input: {
       return { status: 'FAILED' as const, newImages: 0 }
     }
   }
+  const directoryGuardStarted = performance.now()
   const mediaDirectory = await captureScanMediaDirectory({
     context: input.context,
     scanRoot: input.root.absolutePath,
-    relativeDirectory: path.posix.dirname(input.row.relativePath)
+    relativeDirectory: path.posix.dirname(input.row.relativePath),
+    observeTiming: (timing) => input.timing.transactions.push({ phase: 'directory-guard', ...timing })
+  }).finally(() => {
+    input.timing.directoryGuardMs = performance.now() - directoryGuardStarted
   })
-  await input.context.mutateInTransaction<ScanTransaction & QueueSqlExecutor>(async (transaction) => {
-    await assertPixivScanSources(transaction, {
-      snapshot: input.row.dedupSourceSnapshot,
-      relativePath: input.row.relativePath,
-      rootIdentity: mediaDirectory.rootIdentity
+  await input.context.mutateInTransaction<ScanTransaction & QueueSqlExecutor>(
+    async (transaction) => {
+      await assertPixivScanSources(transaction, {
+        snapshot: input.row.dedupSourceSnapshot,
+        relativePath: input.row.relativePath,
+        rootIdentity: mediaDirectory.rootIdentity
+      })
+    },
+    (timing) => input.timing.transactions.push({ phase: 'source-guard', ...timing })
+  )
+  const metadataStarted = performance.now()
+  const { candidate, document, metadata } = await (async () => {
+    const resolved = await resolveSafeExistingPath(input.root, input.row.relativePath, 'file')
+    const candidate = metadataCandidateFromPath(resolved)
+    if (!candidate || !input.row.contentHash) {
+      throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Frozen metadata path is invalid')
+    }
+    const document = await readStableFileContent({
+      absolutePath: candidate.absolutePath,
+      maxBytes: input.limits.maxMetadataBytes,
+      signal: input.context.signal
     })
+    if (document.sha256 !== input.row.contentHash) {
+      throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Frozen metadata content changed before processing')
+    }
+    let metadata
+    try {
+      metadata = parseMetadataDocument(document.bytes.toString('utf8'), candidate.format)
+    } catch {
+      throw new MetadataInputFailure(
+        new ScanExecutorError('METADATA_INVALID', 'Metadata document is invalid'),
+        false,
+        document.state
+      )
+    }
+    if (metadata.id !== candidate.artworkId) {
+      throw new MetadataInputFailure(
+        new ScanExecutorError('METADATA_INVALID', 'Metadata identity does not match its frozen filename'),
+        false,
+        document.state
+      )
+    }
+    return { candidate, document, metadata }
+  })().finally(() => {
+    input.timing.metadataReadMs = performance.now() - metadataStarted
   })
-  const resolved = await resolveSafeExistingPath(input.root, input.row.relativePath, 'file')
-  const candidate = metadataCandidateFromPath(resolved)
-  if (!candidate || !input.row.contentHash) {
-    throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Frozen metadata path is invalid')
-  }
-  const document = await readStableFileContent({
-    absolutePath: candidate.absolutePath,
-    maxBytes: input.limits.maxMetadataBytes,
-    signal: input.context.signal
-  })
-  if (document.sha256 !== input.row.contentHash) {
-    throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Frozen metadata content changed before processing')
-  }
-  let metadata
-  try {
-    metadata = parseMetadataDocument(document.bytes.toString('utf8'), candidate.format)
-  } catch {
-    throw new MetadataInputFailure(
-      new ScanExecutorError('METADATA_INVALID', 'Metadata document is invalid'),
-      false,
-      document.state
-    )
-  }
-  if (metadata.id !== candidate.artworkId) {
-    throw new MetadataInputFailure(
-      new ScanExecutorError('METADATA_INVALID', 'Metadata identity does not match its frozen filename'),
-      false,
-      document.state
-    )
-  }
   if (input.policy === 'SKIP') {
     const existing = await input.context.mutateInTransaction<
       ScanTransaction & QueueSqlExecutor,
       Awaited<ReturnType<typeof recordExistingInventoryDecision>>
-    >((transaction) =>
-      recordExistingInventoryDecision({
-        transaction,
-        runId: input.runId,
-        checkpointOrdinal: input.row.ordinal,
-        checkpointKey: checkpointKey(input.row),
-        relativePath: candidate.relativePath,
-        contentHash: input.row.contentHash!,
-        state: document.state,
-        externalId: metadata.id,
-        title: metadata.title,
-        artistName: metadata.user,
-        inventoryBaselineGeneration: input.inventoryBaselineGeneration,
-        inventoryRootPathHash: input.inventoryRootPathHash,
-        dedupSourceSnapshot: input.row.dedupSourceSnapshot,
-        now: input.now
-      })
+    >(
+      (transaction) =>
+        recordExistingInventoryDecision({
+          transaction,
+          runId: input.runId,
+          checkpointOrdinal: input.row.ordinal,
+          checkpointKey: checkpointKey(input.row),
+          relativePath: candidate.relativePath,
+          contentHash: input.row.contentHash!,
+          state: document.state,
+          externalId: metadata.id,
+          title: metadata.title,
+          artistName: metadata.user,
+          inventoryBaselineGeneration: input.inventoryBaselineGeneration,
+          inventoryRootPathHash: input.inventoryRootPathHash,
+          dedupSourceSnapshot: input.row.dedupSourceSnapshot,
+          now: input.now(),
+          checkpointTiming: input.checkpointTiming
+        }),
+      (timing) => input.timing.transactions.push({ phase: 'existing-decision', ...timing })
     )
     if (existing) return existing
   }
   try {
+    const mediaStarted = performance.now()
     const media = await collectArtworkMedia(
       input.root,
       candidate,
       { maxEntries: input.limits.maxEntries, maxMediaPerArtwork: input.limits.maxMediaPerArtwork },
       input.context.signal
-    )
+    ).finally(() => {
+      input.timing.mediaEnumerationMs = performance.now() - mediaStarted
+    })
+    input.timing.mediaCount = media.length
     if (media.length === 0) throw new ScanExecutorError('MEDIA_NOT_FOUND', 'Artwork has no supported media')
     const publishStarted = performance.now()
-    return input.context.mutateInTransaction<
+    return await input.context.mutateInTransaction<
       ScanTransaction & QueueSqlExecutor,
       Awaited<ReturnType<typeof publishPixivArtwork>>
-    >(async (transaction) => {
-      await lockCreatorCatalog(transaction)
-      await assertScanMediaDirectory(transaction, mediaDirectory)
-      await assertPixivScanSources(transaction, {
-        snapshot: input.row.dedupSourceSnapshot,
-        relativePath: input.row.relativePath,
-        rootIdentity: mediaDirectory.rootIdentity,
-        externalId: metadata.id
-      })
-      await assertPixivRootUnchanged(input.root)
-      if (input.context.payload.mode === 'ARTWORK_RESCAN') {
-        await assertArtworkRescanSnapshot({
-          transaction,
-          artworkId: input.context.payload.artworkId,
-          externalId: metadata.id,
-          metadataRelativePath: candidate.relativePath
+    >(
+      async (transaction) => {
+        await lockCreatorCatalog(transaction)
+        await assertScanMediaDirectory(transaction, mediaDirectory)
+        await assertPixivScanSources(transaction, {
+          snapshot: input.row.dedupSourceSnapshot,
+          relativePath: input.row.relativePath,
+          rootIdentity: mediaDirectory.rootIdentity,
+          externalId: metadata.id
         })
-      }
-      const previousCheckpoint = await transaction.scanRunItem.findUnique({
-        where: { scanRunId_checkpointKey: { scanRunId: input.runId, checkpointKey: checkpointKey(input.row) } },
-        select: { status: true, action: true }
-      })
-      const result = await publishPixivArtwork({
-        transaction,
-        runId: input.runId,
-        checkpointOrdinal: input.row.ordinal,
-        checkpointKey: checkpointKey(input.row),
-        metadataRelativePath: candidate.relativePath,
-        dedupSourceSnapshot: input.row.dedupSourceSnapshot,
-        metadata,
-        metadataContentHash: input.row.contentHash!,
-        media,
-        existingPolicy: input.policy,
-        now: input.now
-      })
-      await recordPublishedInventory({
-        transaction,
-        runId: input.runId,
-        checkpointOrdinal: input.row.ordinal,
-        checkpointKey: checkpointKey(input.row),
-        relativePath: candidate.relativePath,
-        contentHash: input.row.contentHash!,
-        state: document.state,
-        externalId: metadata.id,
-        publishStatus: result.status,
-        publishDurationMs: performance.now() - publishStarted,
-        previousCheckpoint,
-        now: input.now
-      })
-      return result
-    })
+        await assertPixivRootUnchanged(input.root)
+        if (input.context.payload.mode === 'ARTWORK_RESCAN') {
+          await assertArtworkRescanSnapshot({
+            transaction,
+            artworkId: input.context.payload.artworkId,
+            externalId: metadata.id,
+            metadataRelativePath: candidate.relativePath
+          })
+        }
+        const previousCheckpoint = await transaction.scanRunItem.findUnique({
+          where: { scanRunId_checkpointKey: { scanRunId: input.runId, checkpointKey: checkpointKey(input.row) } },
+          select: { status: true, action: true }
+        })
+        const result = await publishPixivArtwork({
+          transaction,
+          runId: input.runId,
+          checkpointOrdinal: input.row.ordinal,
+          checkpointKey: checkpointKey(input.row),
+          metadataRelativePath: candidate.relativePath,
+          dedupSourceSnapshot: input.row.dedupSourceSnapshot,
+          metadata,
+          metadataContentHash: input.row.contentHash!,
+          media,
+          existingPolicy: input.policy,
+          now: input.now(),
+          checkpointTiming: input.checkpointTiming
+        })
+        await recordPublishedInventory({
+          transaction,
+          runId: input.runId,
+          checkpointOrdinal: input.row.ordinal,
+          checkpointKey: checkpointKey(input.row),
+          relativePath: candidate.relativePath,
+          contentHash: input.row.contentHash!,
+          state: document.state,
+          externalId: metadata.id,
+          publishStatus: result.status,
+          publishDurationMs: performance.now() - publishStarted,
+          previousCheckpoint,
+          now: input.now()
+        })
+        return result
+      },
+      (timing) => input.timing.transactions.push({ phase: 'publish', ...timing })
+    )
   } catch (error) {
     throwIfAborted(input.context.signal)
     throw new MetadataInputFailure(error, true, document.state)
@@ -464,7 +578,9 @@ async function recordInputFailure(
   error: unknown,
   parsed: boolean,
   state: StableFileState | undefined,
-  now: Date
+  now: Date,
+  checkpointTiming?: () => ScanItemTiming,
+  observeTiming?: (timing: FencedMutationTransactionTiming) => void
 ): Promise<Awaited<ReturnType<typeof recordInventoryFailure>>> {
   try {
     return await context.mutateInTransaction<
@@ -487,10 +603,11 @@ async function recordInputFailure(
         error,
         parsed,
         updateInventory: !isScanSourceProofRejection(error),
-        now
+        now,
+        ...(checkpointTiming ? { checkpointTiming } : {})
       })
-      if (outcome.status === 'FAILED')
-        {await context.recordDiagnostic?.(transaction, {
+      if (outcome.status === 'FAILED') {
+        await context.recordDiagnostic?.(transaction, {
           key: `scan:${runId}:${checkpointKey(row)}`,
           scope: 'ITEM',
           targetType: 'METADATA',
@@ -498,12 +615,13 @@ async function recordInputFailure(
           targetLabel: row.relativePath,
           stage: parsed ? 'FAILED_COLLECT' : 'FAILED_PARSE',
           error
-        })}
+        })
+      }
       return outcome
-    })
+    }, observeTiming)
   } catch (failure) {
     if (!isScanSourceProofRejection(error) && isScanSourceProofRejection(failure)) {
-      return recordInputFailure(context, runId, row, failure, parsed, state, now)
+      return recordInputFailure(context, runId, row, failure, parsed, state, now, checkpointTiming, observeTiming)
     }
     throw failure
   }

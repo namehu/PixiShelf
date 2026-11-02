@@ -4,7 +4,7 @@ import { ScanExecutorError } from './errors.ts'
 import { animationDurationSourceChanged, canPreserveAnimationClassification } from './animation-duration-source.ts'
 import type { DiscoveredMediaFile } from './discovery.ts'
 import type { ScanMetadata } from './metadata.ts'
-import type { ScanTransaction } from './types.ts'
+import type { ScanItemTiming, ScanTransaction } from './types.ts'
 import { initializePixivImportReading } from './pixiv-import-reading.ts'
 import {
   normalizeImportedPixivSourceTags,
@@ -28,6 +28,7 @@ export interface PixivPublishInput {
   now: Date
   expectedIdentity?: PixivPublishIdentityExpectation
   manageCheckpoint?: boolean
+  checkpointTiming?: () => ScanItemTiming
 }
 
 export interface PixivPublishIdentityExpectation {
@@ -54,7 +55,11 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
     }
   }
 
-  await assertPixivScanSources(transaction, { snapshot: input.dedupSourceSnapshot, relativePath: input.metadataRelativePath, externalId: metadata.id })
+  await assertPixivScanSources(transaction, {
+    snapshot: input.dedupSourceSnapshot,
+    relativePath: input.metadataRelativePath,
+    externalId: metadata.id
+  })
   const sourceRef = await transaction.artworkExternalRef.findUnique({
     where: { providerKey_externalId: { providerKey: 'pixiv', externalId: metadata.id } },
     include: {
@@ -260,6 +265,11 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
       sortOrder: true,
       mediaType: true,
       webpAnimationStatus: true,
+      chaptersPath: true,
+      chaptersCount: true,
+      chaptersDuration: true,
+      chaptersUpdatedAt: true,
+      chaptersHash: true,
       animationMetadata: true
     }
   })
@@ -272,6 +282,7 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
     existingByIdentity.set(identity, image)
   }
   let newImageCount = 0
+  const newImages: Prisma.ImageCreateManyInput[] = []
 
   // 新增图片要接在当前最大 sortOrder 之后；复用路径则只更新元数据，不触发删除、重排或插队，保证本地手工追加/本地文件更新不会被扫描改乱顺序。
   let nextSortOrder = existingImages.reduce((maximum, image) => Math.max(maximum, image.sortOrder), -1) + 1
@@ -288,7 +299,12 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
     }
     const existing = existingByIdentity.get(normalizeMediaIdentity(item.relativePath))
     if (existing) {
-      await checkArtworkSummarySource(transaction, existing.id, item.relativePath, item.sourceState ? { ...item.sourceState, size: item.size } : undefined)
+      await checkArtworkSummarySource(
+        transaction,
+        existing.id,
+        item.relativePath,
+        item.sourceState ? { ...item.sourceState, size: item.size } : undefined
+      )
       if (
         canPreserveAnimationClassification({
           previousPath: existing.path,
@@ -316,19 +332,36 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
       ) {
         await invalidateAnimationDurationSource(transaction, { imageId: existing.id, sourcePath: existing.path })
       }
-      await transaction.image.update({ where: { id: existing.id }, data: sourceMediaData })
+      const chaptersUnchanged =
+        existing.chaptersPath === item.chaptersPath &&
+        existing.chaptersCount === item.chaptersCount &&
+        existing.chaptersDuration === item.chaptersDuration &&
+        existing.chaptersHash === item.chaptersHash
+      if (chaptersUnchanged) sourceMediaData.chaptersUpdatedAt = existing.chaptersUpdatedAt
+      // Source invalidation above must run even when the Image fields themselves did not change.
+      if (
+        existing.size !== sourceMediaData.size ||
+        existing.mediaType !== sourceMediaData.mediaType ||
+        existing.webpAnimationStatus !== sourceMediaData.webpAnimationStatus ||
+        !chaptersUnchanged
+      ) {
+        await transaction.image.update({ where: { id: existing.id }, data: sourceMediaData })
+      }
     } else {
-      await transaction.image.create({
-        data: {
-          artworkId,
-          path: item.relativePath,
-          sortOrder: nextSortOrder,
-          ...sourceMediaData
-        }
+      newImages.push({
+        artworkId,
+        path: item.relativePath,
+        sortOrder: nextSortOrder,
+        ...sourceMediaData
       })
       nextSortOrder += 1
-      newImageCount += 1
     }
+  }
+  // Keep trigger work proportional to artworks, while bounding a very large work's INSERT size.
+  // Identity conflicts must abort this artwork transaction, never disappear under skipDuplicates.
+  for (let offset = 0; offset < newImages.length; offset += 500) {
+    const inserted = await transaction.image.createMany({ data: newImages.slice(offset, offset + 500) })
+    newImageCount += inserted.count
   }
   if (isNewArtwork) await initializePixivImportReading(transaction, artworkId)
   if (input.manageCheckpoint !== false) {
@@ -457,16 +490,27 @@ export async function replacePixivSourceTags(
   sourceRefId: string,
   names: string[]
 ) {
-  const tagIds: number[] = []
-  for (const name of new Set(names)) {
-    const tag = await transaction.tag.upsert({
-      where: { namespace_name: { namespace: 'general', name } },
-      create: { namespace: 'general', name },
-      update: {},
-      select: { id: true }
+  const uniqueNames = [...new Set(names)]
+  let tags =
+    uniqueNames.length === 0
+      ? []
+      : await transaction.tag.findMany({
+          where: { namespace: 'general', name: { in: uniqueNames } },
+          select: { id: true, name: true }
+        })
+  const existingNames = new Set(tags.map((tag) => tag.name))
+  const missingNames = uniqueNames.filter((name) => !existingNames.has(name))
+  if (missingNames.length > 0) {
+    await transaction.tag.createMany({
+      data: missingNames.map((name) => ({ namespace: 'general', name })),
+      skipDuplicates: true
     })
-    tagIds.push(tag.id)
+    tags = await transaction.tag.findMany({
+      where: { namespace: 'general', name: { in: uniqueNames } },
+      select: { id: true, name: true }
+    })
   }
+  const tagIds = tags.map((tag) => tag.id)
 
   // ArtworkTag 使用 (artworkId, tagId) 唯一约束，且一条关系有 provenance/sourceRefId 两个维度。
   // 刷新时仅清理当前 provider/sourceRef 标记的 SOURCE 标签，避免误删 MANUAL/DERIVED/未命中的 LEGACY（以及其他来源）归属。
@@ -478,17 +522,16 @@ export async function replacePixivSourceTags(
       ...(tagIds.length > 0 ? { tagId: { notIn: tagIds } } : {})
     }
   })
-  for (const tagId of tagIds) {
+  if (tagIds.length > 0) {
     // 当前 Pixiv 元数据再次明确声明同名标签时，已有 LEGACY 关系已经具备可验证的来源证据，可以安全认领给当前 ref。
-    // MANUAL、DERIVED 和其他来源关系不满足条件，仍由下面的 ownership-preserving upsert 原样保留。
+    // MANUAL、DERIVED 和其他来源关系不满足条件，下面批量补关联时利用唯一约束保留它们的归属。
     await transaction.artworkTag.updateMany({
-      where: { artworkId, tagId, provenance: 'LEGACY', sourceRefId: null },
+      where: { artworkId, tagId: { in: tagIds }, provenance: 'LEGACY', sourceRefId: null },
       data: { provenance: 'SOURCE', sourceRefId }
     })
-    await transaction.artworkTag.upsert({
-      where: { artworkId_tagId: { artworkId, tagId } },
-      create: { artworkId, tagId, provenance: 'SOURCE', sourceRefId },
-      update: {}
+    await transaction.artworkTag.createMany({
+      data: tagIds.map((tagId) => ({ artworkId, tagId, provenance: 'SOURCE', sourceRefId })),
+      skipDuplicates: true
     })
   }
 }
@@ -502,6 +545,7 @@ async function writeItem(
     newImageCount: number
   }
 ) {
+  const timing = input.checkpointTiming?.() ?? { startedAt: input.now, finishedAt: input.now }
   await input.transaction.scanRunItem.upsert({
     where: { scanRunId_checkpointKey: { scanRunId: input.runId, checkpointKey: input.checkpointKey } },
     create: {
@@ -516,7 +560,7 @@ async function writeItem(
       attempt: 1,
       mediaCount: input.media.length,
       newImageCount: result.newImageCount,
-      finishedAt: input.now
+      ...timing
     },
     update: {
       externalId: input.metadata.id,
@@ -529,7 +573,7 @@ async function writeItem(
       mediaCount: input.media.length,
       newImageCount: result.newImageCount,
       errorMessage: null,
-      finishedAt: input.now
+      ...timing
     }
   })
   await input.transaction.scanRun.updateMany({

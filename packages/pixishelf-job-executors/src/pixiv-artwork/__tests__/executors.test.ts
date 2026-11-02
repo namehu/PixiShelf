@@ -188,7 +188,10 @@ describe('Pixiv artwork enrichment executor', () => {
         delete: vi.fn()
       },
       tag: {
-        upsert: vi.fn().mockResolvedValueOnce({ id: 11 }).mockResolvedValueOnce({ id: 12 }),
+        findMany: vi.fn().mockResolvedValue([
+          { id: 11, name: 'tag-a' },
+          { id: 12, name: 'tag-b' }
+        ]),
         findFirst: vi.fn().mockResolvedValue({ id: 99 })
       },
       artworkTag: {
@@ -198,7 +201,7 @@ describe('Pixiv artwork enrichment executor', () => {
           .mockResolvedValueOnce([{ tag: { name: 'tag-a' } }, { tag: { name: 'tag-b' } }]),
         deleteMany: tagDelete,
         updateMany: tagUpdate,
-        upsert: tagRelationUpsert,
+        createMany: tagRelationUpsert,
         findUnique: vi
           .fn()
           .mockResolvedValueOnce({ id: 98, provenance: 'SOURCE', sourceRefId: 'ref-1' })
@@ -250,7 +253,13 @@ describe('Pixiv artwork enrichment executor', () => {
     expect(tagDelete).toHaveBeenCalledWith({
       where: { artworkId: 1, provenance: 'SOURCE', sourceRefId: 'ref-1', tagId: { notIn: [11, 12] } }
     })
-    expect(tagRelationUpsert).toHaveBeenCalledTimes(2)
+    expect(tagRelationUpsert).toHaveBeenCalledWith({
+      data: [
+        { artworkId: 1, tagId: 11, provenance: 'SOURCE', sourceRefId: 'ref-1' },
+        { artworkId: 1, tagId: 12, provenance: 'SOURCE', sourceRefId: 'ref-1' }
+      ],
+      skipDuplicates: true
+    })
     expect(aiRelationUpdate).toHaveBeenCalledWith({
       where: { id: 98 },
       data: { provenance: 'DERIVED', sourceRefId: null }
@@ -332,14 +341,17 @@ describe('Pixiv artwork enrichment executor', () => {
         delete: vi.fn()
       },
       tag: {
-        upsert: vi.fn().mockResolvedValueOnce({ id: 11 }).mockResolvedValueOnce({ id: 12 }),
+        findMany: vi.fn().mockResolvedValue([
+          { id: 11, name: 'tag-a' },
+          { id: 12, name: 'tag-b' }
+        ]),
         findFirst: vi.fn().mockResolvedValue({ id: 99 })
       },
       artworkTag: {
         findMany: vi.fn().mockResolvedValue([]),
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
         updateMany: vi.fn().mockResolvedValue({ count: 0 }),
-        upsert: vi.fn().mockResolvedValue(undefined),
+        createMany: vi.fn().mockResolvedValue({ count: 2 }),
         findUnique: vi
           .fn()
           .mockResolvedValueOnce(null)

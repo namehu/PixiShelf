@@ -1,15 +1,17 @@
 import { pixivSourceProofFixture, localSourceProofFixture } from './dedup-source-fixture.ts'
 import { confirmedAnimationFixture } from './classification-fixture.ts'
-import type { Prisma } from '@pixishelf/db'
+import { checkArtworkSummarySource, invalidateAnimationDurationSource, type Prisma } from '@pixishelf/db'
 import { describe, expect, it, vi } from 'vitest'
 import { publishLocalMediaWork } from '../local-publisher.js'
-import { publishPixivArtwork } from '../pixiv-publisher.js'
+import { publishPixivArtwork, replacePixivSourceTags } from '../pixiv-publisher.js'
 import type { ScanTransaction } from '../types.js'
 
 vi.mock('@pixishelf/db', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@pixishelf/db')>(),
+  ...(await importOriginal<typeof import('@pixishelf/db')>()),
   assertArtworkDedupSources: vi.fn(async () => undefined),
-  assertArtworkDedupWritable: vi.fn(async () => undefined)
+  assertArtworkDedupWritable: vi.fn(async () => undefined),
+  checkArtworkSummarySource: vi.fn(async () => undefined),
+  invalidateAnimationDurationSource: vi.fn(async () => false)
 }))
 
 const now = new Date('2026-08-15T00:00:00.000Z')
@@ -199,12 +201,14 @@ describe('scan item checkpoints', () => {
     })
 
     expect(fixture.imageCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        artworkId: 42,
-        path: '11/42/42_p0.mp4',
-        chaptersPath: '11/42/42_p0.chapters.json',
-        chaptersUpdatedAt: now
-      })
+      data: [
+        expect.objectContaining({
+          artworkId: 42,
+          path: '11/42/42_p0.mp4',
+          chaptersPath: '11/42/42_p0.chapters.json',
+          chaptersUpdatedAt: now
+        })
+      ]
     })
     expect(fixture.imageUpdate).not.toHaveBeenCalled()
   })
@@ -315,7 +319,7 @@ describe('scan item checkpoints', () => {
       { tagId: 6, provenance: 'SOURCE', sourceRefId: 'ref-other' },
       { tagId: 7, provenance: 'SOURCE', sourceRefId: 'ref-pixiv' }
     ])
-    expect(fixture.artworkTagUpsert).toHaveBeenCalledTimes(6)
+    expect(fixture.artworkTagCreateMany).toHaveBeenCalledOnce()
   })
 
   it('honors local overrides and preserves artist and existing media order during refresh', async () => {
@@ -365,7 +369,7 @@ describe('scan item checkpoints', () => {
       data: expect.not.objectContaining({ path: expect.anything(), sortOrder: expect.anything() })
     })
     expect(fixture.imageCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({ artworkId: 42, path: '11/42/42_p1.mp4', sortOrder: 9 })
+      data: [expect.objectContaining({ artworkId: 42, path: '11/42/42_p1.mp4', sortOrder: 9 })]
     })
     expect(fixture.imageDeleteMany).not.toHaveBeenCalled()
     expect(fixture.artworkState.externalId).toBe('local-legacy-identity')
@@ -604,7 +608,7 @@ function pixivMedia(relativePath: string) {
 }
 
 function pixivTransaction(existingImages: Array<{ id: number; path: string; sortOrder: number }>) {
-  const imageCreate = vi.fn(async (_input: { data: Record<string, unknown> }) => ({}))
+  const imageCreate = vi.fn(async (input: { data: Record<string, unknown>[] }) => ({ count: input.data.length }))
   const imageUpdate = vi.fn(async (_input: { where: { id: number }; data: Record<string, unknown> }) => ({}))
   const artworkCreate = vi.fn(async (_input: { data: Record<string, unknown>; select: { id: true } }) => ({ id: 42 }))
   const artworkSourceSnapshotUpsert = vi.fn(async () => ({}))
@@ -640,7 +644,7 @@ function pixivTransaction(existingImages: Array<{ id: number; path: string; sort
     artworkTag: { deleteMany: vi.fn(async () => ({ count: 0 })), upsert: vi.fn(async () => ({})) },
     image: {
       findMany: vi.fn(async () => existingImages),
-      create: imageCreate,
+      createMany: imageCreate,
       update: imageUpdate
     },
     scanRun: { updateMany: vi.fn(async () => ({ count: 1 })) }
@@ -699,22 +703,28 @@ function existingPixivTransaction(
   )
   const artistUpsert = vi.fn(async () => ({ id: 7 }))
   const imageUpdate = vi.fn(async (_input: { where: { id: number }; data: Record<string, unknown> }) => ({}))
-  const imageCreate = vi.fn(async (_input: { data: Record<string, unknown> }) => ({}))
+  const imageCreate = vi.fn(async (input: { data: Record<string, unknown>[] }) => ({ count: input.data.length }))
   const imageDeleteMany = vi.fn(async () => ({ count: 0 }))
   const artworkSourceSnapshotUpsert = vi.fn(async () => ({}))
-  const artworkTagUpsert = vi.fn(async ({ where, create, update }) => {
-    const existing = tags.find((row) => row.tagId === where.artworkId_tagId.tagId)
-    if (!existing) tags.push({ tagId: create.tagId, provenance: create.provenance, sourceRefId: create.sourceRefId })
-    if (Object.keys(update).length > 0) throw new Error('The fixture only supports ownership-preserving upserts')
-    return existing ?? create
+  const artworkTagCreateMany = vi.fn(async ({ data }) => {
+    for (const row of data)
+      if (!tags.some((existing) => existing.tagId === row.tagId))
+        tags.push({
+          tagId: row.tagId,
+          provenance: row.provenance,
+          sourceRefId: row.sourceRefId
+        })
+    return { count: data.length }
   })
   const artworkTagUpdateMany = vi.fn(async ({ where, data }) => {
-    const existing = tags.find(
-      (row) => row.tagId === where.tagId && row.provenance === where.provenance && row.sourceRefId === where.sourceRefId
+    const matching = tags.filter(
+      (row) =>
+        where.tagId.in.includes(row.tagId) &&
+        row.provenance === where.provenance &&
+        row.sourceRefId === where.sourceRefId
     )
-    if (!existing) return { count: 0 }
-    Object.assign(existing, data)
-    return { count: 1 }
+    for (const row of matching) Object.assign(row, data)
+    return { count: matching.length }
   })
   const artworkTagDeleteMany = vi.fn(async ({ where }) => {
     const incoming = new Set<number>(where.tagId?.notIn ?? [])
@@ -751,17 +761,18 @@ function existingPixivTransaction(
     artist: { upsert: artistUpsert },
     artworkRawMetadata: { upsert: vi.fn(async () => ({})) },
     tag: {
-      upsert: vi.fn(async ({ where }) => {
-        const name = where.namespace_name.name as string
-        const id = options.tagIdsByName?.get(name)
-        if (id === undefined) throw new Error(`Missing fixture tag id for ${name}`)
-        return { id }
-      })
+      findMany: vi.fn(async ({ where }) =>
+        where.name.in.map((name: string) => ({ name, id: options.tagIdsByName?.get(name) }))
+      )
     },
-    artworkTag: { deleteMany: artworkTagDeleteMany, updateMany: artworkTagUpdateMany, upsert: artworkTagUpsert },
+    artworkTag: {
+      deleteMany: artworkTagDeleteMany,
+      updateMany: artworkTagUpdateMany,
+      createMany: artworkTagCreateMany
+    },
     image: {
       findMany: vi.fn(async () => options.existingImages ?? []),
-      create: imageCreate,
+      createMany: imageCreate,
       update: imageUpdate,
       deleteMany: imageDeleteMany
     },
@@ -775,7 +786,7 @@ function existingPixivTransaction(
     artworkUpdateMany,
     artistUpsert,
     artworkSourceSnapshotUpsert,
-    artworkTagUpsert,
+    artworkTagCreateMany,
     imageUpdate,
     imageCreate,
     imageDeleteMany
@@ -809,5 +820,137 @@ it('retains a confirmed animation when Pixiv refresh proves the same complete so
   expect(fixture.imageUpdate).toHaveBeenCalledWith({
     where: { id: 11 },
     data: expect.objectContaining({ mediaType: 'ANIMATION', webpAnimationStatus: 2 })
+  })
+})
+
+function pixivInput(transaction: ScanTransaction) {
+  return {
+    transaction,
+    runId: 'run-1',
+    checkpointOrdinal: 0,
+    checkpointKey: 'metadata:0:bulk',
+    metadataRelativePath: '11/42/42-meta.json',
+    dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
+    metadataContentHash: 'a'.repeat(64),
+    metadata: pixivMetadata(),
+    existingPolicy: 'REFRESH' as const,
+    now
+  }
+}
+
+it('inserts 501 new media in bounded batches without dropping conflicts, then initializes reading', async () => {
+  const fixture = pixivTransaction([])
+  const media = Array.from({ length: 501 }, (_, index) => pixivMedia('11/42/42_p' + index + '.mp4'))
+  const result = await publishPixivArtwork({ ...pixivInput(fixture.transaction), media })
+  expect(result.newImages).toBe(501)
+  expect(fixture.imageCreate.mock.calls.map(([input]) => input.data.length)).toEqual([500, 1])
+  expect(fixture.imageCreate.mock.calls[0]![0]).not.toHaveProperty('skipDuplicates')
+  expect(fixture.imageCreate.mock.calls[1]![0].data[0]).toMatchObject({ sortOrder: 500 })
+  expect(fixture.transaction.userSetting.findMany).toHaveBeenCalledAfter(fixture.imageCreate)
+})
+
+it('uses actual inserted counts and lets insertion errors abort publication before checkpoint/read initialization', async () => {
+  const fixture = pixivTransaction([])
+  fixture.imageCreate.mockResolvedValueOnce({ count: 0 })
+  expect(
+    await publishPixivArtwork({ ...pixivInput(fixture.transaction), media: [pixivMedia('11/42/new.mp4')] })
+  ).toMatchObject({ newImages: 0 })
+  fixture.imageCreate.mockRejectedValueOnce(new Error('unique constraint'))
+  vi.mocked(fixture.transaction.scanRunItem.upsert).mockClear()
+  vi.mocked(fixture.transaction.userSetting.findMany).mockClear()
+  await expect(
+    publishPixivArtwork({ ...pixivInput(fixture.transaction), media: [pixivMedia('11/42/new.mp4')] })
+  ).rejects.toThrow('unique constraint')
+  expect(fixture.transaction.scanRunItem.upsert).not.toHaveBeenCalled()
+  expect(fixture.transaction.userSetting.findMany).not.toHaveBeenCalled()
+})
+
+it('rejects colliding incoming paths without writing images', async () => {
+  const fixture = pixivTransaction([])
+  await expect(
+    publishPixivArtwork({
+      ...pixivInput(fixture.transaction),
+      media: [pixivMedia('11/42/a.mp4'), pixivMedia('/11/42/A.mp4')]
+    })
+  ).rejects.toMatchObject({ code: 'INPUT_SNAPSHOT_INVALID' })
+  expect(fixture.imageCreate).not.toHaveBeenCalled()
+})
+
+it('retains chapter sampling time and skips unchanged Image updates while appending new media after the maximum order', async () => {
+  const incoming = pixivMedia('11/42/42_p0.mp4')
+  const existing = {
+    ...incoming,
+    id: 9,
+    path: incoming.relativePath,
+    sortOrder: 17,
+    chaptersUpdatedAt: mediaModifiedAt
+  }
+  const fixture = existingPixivTransaction({ existingImages: [existing] })
+  await publishPixivArtwork({ ...pixivInput(fixture.transaction), media: [incoming, pixivMedia('11/42/42_p1.mp4')] })
+  expect(fixture.imageUpdate).not.toHaveBeenCalled()
+  expect(fixture.imageCreate).toHaveBeenCalledWith({ data: [expect.objectContaining({ sortOrder: 18 })] })
+})
+
+it('checks summary and invalidates changed animation source even if final Image fields are identical', async () => {
+  const incoming = pixivMedia('11/42/42_p0.mp4')
+  const sourceState = { sizeBytes: 5n, mtimeMs: 99n, ctimeMs: 2n, deviceId: 3n, inode: 4n }
+  const existing = {
+    ...incoming,
+    id: 9,
+    path: incoming.relativePath,
+    sortOrder: 1,
+    chaptersUpdatedAt: mediaModifiedAt,
+    animationMetadata: {
+      ...confirmedAnimationFixture(incoming.relativePath).previous.animationMetadata,
+      sourceSize: 5n
+    }
+  }
+  const fixture = existingPixivTransaction({ existingImages: [existing] })
+  await publishPixivArtwork({ ...pixivInput(fixture.transaction), media: [{ ...incoming, sourceState }] })
+  expect(fixture.imageUpdate).not.toHaveBeenCalled()
+  expect(checkArtworkSummarySource).toHaveBeenCalledWith(fixture.transaction, 9, incoming.relativePath, {
+    ...sourceState,
+    size: 5n
+  })
+  expect(invalidateAnimationDurationSource).toHaveBeenCalledWith(fixture.transaction, {
+    imageId: 9,
+    sourcePath: incoming.relativePath
+  })
+})
+
+it('records real settlement timing and leaves unmeasured durations unknown', async () => {
+  const fixture = pixivTransaction([])
+  const timing = { startedAt: now, finishedAt: new Date(now.getTime() + 30), durationMs: 29 }
+  await publishPixivArtwork({ ...pixivInput(fixture.transaction), media: [], checkpointTiming: () => timing })
+  expect(fixture.transaction.scanRunItem.upsert).toHaveBeenLastCalledWith(
+    expect.objectContaining({ create: expect.objectContaining(timing), update: expect.objectContaining(timing) })
+  )
+  await publishPixivArtwork({ ...pixivInput(fixture.transaction), media: [] })
+  const call = vi.mocked(fixture.transaction.scanRunItem.upsert).mock.calls.at(-1)![0]
+  expect(call.create).not.toHaveProperty('durationMs')
+})
+
+it('creates only missing general tags in one batch without changing existing tag attributes', async () => {
+  const findMany = vi
+    .fn()
+    .mockResolvedValueOnce([{ id: 1, name: 'existing' }])
+    .mockResolvedValueOnce([
+      { id: 1, name: 'existing' },
+      { id: 2, name: 'missing' }
+    ])
+  const createMany = vi.fn(async () => ({ count: 1 }))
+  const tag = { findMany, createMany, update: vi.fn(), upsert: vi.fn() }
+  const artworkTag = { deleteMany: vi.fn(), updateMany: vi.fn(), createMany: vi.fn() }
+  await replacePixivSourceTags({ tag, artworkTag } as unknown as ScanTransaction, 42, 'ref-pixiv', [
+    'existing',
+    'missing',
+    'missing'
+  ])
+  expect(createMany).toHaveBeenCalledWith({ data: [{ namespace: 'general', name: 'missing' }], skipDuplicates: true })
+  expect(tag.update).not.toHaveBeenCalled()
+  expect(tag.upsert).not.toHaveBeenCalled()
+  expect(artworkTag.createMany).toHaveBeenCalledWith({
+    data: [1, 2].map((tagId) => ({ artworkId: 42, tagId, provenance: 'SOURCE', sourceRefId: 'ref-pixiv' })),
+    skipDuplicates: true
   })
 })
