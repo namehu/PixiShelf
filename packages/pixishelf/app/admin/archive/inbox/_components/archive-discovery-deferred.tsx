@@ -4,10 +4,12 @@ import { useMemo, useRef, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { inferRouterOutputs } from '@trpc/server'
+import { ArchiveRestoreIcon, BanIcon, ExternalLinkIcon, PlusIcon } from 'lucide-react'
 import type { AppRouter } from '@/server'
 import { useTRPC } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { DropdownMenuGroup, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
@@ -16,6 +18,8 @@ import { archiveClientErrorMessage } from '../../_components/archive-client-erro
 import { ArchiveIntakeOptionsDialog, DEFAULT_ARCHIVE_INTAKE_OPTIONS } from './archive-intake-options'
 import { ArchiveDiscoveryIgnoreDialog } from './archive-discovery-ignore-dialog'
 import { formatArchiveUploaderTimestamp } from './archive-uploader-view-state'
+import { ArchiveDiscoverySelectionBar } from './archive-discovery-bulk-bar'
+import { ArchiveDiscoverySelectionSurface } from './archive-discovery-selection-surface'
 
 type Result = inferRouterOutputs<AppRouter>['archiveSearch']['restoreDeferredItems']
 
@@ -75,6 +79,13 @@ export function ArchiveDiscoveryDeferred({
     else if (action === 'ignore') ignore.mutate(input)
     else restore.mutate(input)
   }
+  const toggle = (id: string, checked: boolean) =>
+    setSelected((current) => {
+      const next = new Set(current)
+      if (checked && next.size < 100) next.add(id)
+      else if (!checked) next.delete(id)
+      return next
+    })
   return (
     <Dialog
       open
@@ -92,7 +103,6 @@ export function ArchiveDiscoveryDeferred({
         </DialogHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-sm text-muted-foreground">共 {query.data?.pages[0]?.totalCount ?? '…'} 条</span>
-          <ArchiveIntakeOptionsDialog value={options} onChange={setOptions} disabled={pending} />
         </div>
         {issues.length ? (
           <Alert variant="destructive">
@@ -132,54 +142,41 @@ export function ArchiveDiscoveryDeferred({
               选择已加载的画廊（最多 100 条）
             </label>
             {items.map((item) => (
-              <div key={item.id} className="flex flex-wrap items-start gap-3 rounded-lg border p-3">
+              <ArchiveDiscoverySelectionSurface
+                key={item.id}
+                itemId={item.id}
+                title={item.title}
+                checked={selected.has(item.id)}
+                disabled={pending || (!selected.has(item.id) && selected.size >= 100)}
+                onToggle={(checked) => toggle(item.id, checked)}
+                className="flex flex-wrap items-start gap-3 rounded-lg border p-3"
+              >
                 <Checkbox
                   aria-label={`选择 ${item.title}`}
                   checked={selected.has(item.id)}
                   disabled={pending || (!selected.has(item.id) && selected.size >= 100)}
-                  onCheckedChange={(checked) =>
-                    setSelected((current) => {
-                      const next = new Set(current)
-                      if (checked) next.add(item.id)
-                      else next.delete(item.id)
-                      return next
-                    })
-                  }
+                  onCheckedChange={(checked) => toggle(item.id, checked === true)}
                 />
                 <div className="min-w-0 flex-1">
-                  <PrivacySensitiveText>
-                    <a
-                      href={item.sourceHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      referrerPolicy="no-referrer"
-                      className="break-words hover:underline"
-                    >
-                      {item.title}
-                    </a>
-                  </PrivacySensitiveText>
+                  <PrivacySensitiveText className="break-words font-medium">{item.title}</PrivacySensitiveText>
                   <p className="mt-1 text-xs text-muted-foreground">
                     <PrivacySensitiveText>{item.sourceDisplayName}</PrivacySensitiveText>
                     {item.sourceDeleted ? '（来源已删除）' : ''} · {formatArchiveUploaderTimestamp(item.deferredAt)}
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" disabled={pending} onClick={() => command('restore', [item.id])}>
-                    恢复待办
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={pending}
-                    onClick={() => setIgnoreSelection({ items: [{ id: item.id, title: item.title }] })}
+                <Button size="sm" variant="ghost" className="min-h-11 sm:min-h-9" asChild>
+                  <a
+                    href={item.sourceHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    referrerPolicy="no-referrer"
+                    aria-label={`打开原站 ${item.title}`}
                   >
-                    忽略
-                  </Button>
-                  <Button size="sm" disabled={pending} onClick={() => command('download', [item.id])}>
-                    加入收件箱
-                  </Button>
-                </div>
-              </div>
+                    <ExternalLinkIcon data-icon="inline-start" />
+                    原站
+                  </a>
+                </Button>
+              </ArchiveDiscoverySelectionSurface>
             ))}
             {query.hasNextPage ? (
               <Button variant="outline" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>
@@ -188,28 +185,53 @@ export function ArchiveDiscoveryDeferred({
             ) : null}
           </div>
         )}
-        {selected.size ? (
-          <div className="flex flex-wrap items-center gap-2" role="region" aria-label="稍后决定批量操作">
-            <span className="text-sm">已选择 {selected.size} 条</span>
-            <Button variant="outline" disabled={pending} onClick={() => command('restore', [...selected])}>
-              恢复待办
+        <ArchiveDiscoverySelectionBar
+          selectedCount={selected.size}
+          pending={pending}
+          onClear={() => setSelected(new Set())}
+          label="稍后决定批量操作"
+          primaryAction={
+            <Button aria-label="加入收件箱" disabled={pending} onClick={() => command('download', [...selected])}>
+              <PlusIcon data-icon="inline-start" />
+              加入收件箱（{selected.size}）
             </Button>
+          }
+          secondaryAction={
             <Button
+              aria-label="恢复待办"
               variant="outline"
               disabled={pending}
-              onClick={() =>
-                setIgnoreSelection({
-                  items: items.filter((item) => selected.has(item.id)).map(({ id, title }) => ({ id, title }))
-                })
-              }
+              onClick={() => command('restore', [...selected])}
             >
-              忽略
+              <ArchiveRestoreIcon data-icon="inline-start" />
+              恢复待办（{selected.size}）
             </Button>
-            <Button disabled={pending} onClick={() => command('download', [...selected])}>
-              加入收件箱
-            </Button>
-          </div>
-        ) : null}
+          }
+          menuItems={
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                aria-label="忽略"
+                disabled={pending}
+                onSelect={() =>
+                  setIgnoreSelection({
+                    items: items.filter((item) => selected.has(item.id)).map(({ id, title }) => ({ id, title }))
+                  })
+                }
+              >
+                <BanIcon />
+                忽略（{selected.size}）
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          }
+          options={
+            <ArchiveIntakeOptionsDialog
+              value={options}
+              onChange={setOptions}
+              disabled={pending}
+              presentation="selection"
+            />
+          }
+        />
         <ArchiveDiscoveryIgnoreDialog
           selection={ignoreSelection}
           pending={pending}

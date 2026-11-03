@@ -99,9 +99,10 @@ afterEach(() => {
 describe('filtered title candidates display modes', () => {
   it('shares all three modes with accepted results, retaining selection and decoded private titles', async () => {
     setup()
-    const link = await screen.findByRole('link', { name: title })
+    const titleText = await screen.findByText(title)
     expect(screen.getByText('第 1 条')).toBeTruthy()
-    expect(link.closest('[data-privacy-sensitive]')).toBeTruthy()
+    expect(titleText.closest('[data-privacy-sensitive]')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: title })).toBeNull()
     expect(document.querySelector('img')).toBeNull()
     const selected = screen.getByRole('checkbox', { name: `复核 ${title}` })
     fireEvent.click(selected)
@@ -112,9 +113,10 @@ describe('filtered title candidates display modes', () => {
     await changeView('显示首图预览')
     expect(useAdminPreferencesStore.getState().archiveUploaderResultView).toBe('preview')
     expect(screen.getByText('第 1 条')).toBeTruthy()
-    const cover = screen.getByRole('link', { name: `在新标签页打开原站 ${title}` })
-    expect(cover.getAttribute('href')).toBe('/api/archive/catalog/filtered-1/source')
-    expect(cover.getAttribute('target')).toBe('_blank')
+    const source = screen.getByRole('link', { name: `打开原站 ${title}` })
+    expect(source.getAttribute('href')).toBe('/api/archive/catalog/filtered-1/source')
+    expect(source.getAttribute('target')).toBe('_blank')
+    const cover = document.querySelector('[data-discovery-thumbnail]')!
     expect(cover.querySelector('img')?.getAttribute('src')).toBe(item.thumbnailUrl)
     expect(cover.querySelector('img')?.getAttribute('loading')).toBe('lazy')
     fireEvent.load(cover.querySelector('img')!)
@@ -124,7 +126,7 @@ describe('filtered title candidates display modes', () => {
     await changeView('使用卡片模式')
     expect(useAdminPreferencesStore.getState().archiveUploaderResultView).toBe('cards')
     expect(screen.getByText('第 1 条')).toBeTruthy()
-    expect(screen.getByRole('link', { name: `在新标签页打开原站 ${title}` }).classList.contains('h-72')).toBe(true)
+    expect(document.querySelector('[data-discovery-thumbnail]')!.classList.contains('h-72')).toBe(true)
     expect(screen.getByRole('checkbox', { name: `复核 ${title}` }).getAttribute('aria-checked')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: '接纳所选' }))
     expect(mocks.review).toHaveBeenCalledWith(['filtered-1'], 'INCLUDE')
@@ -134,16 +136,32 @@ describe('filtered title candidates display modes', () => {
     expect(screen.getByRole('checkbox', { name: `复核 ${title}` }).getAttribute('aria-checked')).toBe('true')
   })
 
-  it('opens in the shared preferred mode and retains review evidence and image failure fallback', async () => {
+  it('selects readonly evidence and covers, with rich evidence available from the selection bar', async () => {
     useAdminPreferencesStore.setState({ archiveUploaderResultView: 'preview' })
     setup()
-    const link = await screen.findByRole('link', { name: `在新标签页打开原站 ${title}` })
-    const row = link.closest('[data-discovery-item]')!
-    expect(within(row as HTMLElement).getByText('未满足接纳条件')).toBeTruthy()
-    fireEvent.error(link.querySelector('img')!)
-    expect(link.querySelector('img')).toBeNull()
+    const source = await screen.findByRole('link', { name: `打开原站 ${title}` })
+    const row = source.closest('[data-discovery-item]') as HTMLElement
+    const checkbox = within(row).getByRole('checkbox')
+    const summary = within(row).getByText('未满足接纳条件')
+    expect(row.querySelector('details')).toBeNull()
+    fireEvent.click(summary)
+    expect(checkbox.getAttribute('aria-checked')).toBe('true')
+    const cover = row.querySelector('[data-discovery-thumbnail]')!
+    fireEvent.click(cover)
+    expect(checkbox.getAttribute('aria-checked')).toBe('false')
+    fireEvent.error(cover.querySelector('img')!)
+    expect(cover.querySelector('img')).toBeNull()
     expect(screen.getByLabelText(`${title} 没有可用首图`)).toBeTruthy()
-    fireEvent.click(within(row as HTMLElement).getByRole('button', { name: '确认排除' }))
+    fireEvent.click(cover)
+    fireEvent.keyDown(screen.getByRole('button', { name: '更多操作' }), { key: 'Enter' })
+    fireEvent.click(await screen.findByRole('menuitem', { name: '查看匹配证据' }))
+    const dialog = await screen.findByRole('dialog', { name: '匹配证据' })
+    expect(within(dialog).getByText(/全部判断标题/)).toBeTruthy()
+    expect(mocks.listItems).toHaveBeenCalledOnce()
+    expect(mocks.review).not.toHaveBeenCalled()
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: '确认排除' }))
     expect(mocks.review).toHaveBeenCalledWith(['filtered-1'], 'EXCLUDE')
     act(() => useAdminPreferencesStore.setState({ archiveUploaderResultView: 'cards' }))
     expect(screen.getByRole('button', { name: '显示模式：卡片' })).toBeTruthy()
@@ -164,10 +182,48 @@ describe('filtered title candidates display modes', () => {
     useAdminPreferencesStore.setState({ archiveUploaderResultView: 'cards' })
     setup()
     expect(await screen.findByLabelText(`${title} 没有可用首图`)).toBeTruthy()
-    expect((screen.getByRole('button', { name: '接纳' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.queryByRole('button', { name: '确认排除' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '恢复遵循规则' }))
+    expect(screen.queryByRole('button', { name: '接纳所选' })).toBeNull()
+    fireEvent.click(screen.getByRole('checkbox', { name: `复核 ${title}` }))
+    expect((screen.getByRole('button', { name: '接纳所选' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.keyDown(screen.getByRole('button', { name: '更多操作' }), { key: 'Enter' })
+    fireEvent.click(await screen.findByRole('menuitem', { name: '恢复遵循规则' }))
     expect(mocks.review).toHaveBeenCalledWith(['filtered-1'], 'AUTO')
+  })
+
+  it('keeps uploader mismatches out of bulk acceptance and supports keyboard selection', async () => {
+    mocks.listItems.mockResolvedValue({
+      items: [
+        item,
+        {
+          ...item,
+          id: 'restricted',
+          title: 'Restricted',
+          matchEvaluation: { ...item.matchEvaluation, uploaderMatches: false }
+        }
+      ],
+      nextCursor: null
+    })
+    setup()
+    const titleText = await screen.findByText(title)
+    const row = titleText.closest('[data-discovery-item]')!
+    fireEvent.keyDown(row, { key: ' ' })
+    fireEvent.click(screen.getByText('Restricted'))
+    expect(screen.getByRole('button', { name: '接纳所选' }).textContent).toBe('接纳所选（1）')
+    expect(screen.getByRole('button', { name: '确认排除' }).textContent).toBe('确认排除（2）')
+    fireEvent.keyDown(screen.getByRole('button', { name: '更多操作' }), { key: 'Enter' })
+    const restoreRules = await screen.findByRole('menuitem', { name: '恢复遵循规则' })
+    expect(restoreRules.textContent).toBe('恢复遵循规则（2）')
+    fireEvent.keyDown(restoreRules, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: '接纳所选' }))
+    expect(mocks.review).toHaveBeenCalledWith(['filtered-1'], 'INCLUDE')
+    const source = within(row as HTMLElement).getByRole('link')
+    fireEvent.click(source)
+    expect(
+      within(row as HTMLElement)
+        .getByRole('checkbox')
+        .getAttribute('aria-checked')
+    ).toBe('true')
   })
 
   it('does not change database query criteria or review selection when switching display mode', async () => {
@@ -205,11 +261,11 @@ describe('filtered title candidates display modes', () => {
     expect(screen.getByRole('radio', { name: '已确认排除 420' })).toBeTruthy()
     expect(screen.getByRole('radio', { name: '全部过滤项 1500' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '加载下一页' }))
-    const second = (await screen.findByRole('link', { name: 'Other gallery' })).closest('[data-discovery-item]')!
+    const second = (await screen.findByText('Other gallery')).closest('[data-discovery-item]')!
     expect(within(second as HTMLElement).getByText('第 2 条')).toBeTruthy()
     fireEvent.click(screen.getByRole('radio', { name: '已确认排除 420' }))
     await waitFor(() => expect(screen.queryByText('第 2 条')).toBeNull())
-    const remaining = (await screen.findByRole('link', { name: 'Other gallery' })).closest('[data-discovery-item]')!
+    const remaining = (await screen.findByText('Other gallery')).closest('[data-discovery-item]')!
     expect(within(remaining as HTMLElement).getByText('第 1 条')).toBeTruthy()
   })
 

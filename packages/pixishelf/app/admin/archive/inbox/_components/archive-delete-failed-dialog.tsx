@@ -9,6 +9,7 @@ import { useTRPC } from '@/lib/trpc'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,12 +47,14 @@ export function ArchiveDeleteFailedDialog({
   targetType,
   disabled = false,
   onDeleted,
-  compact
+  compact,
+  triggerVariant = 'button'
 }: {
   itemIds: string[]
   targetType: 'INTAKE_ITEM' | 'DISCOVERY_ITEM'
   disabled?: boolean
   compact?: 'mobile' | 'always'
+  triggerVariant?: 'button' | 'menu'
   onDeleted?: () => void
 }) {
   const trpc = useTRPC()
@@ -86,21 +89,36 @@ export function ArchiveDeleteFailedDialog({
   )
   return (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        aria-label={compact ? '删除失败记录' : undefined}
-        title="删除失败记录"
-        className={cn(compact && 'size-11 p-0', compact === 'mobile' && 'sm:h-9 sm:w-auto sm:px-3')}
-        disabled={disabled || mutation.isPending || itemIds.length === 0}
-        onClick={() => setTargets([...itemIds].sort())}
-      >
-        <Trash2Icon data-icon="inline-start" aria-hidden="true" />
-        <span className={compact === 'always' ? 'sr-only' : compact === 'mobile' ? 'hidden sm:inline' : undefined}>
-          删除失败记录{!compact && itemIds.length > 1 ? `（${itemIds.length}）` : ''}
-        </span>
-      </Button>
+      {triggerVariant === 'menu' ? (
+        <DropdownMenuItem
+          variant="destructive"
+          disabled={disabled || mutation.isPending || itemIds.length === 0}
+          onSelect={(event) => {
+            // Keep this menu-mounted confirmation alive while it owns focus.
+            event.preventDefault()
+            setTargets([...itemIds].sort())
+          }}
+        >
+          <Trash2Icon aria-hidden="true" />
+          删除失败记录{itemIds.length > 1 ? `（${itemIds.length}）` : ''}
+        </DropdownMenuItem>
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-label={compact ? '删除失败记录' : undefined}
+          title="删除失败记录"
+          className={cn(compact && 'size-11 p-0', compact === 'mobile' && 'sm:h-9 sm:w-auto sm:px-3')}
+          disabled={disabled || mutation.isPending || itemIds.length === 0}
+          onClick={() => setTargets([...itemIds].sort())}
+        >
+          <Trash2Icon data-icon="inline-start" aria-hidden="true" />
+          <span className={compact === 'always' ? 'sr-only' : compact === 'mobile' ? 'hidden sm:inline' : undefined}>
+            删除失败记录{!compact && itemIds.length > 1 ? `（${itemIds.length}）` : ''}
+          </span>
+        </Button>
+      )}
       <AlertDialog
         open={targets !== null}
         onOpenChange={(open) => {

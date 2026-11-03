@@ -14,18 +14,21 @@ import {
 import { Check, ChevronRight, CircleHelp, X } from 'lucide-react'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 
 export function ArchiveTitleMatchEvidence({
   evaluation,
   evidence,
   decision = 'AUTO',
-  showStatusMarker = true
+  showStatusMarker = true,
+  variant = 'detail'
 }: {
   evaluation?: ArchiveTitleEvaluation | null
   evidence?: ArchiveTitleEvidence
   decision?: ArchiveTitleReviewDecision
   showStatusMarker?: boolean
+  variant?: 'detail' | 'summary'
 }) {
   const titles = evaluation?.evidence ?? evidence
   const pending = !evaluation || (evaluation.reason === 'MISSING_TITLE' && decision === 'AUTO')
@@ -40,7 +43,7 @@ export function ArchiveTitleMatchEvidence({
       ? archiveTitleConditionMatchRanges(matchedRawTitle, evaluation.condition)
       : [])
   return (
-    <div className="pointer-events-auto mt-2 flex min-w-0 flex-col gap-1 text-xs">
+    <div className="mt-2 flex min-w-0 flex-col gap-1 text-xs">
       <div className="flex min-h-9 items-start gap-2 py-1.5 leading-6 text-muted-foreground">
         {showStatusMarker ? (
           <StatusIcon
@@ -58,7 +61,13 @@ export function ArchiveTitleMatchEvidence({
             </Badge>
           ) : null}
           {decision !== 'AUTO' && evaluation ? '规则判断：' : null}
-          <span>{evaluation ? ARCHIVE_TITLE_REASON_LABELS[evaluation.reason] : '历史判断，展开查看标题'}</span>
+          <span>
+            {evaluation
+              ? ARCHIVE_TITLE_REASON_LABELS[evaluation.reason]
+              : variant === 'summary'
+                ? '历史判断'
+                : '历史判断，展开查看标题'}
+          </span>
           {evaluation?.condition ? (
             <PrivacySensitiveText>
               {' '}
@@ -68,7 +77,7 @@ export function ArchiveTitleMatchEvidence({
           ) : null}
         </span>
       </div>
-      {matchedTitle != null ? (
+      {variant === 'detail' && matchedTitle != null ? (
         <div className={cn('min-w-0 border-l-2 pl-3', excluded ? 'border-destructive/40' : 'border-success/40')}>
           <p className="mb-1 text-muted-foreground">
             {excluded ? '触发排除的标题' : '命中标题'}
@@ -85,31 +94,73 @@ export function ArchiveTitleMatchEvidence({
           ) : null}
         </div>
       ) : null}
-      <details className="group/evidence min-w-0">
-        <summary className="flex min-h-9 w-fit cursor-pointer list-none items-center gap-1 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-          <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 group-open/evidence:rotate-90" />
-          全部判断标题{titles?.titles.length ? `（${titles.titles.filter(Boolean).length}）` : ''}
-        </summary>
-        <div className="mt-2 flex min-w-0 flex-col gap-2 rounded-md border bg-muted/20 p-3">
-          <p>
-            {titles?.origin === 'REMOTE'
-              ? '扫描保存的原始标题'
-              : titles?.origin === 'HISTORICAL'
-                ? '历史标题快照（旧空白格式可能已规范化）'
-                : '没有可用的标题证据'}
-          </p>
-          {titles?.titles.filter(Boolean).map((title, index) => (
-            <PrivacySensitiveText
-              key={index}
-              as="p"
-              className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
-            >
-              {decodeArchiveTitle(title)}
-            </PrivacySensitiveText>
-          ))}
-        </div>
-      </details>
+      {variant === 'detail' ? (
+        <details className="group/evidence min-w-0">
+          <summary className="flex min-h-9 w-fit cursor-pointer list-none items-center gap-1 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+            <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 group-open/evidence:rotate-90" />
+            全部判断标题{titles?.titles.length ? `（${titles.titles.filter(Boolean).length}）` : ''}
+          </summary>
+          <div className="mt-2 flex min-w-0 flex-col gap-2 rounded-md border bg-muted/20 p-3">
+            <p>
+              {titles?.origin === 'REMOTE'
+                ? '扫描保存的原始标题'
+                : titles?.origin === 'HISTORICAL'
+                  ? '历史标题快照（旧空白格式可能已规范化）'
+                  : '没有可用的标题证据'}
+            </p>
+            {titles?.titles.filter(Boolean).map((title, index) => (
+              <PrivacySensitiveText
+                key={index}
+                as="p"
+                className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+              >
+                {decodeArchiveTitle(title)}
+              </PrivacySensitiveText>
+            ))}
+          </div>
+        </details>
+      ) : null}
     </div>
+  )
+}
+
+export interface ArchiveTitleMatchEvidenceSnapshot {
+  title: string
+  matchEvaluation?: ArchiveTitleEvaluation | null
+  matchEvidence?: ArchiveTitleEvidence
+  reviewDecision?: ArchiveTitleReviewDecision
+}
+
+export function ArchiveTitleMatchEvidenceDialog({
+  item,
+  onClose
+}: {
+  item: ArchiveTitleMatchEvidenceSnapshot | null
+  onClose: () => void
+}) {
+  return (
+    <Dialog
+      open={item !== null}
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>匹配证据</DialogTitle>
+          <DialogDescription>
+            {item ? <PrivacySensitiveText>{decodeArchiveTitle(item.title)}</PrivacySensitiveText> : null}
+          </DialogDescription>
+        </DialogHeader>
+        {item ? (
+          <ArchiveTitleMatchEvidence
+            evaluation={item.matchEvaluation}
+            evidence={item.matchEvidence}
+            decision={item.reviewDecision}
+          />
+        ) : null}
+      </DialogContent>
+    </Dialog>
   )
 }
 

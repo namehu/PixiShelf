@@ -72,11 +72,9 @@ export function ArchiveUploaderResultViewToggle({
 
 export function ArchiveUploaderGalleryThumbnail({
   item,
-  sourceHref,
   card = false
 }: {
   item: ArchiveUploaderPreviewItem
-  sourceHref?: string
   card?: boolean
 }) {
   const [loaded, setLoaded] = useState(false)
@@ -84,8 +82,14 @@ export function ArchiveUploaderGalleryThumbnail({
 
   const frameClass = card ? 'h-72 w-full' : 'row-span-2 h-48 w-32 sm:h-56 sm:w-40'
 
-  const content = (
-    <>
+  return (
+    <div
+      className={cn(
+        'relative flex shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted/40',
+        frameClass
+      )}
+      data-discovery-thumbnail
+    >
       {item.thumbnailUrl && !failed && !loaded ? <Skeleton className="absolute inset-0 h-full w-full" /> : null}
       {item.thumbnailUrl && !failed ? (
         <img
@@ -101,42 +105,6 @@ export function ArchiveUploaderGalleryThumbnail({
       ) : (
         <ImageOffIcon aria-label={`${item.title} 没有可用首图`} />
       )}
-      {!sourceHref ? (
-        <span className="absolute bottom-2 rounded bg-background/90 px-2 py-1 text-xs text-foreground">
-          来源地址不可用
-        </span>
-      ) : null}
-    </>
-  )
-  if (sourceHref) {
-    return (
-      <Button
-        variant="ghost"
-        className={cn('pointer-events-auto relative shrink-0 overflow-hidden bg-muted/40 p-0', frameClass)}
-        asChild
-      >
-        <a
-          href={sourceHref}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label={`在新标签页打开原站 ${item.title}`}
-          title="在新标签页打开原站"
-        >
-          {content}
-        </a>
-      </Button>
-    )
-  }
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      className={cn('pointer-events-auto relative shrink-0 overflow-hidden bg-muted/40 p-0', frameClass)}
-      disabled
-      title="来源地址不可用"
-      aria-label={`${item.title} 来源地址不可用`}
-    >
-      {content}
-    </Button>
+    </div>
   )
 }

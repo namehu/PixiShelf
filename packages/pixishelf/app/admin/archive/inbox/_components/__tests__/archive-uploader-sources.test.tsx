@@ -80,13 +80,15 @@ vi.mock('@/components/ui/dropdown-menu', async () => {
     DropdownMenuItem: ({
       children,
       disabled,
-      onSelect
+      onSelect,
+      'aria-label': label
     }: {
       children: ReactNode
       disabled?: boolean
       onSelect?: () => void
+      'aria-label'?: string
     }) => (
-      <button type="button" disabled={disabled} onClick={onSelect}>
+      <button type="button" disabled={disabled} onClick={onSelect} aria-label={label}>
         {children}
       </button>
     )
@@ -128,6 +130,7 @@ const itemsData = {
           effectiveCreators: [] as { id: number; name: string }[],
           pendingCreators: [] as { id: number; name: string }[],
           recoverable: false,
+          canRearchive: false,
           sortAt: new Date('2026-09-02T10:30:00.000Z')
         }
       ],
@@ -596,7 +599,8 @@ describe('ArchiveUploaderSources', () => {
     expect(screen.getByText('还没有发现来源')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '查看全局已忽略' }))
     expect(screen.getByText('Ignored Gallery 301')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '恢复 Ignored Gallery 301' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Ignored Gallery 301' }))
+    fireEvent.click(screen.getByRole('button', { name: '恢复' }))
     await waitFor(() => expect(mocks.restoreIgnoredItems).toHaveBeenCalledWith({ ignoredItemIds: ['ignored-item-1'] }))
     fireEvent.click(screen.getByRole('button', { name: '返回来源列表' }))
     expect(screen.getByText('还没有发现来源')).toBeTruthy()
@@ -739,9 +743,10 @@ describe('ArchiveUploaderSources', () => {
   it('renders one aggregated virtual result feed instead of scan-run tabs', () => {
     renderSources()
 
-    expect(screen.getByRole('heading', { level: 2, name: '待处理' })).toBeTruthy()
+    expect(screen.getByRole('radio', { name: '查看待处理' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { level: 2, name: '待处理' })).toBeNull()
     expect(screen.getByText('Gallery 302')).toBeTruthy()
-    expect(screen.getByText(/尚未处理，或本地版本与当前公开信息存在稳定差异/)).toBeTruthy()
+    expect(screen.queryByText(/尚未处理，或本地版本与当前公开信息存在稳定差异/)).toBeNull()
     expect(screen.queryByRole('button', { name: /2026.*已完成/ })).toBeNull()
     expect(mocks.infiniteQueryOptions).toHaveBeenCalledWith(
       expect.objectContaining({ sourceId: 'source-1', view: 'ACTIONABLE', limit: 50 }),
@@ -749,7 +754,7 @@ describe('ArchiveUploaderSources', () => {
     )
     expect(screen.getByText('最新：已追到上次水位')).toBeTruthy()
     expect(screen.getAllByText(/仍有更早内容/).length).toBeGreaterThan(0)
-    expect(screen.getByRole('group', { name: '结果范围' }).className).toContain('overflow-x-auto')
+    expect(screen.getByRole('group', { name: '结果范围' }).className).not.toContain('overflow-x-auto')
   })
 
   it('keeps the durable catalog visible after retained scan runs have been cleaned up', () => {
@@ -857,7 +862,8 @@ describe('ArchiveUploaderSources', () => {
   it('defaults to a pure list and loads the stored thumbnail only after switching view modes', () => {
     renderSources()
 
-    const titleLink = screen.getByRole('link', { name: 'Gallery 302' })
+    expect(screen.queryByRole('link', { name: 'Gallery 302' })).toBeNull()
+    const titleLink = screen.getByRole('link', { name: '打开原站 Gallery 302' })
     expect(titleLink.getAttribute('href')).toBe('/api/archive/catalog/catalog-item-1/source')
     expect(titleLink.getAttribute('target')).toBe('_blank')
     expect(titleLink.getAttribute('rel')).toBe('noopener noreferrer')
@@ -867,10 +873,12 @@ describe('ArchiveUploaderSources', () => {
 
     fireEvent.click(screen.getByLabelText('显示首图预览'))
 
-    const link = screen.getByRole('link', { name: '在新标签页打开原站 Gallery 302' })
+    const link = screen.getByRole('link', { name: '打开原站 Gallery 302' })
     expect(link.getAttribute('href')).toBe('/api/archive/catalog/catalog-item-1/source')
     expect(link.getAttribute('target')).toBe('_blank')
     expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(document.querySelector('img')?.closest('a')).toBeNull()
+    expect(document.querySelector('img')?.getAttribute('loading')).toBe('lazy')
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
@@ -884,25 +892,12 @@ describe('ArchiveUploaderSources', () => {
     expect(sourceLink.getAttribute('target')).toBe('_blank')
     expect(sourceLink.getAttribute('rel')).toBe('noopener noreferrer')
     expect(sourceLink.getAttribute('referrerpolicy')).toBe('no-referrer')
-    expect(screen.getAllByRole('link', { name: '在新标签页打开原站 Gallery 302' })[0]!.getAttribute('href')).toBe(
-      '/api/archive/catalog/catalog-item-1/source'
-    )
+    expect(screen.queryByRole('link', { name: '在新标签页打开原站 Gallery 302' })).toBeNull()
+    expect(document.querySelector('img')?.closest('a')).toBeNull()
     expect(screen.getByRole('checkbox', { name: '选择 Gallery 302' }).getAttribute('data-state')).toBe('checked')
     fireEvent.click(screen.getByLabelText('使用纯列表'))
     expect(screen.queryByRole('button', { name: '预览 Gallery 302 的图片' })).toBeNull()
     expect(screen.getByRole('checkbox', { name: '选择 Gallery 302' }).getAttribute('data-state')).toBe('checked')
-  })
-
-  it('opens the original source independently from the stored cover popup', () => {
-    renderSources()
-
-    fireEvent.click(screen.getByRole('link', { name: '打开原站 Gallery 302' }))
-    const sourceLink = screen.getByRole('link', { name: '打开原站 Gallery 302' })
-    expect(sourceLink.getAttribute('href')).toBe('/api/archive/catalog/catalog-item-1/source')
-    expect(sourceLink.getAttribute('target')).toBe('_blank')
-    expect(sourceLink.getAttribute('rel')).toBe('noopener noreferrer')
-    expect(sourceLink.getAttribute('referrerpolicy')).toBe('no-referrer')
-    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('submits selected catalog items without generating persistence ids in the browser', () => {
@@ -957,7 +952,8 @@ describe('ArchiveUploaderSources', () => {
     }
     renderSources()
     fireEvent.click(screen.getByLabelText('查看异常'))
-    fireEvent.click(screen.getByRole('button', { name: '重新加入收件箱 Gallery 302' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
+    fireEvent.click(screen.getByRole('button', { name: '重新加入收件箱' }))
 
     expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith({
       sourceId: 'source-1',
@@ -1010,6 +1006,8 @@ describe('ArchiveUploaderSources', () => {
   })
 
   registerDiscoveryRowCases({
+    navigateInboxItem: mocks.navigateInboxItem,
+    createSubmissionAttempt: mocks.createSubmissionAttempt,
     deferItems: mocks.deferItems,
     addToInbox: mocks.addToInbox,
     renderSources,
@@ -1043,7 +1041,7 @@ describe('ArchiveUploaderSources', () => {
     renderSources()
     fireEvent.click(screen.getByRole('checkbox', { name: `选择 ${item.title}` }))
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Archived gallery' }))
-    expect(screen.getByRole('button', { name: '绑定艺术家' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /绑定艺术家/ })).toBeTruthy()
     expect(screen.getByRole('button', { name: '忽略' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '加入收件箱' }))
     expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith(expect.objectContaining({ itemIds: [item.id] }))
@@ -1062,13 +1060,13 @@ describe('ArchiveUploaderSources', () => {
       currentDetailData = { source: selectedSource, runs: [completedRun] }
       renderSources()
       expect(screen.queryByRole('button', { name: '加入收件箱' })).toBeNull()
+      fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
       fireEvent.click(screen.getByRole('button', { name: '自动下载 · 原图 · 全部' }))
       fireEvent.click(screen.getByRole('radio', { name: '仅解析' }))
       fireEvent.click(screen.getByRole('radio', { name: '展示图' }))
       fireEvent.click(screen.getByRole('radio', { name: '前20张' }))
       fireEvent.click(screen.getByRole('button', { name: '完成' }))
       expect(mocks.createSubmissionAttempt).not.toHaveBeenCalled()
-      fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
       fireEvent.click(screen.getByRole('button', { name: '加入收件箱' }))
       expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith({
         sourceId: 'source-1',
@@ -1126,11 +1124,11 @@ describe('ArchiveUploaderSources', () => {
       ]
     }
     renderSources()
-    fireEvent.click(screen.getByRole('button', { name: '忽略 Gallery 302' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
+    fireEvent.click(screen.getByRole('button', { name: '忽略' }))
     expect(screen.getByRole('alertdialog').textContent).toContain('Gallery 302')
     fireEvent.click(screen.getByRole('button', { name: '取消' }))
     expect(mocks.ignoreItems).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Archived' }))
     fireEvent.click(screen.getByRole('button', { name: '忽略' }))
     expect(screen.getByRole('alertdialog').textContent).toContain('确认忽略 1 个作品')
@@ -1141,7 +1139,8 @@ describe('ArchiveUploaderSources', () => {
   it('keeps failed ignore targets for retry and guards duplicate submits', () => {
     mocks.ignoreFail = true
     renderSources()
-    fireEvent.click(screen.getByRole('button', { name: '忽略 Gallery 302' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
+    fireEvent.click(screen.getByRole('button', { name: '忽略' }))
     fireEvent.click(screen.getByRole('button', { name: '确认忽略' }))
     expect(screen.getByRole('alertdialog')).toBeTruthy()
     expect(mocks.toastError).toHaveBeenCalled()
@@ -1158,16 +1157,18 @@ describe('ArchiveUploaderSources', () => {
     fireEvent.click(screen.getByLabelText('显示首图预览'))
     openIgnored()
     fireEvent.click(screen.getByLabelText('使用卡片模式'))
-    expect(screen.getByRole('button', { name: 'Ignored Gallery 301 来源地址不可用' }).hasAttribute('disabled')).toBe(
-      true
-    )
+    expect(screen.getByText('原站不可用')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: '打开原站 Ignored Gallery 301' })).toBeNull()
+    fireEvent.click(screen.getByText('Ignored Gallery 301'))
+    expect(screen.getByRole('checkbox', { name: '选择 Ignored Gallery 301' }).getAttribute('aria-checked')).toBe('true')
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('removes ignored items from the infinite cache and refreshes both result feeds', async () => {
     renderSources()
 
-    fireEvent.click(screen.getByRole('button', { name: '忽略 Gallery 302' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
+    fireEvent.click(screen.getByRole('button', { name: '忽略' }))
     expect(mocks.ignoreItems).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '确认忽略' }))
     expect(mocks.ignoreItems).toHaveBeenCalledWith({ sourceId: 'source-1', itemIds: ['catalog-item-1'] })
@@ -1183,7 +1184,8 @@ describe('ArchiveUploaderSources', () => {
 
     openIgnored()
     expect(screen.getByRole('heading', { level: 2, name: '全局已忽略' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '恢复 Ignored Gallery 301' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Ignored Gallery 301' }))
+    fireEvent.click(screen.getByRole('button', { name: '恢复' }))
     expect(mocks.restoreIgnoredItems).toHaveBeenCalledWith({ ignoredItemIds: ['ignored-item-1'] })
   })
 })

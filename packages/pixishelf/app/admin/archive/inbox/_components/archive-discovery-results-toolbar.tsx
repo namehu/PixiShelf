@@ -1,9 +1,8 @@
 'use client'
 
-import { AdminSectionHeader } from '@/app/admin/_components/admin-workbench'
+import { useId } from 'react'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import type { ArchiveUploaderResultView } from '@/store/admin/use-admin-preferences-store'
-import { ArchiveIntakeOptionsDialog, type ArchiveIntakeOptionsValue } from './archive-intake-options'
 import { ArchiveUploaderResultViewToggle } from './archive-uploader-result-visuals'
 
 export type ArchiveDiscoveryCatalogView = 'ACTIONABLE' | 'PROCESSING' | 'ARCHIVED' | 'DELETED' | 'ATTENTION' | 'ALL'
@@ -20,55 +19,49 @@ const RESULT_FEEDS: Array<{ value: ArchiveDiscoveryCatalogView; label: string }>
 export function ArchiveDiscoveryResultsToolbar({
   view,
   counts,
-  description,
   resultView,
   onViewChange,
-  onResultViewChange,
-  intakeOptions,
-  onIntakeOptionsChange,
-  disabled
+  onResultViewChange
 }: {
   view: ArchiveDiscoveryCatalogView
   counts: Record<ArchiveDiscoveryCatalogView, number | null>
-  description: string
   resultView: ArchiveUploaderResultView
   onViewChange: (view: ArchiveDiscoveryCatalogView) => void
   onResultViewChange: (view: ArchiveUploaderResultView) => void
-  intakeOptions: ArchiveIntakeOptionsValue
-  onIntakeOptionsChange: (value: ArchiveIntakeOptionsValue) => void
-  disabled: boolean
 }) {
-  const supportsIntake = view === 'ACTIONABLE' || view === 'ATTENTION' || view === 'ALL'
+  const rangeLabelId = useId()
 
   return (
-    <AdminSectionHeader
-      className="items-stretch sm:flex-col sm:items-stretch [&>div:last-child]:w-full [&>div:last-child]:min-w-0 [&>div:last-child]:flex-nowrap [&>div:last-child]:shrink"
-      title={resultFeedLabel(view)}
-      description={description}
-      actions={
-        <>
-          <ToggleGroup
-            type="single"
-            value={view}
-            onValueChange={(value) => value && onViewChange(value as ArchiveDiscoveryCatalogView)}
-            variant="outline"
-            size="sm"
-            aria-label="结果范围"
-            className="min-w-0 flex-1 justify-start overflow-x-auto"
-          >
-            {RESULT_FEEDS.map((feed) => (
-              <ToggleGroupItem key={feed.value} value={feed.value} aria-label={`查看${feed.label}`}>
-                {feed.label} {counts[feed.value] ?? '…'}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-          <ArchiveUploaderResultViewToggle value={resultView} onChange={onResultViewChange} />
-          {supportsIntake ? (
-            <ArchiveIntakeOptionsDialog value={intakeOptions} onChange={onIntakeOptionsChange} disabled={disabled} />
-          ) : null}
-        </>
-      }
-    />
+    <div className="flex min-w-0 items-center gap-2">
+      <span id={rangeLabelId} className="sr-only shrink-0 text-sm text-muted-foreground sm:not-sr-only">
+        结果范围
+      </span>
+      <div className="min-w-0 flex-1 overflow-x-auto pb-1">
+        <ToggleGroup
+          type="single"
+          value={view}
+          onValueChange={(value) => value && onViewChange(value as ArchiveDiscoveryCatalogView)}
+          variant="outline"
+          size="sm"
+          aria-labelledby={rangeLabelId}
+          className="justify-start"
+        >
+          {RESULT_FEEDS.map((feed) => (
+            <ToggleGroupItem
+              key={feed.value}
+              value={feed.value}
+              aria-label={`查看${feed.label}`}
+              className="min-h-11 gap-1.5 sm:min-h-8"
+            >
+              {feed.label} <span className="tabular-nums">{counts[feed.value] ?? '…'}</span>
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </div>
+      <div className="shrink-0 self-start [&_[data-slot=button]]:size-11 sm:[&_[data-slot=button]]:size-8">
+        <ArchiveUploaderResultViewToggle value={resultView} onChange={onResultViewChange} />
+      </div>
+    </div>
   )
 }
 

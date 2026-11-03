@@ -1,16 +1,7 @@
 'use client'
 
-import { ArchiveDeleteFailedDialog } from './archive-delete-failed-dialog'
 import type { inferRouterOutputs } from '@trpc/server'
-import {
-  ExternalLinkIcon,
-  ArrowUpRightIcon,
-  BanIcon,
-  BookOpenIcon,
-  RotateCcwIcon,
-  ListFilterIcon,
-  ClockIcon
-} from 'lucide-react'
+import { ExternalLinkIcon, BookOpenIcon } from 'lucide-react'
 import type { AppRouter } from '@/server'
 import { DISCOVERY_LANGUAGES } from '@/lib/archive-discovery-filters'
 import { cn } from '@/lib/utils'
@@ -25,14 +16,7 @@ import { type ArchiveDiscoveryCatalogView, resultFeedLabel } from './archive-dis
 import { ArchiveUploaderGalleryThumbnail } from './archive-uploader-result-visuals'
 import { formatArchiveUploaderTimestamp } from './archive-uploader-view-state'
 import { ArchiveTitleMatchEvidence } from './archive-title-match-evidence'
-import { useTitleReview } from './use-title-review'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '@/components/ui/dropdown-menu'
+import { ArchiveDiscoverySelectionSurface } from './archive-discovery-selection-surface'
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
 type ScanItem = RouterOutputs['archiveSearch']['listItems']['items'][number]
@@ -56,10 +40,6 @@ export function ScanResults({
   isFetchingNextPage,
   onLoadMore,
   onRetry,
-  onIgnore,
-  onDefer,
-  onAdd,
-  onNavigateInboxItem,
   mutationPending,
   selectedItemIds,
   allActionableSelected,
@@ -87,10 +67,6 @@ export function ScanResults({
   isFetchingNextPage: boolean
   onLoadMore: () => void
   onRetry: () => void
-  onIgnore: (itemId: string) => void
-  onDefer?: (itemId: string) => void
-  onAdd: (itemId: string) => void
-  onNavigateInboxItem: (itemId: string) => void
   mutationPending: boolean
   selectedItemIds: Set<string>
   allActionableSelected: boolean
@@ -156,43 +132,37 @@ export function ScanResults({
       header={
         <div className="grid min-h-12 grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-2 border-b bg-muted/30 px-3 sm:gap-3 sm:px-4 text-xs font-medium text-muted-foreground">
           <Checkbox
+            disabled={mutationPending}
             checked={allActionableSelected ? true : selectedItemIds.size > 0 ? 'indeterminate' : false}
             onCheckedChange={(checked) => onToggleAll(checked === true)}
             aria-label="选择当前已加载的结果，最多一百条"
           />
           <span>画廊</span>
-          <span className="text-right">操作</span>
+          <span className="text-right">链接</span>
         </div>
       }
       renderItem={(item, index) => (
-        <div
-          data-discovery-item={item.id}
-          className={cn(
-            'relative bg-background transition-colors hover:bg-muted/40',
-            selectedItemIds.has(item.id) && 'bg-accent/50',
-            resultView === 'cards' ? 'h-full rounded-lg border p-3' : 'border-b px-3 py-3 sm:px-4'
-          )}
+        <ArchiveDiscoverySelectionSurface
+          itemId={item.id}
+          title={item.title}
+          checked={selectedItemIds.has(item.id)}
+          disabled={mutationPending || (!selectedItemIds.has(item.id) && selectedItemIds.size >= MAX_SELECTED_ITEMS)}
+          onToggle={(checked) => onToggle(item.id, checked)}
+          className={resultView === 'cards' ? 'h-full rounded-lg border p-3' : 'border-b px-3 py-3 sm:px-4'}
         >
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-hidden="true"
-            onMouseDown={(event) => event.preventDefault()}
-            className="absolute inset-0 size-full cursor-pointer rounded-[inherit] disabled:cursor-default"
-            disabled={!selectedItemIds.has(item.id) && selectedItemIds.size >= MAX_SELECTED_ITEMS}
-            onClick={() => onToggle(item.id, !selectedItemIds.has(item.id))}
-          />
           <div
             className={cn(
-              'pointer-events-none relative grid items-start gap-x-2 gap-y-2 sm:gap-x-3',
+              'relative grid items-start gap-x-2 gap-y-2 sm:gap-x-3',
               resultView === 'cards' ? 'grid-cols-[1.5rem_minmax(0,1fr)]' : 'grid-cols-[1.5rem_minmax(0,1fr)_auto]'
             )}
             data-state={selectedItemIds.has(item.id) ? 'selected' : undefined}
           >
             <Checkbox
-              className="pointer-events-auto mt-1"
+              className="mt-1"
               checked={selectedItemIds.has(item.id)}
-              disabled={!selectedItemIds.has(item.id) && selectedItemIds.size >= MAX_SELECTED_ITEMS}
+              disabled={
+                mutationPending || (!selectedItemIds.has(item.id) && selectedItemIds.size >= MAX_SELECTED_ITEMS)
+              }
               onCheckedChange={(checked) => onToggle(item.id, checked === true)}
               aria-label={`选择 ${item.title}`}
             />
@@ -207,26 +177,12 @@ export function ScanResults({
               )}
             >
               {resultView !== 'list' ? (
-                <ArchiveUploaderGalleryThumbnail
-                  key={item.id}
-                  item={item}
-                  card={resultView === 'cards'}
-                  sourceHref={`/api/archive/catalog/${encodeURIComponent(item.id)}/source`}
-                />
+                <ArchiveUploaderGalleryThumbnail key={item.id} item={item} card={resultView === 'cards'} />
               ) : null}
               <div className={cn('min-w-0 w-full flex-1', resultView === 'preview' && 'contents sm:block')}>
                 <div className="flex min-w-0 flex-col items-start gap-1.5">
                   <PrivacySensitiveText as="p" className="line-clamp-2 w-full min-w-0 break-words font-medium">
-                    <a
-                      href={`/api/archive/catalog/${encodeURIComponent(item.id)}/source`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      referrerPolicy="no-referrer"
-                      className="pointer-events-auto hover:underline focus-visible:underline"
-                      title="在新标签页打开原站"
-                    >
-                      {item.title}
-                    </a>
+                    {item.title}
                   </PrivacySensitiveText>
                 </div>
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -238,6 +194,7 @@ export function ScanResults({
                 </div>
                 {titleReview ? (
                   <ArchiveTitleMatchEvidence
+                    variant="summary"
                     evaluation={item.matchEvaluation}
                     evidence={item.matchEvidence}
                     decision={item.reviewDecision}
@@ -273,123 +230,36 @@ export function ScanResults({
             </div>
             <div
               className={cn(
-                'pointer-events-auto flex shrink-0 items-center justify-end [&_button]:size-11 [&_a]:size-11 sm:[&_button]:size-9 sm:[&_a]:size-9',
+                'flex shrink-0 flex-wrap items-center justify-end gap-1',
                 resultView === 'cards' ? 'col-start-2 row-start-1' : 'col-start-3 row-start-1',
                 resultView === 'list' && 'max-sm:flex-col'
               )}
             >
-              {titleReview ? <TitleReviewMenu item={item} {...titleReview} /> : null}
               {item.artworkId && item.workflowStage !== 'DELETED' ? (
-                <Button variant="ghost" size="icon" asChild>
-                  <a
-                    href={`/artworks/${item.artworkId}`}
-                    aria-label={`查看本地作品 ${item.title}`}
-                    title="查看本地作品"
-                  >
-                    <BookOpenIcon aria-hidden="true" />
+                <Button variant="ghost" size="sm" className="min-h-11 sm:min-h-9" asChild>
+                  <a href={`/artworks/${item.artworkId}`} aria-label={`查看本地作品 ${item.title}`}>
+                    <BookOpenIcon aria-hidden="true" data-icon="inline-start" />
+                    本地作品
                   </a>
                 </Button>
               ) : null}
-              <Button asChild variant="ghost" size="icon">
+              <Button asChild variant="ghost" size="sm" className="min-h-11 sm:min-h-9">
                 <a
                   href={`/api/archive/catalog/${encodeURIComponent(item.id)}/source`}
                   target="_blank"
                   rel="noopener noreferrer"
                   referrerPolicy="no-referrer"
                   aria-label={`打开原站 ${item.title}`}
-                  title="打开原站"
                 >
-                  <ExternalLinkIcon aria-hidden="true" />
+                  <ExternalLinkIcon aria-hidden="true" data-icon="inline-start" />
+                  原站
                 </a>
               </Button>
-              {item.deletableFailure ? (
-                <ArchiveDeleteFailedDialog
-                  targetType="DISCOVERY_ITEM"
-                  itemIds={[item.id]}
-                  disabled={mutationPending}
-                  compact="always"
-                />
-              ) : null}
-              {item.actionable && onDefer ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  disabled={mutationPending}
-                  onClick={() => onDefer(item.id)}
-                  aria-label={`稍后决定 ${item.title}`}
-                  title="稍后决定"
-                >
-                  <ClockIcon aria-hidden="true" />
-                </Button>
-              ) : null}
-              {item.canRearchive ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  disabled={mutationPending}
-                  onClick={() => onAdd(item.id)}
-                  aria-label={`重新归档 ${item.title}`}
-                  title="重新归档"
-                >
-                  <RotateCcwIcon aria-hidden="true" />
-                </Button>
-              ) : item.actionable ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onIgnore(item.id)}
-                  disabled={mutationPending}
-                  aria-label={`忽略 ${item.title}`}
-                >
-                  <BanIcon aria-hidden="true" />
-                </Button>
-              ) : item.workflowBucket === 'ATTENTION' && item.intakeItemId ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onNavigateInboxItem(item.intakeItemId!)}
-                  aria-label={`去收件箱处理 ${item.title}`}
-                >
-                  <ArrowUpRightIcon aria-hidden="true" />
-                </Button>
-              ) : item.recoverable ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onAdd(item.id)}
-                  disabled={mutationPending}
-                  aria-label={`重新加入收件箱 ${item.title}`}
-                >
-                  <RotateCcwIcon aria-hidden="true" />
-                </Button>
-              ) : null}
             </div>
           </div>
-        </div>
+        </ArchiveDiscoverySelectionSurface>
       )}
     />
-  )
-}
-
-function TitleReviewMenu({ item, sourceId, rulesVersion }: { item: ScanItem; sourceId: string; rulesVersion: number }) {
-  const { review, pending } = useTitleReview(sourceId, rulesVersion)
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label={`复核匹配 ${item.title}`} disabled={pending}>
-          <ListFilterIcon aria-hidden="true" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuGroup>
-          <DropdownMenuItem onSelect={() => review([item.id], 'EXCLUDE')}>从本来源排除</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => review([item.id], 'INCLUDE')}>记住为手动接纳</DropdownMenuItem>
-          {item.reviewDecision !== 'AUTO' ? (
-            <DropdownMenuItem onSelect={() => review([item.id], 'AUTO')}>恢复遵循规则</DropdownMenuItem>
-          ) : null}
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }
 

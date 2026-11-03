@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
-import { CheckIcon, RotateCcwIcon, XIcon } from 'lucide-react'
+import { BookOpenIcon, CheckIcon, ExternalLinkIcon, RotateCcwIcon, XIcon, FileSearchIcon } from 'lucide-react'
 import { decodeArchiveTitle } from '@pixishelf/job-contracts'
 import { useTRPC } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
@@ -11,12 +11,19 @@ import { useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-st
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { DropdownMenuGroup, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty'
 import { ArchiveDiscoveryResultList } from './archive-discovery-result-list'
 import { ArchiveDiscoveryContentFilters } from './archive-discovery-content-filters'
 import { DEFAULT_DISCOVERY_FILTERS, discoveryQueryFilters } from './archive-discovery-filter-state'
-import { ArchiveTitleMatchEvidence } from './archive-title-match-evidence'
+import {
+  ArchiveTitleMatchEvidence,
+  ArchiveTitleMatchEvidenceDialog,
+  type ArchiveTitleMatchEvidenceSnapshot
+} from './archive-title-match-evidence'
+import { ArchiveDiscoverySelectionBar } from './archive-discovery-bulk-bar'
+import { ArchiveDiscoverySelectionSurface } from './archive-discovery-selection-surface'
 import { ArchiveUploaderGalleryThumbnail, ArchiveUploaderResultViewToggle } from './archive-uploader-result-visuals'
 import { useTitleReview } from './use-title-review'
 
@@ -37,6 +44,7 @@ export function ArchiveTitleFilteredResults({
   const [filters, setFilters] = useState(DEFAULT_DISCOVERY_FILTERS)
   const [reviewFilter, setReviewFilter] = useState<'ALL' | 'UNREVIEWED' | 'EXCLUDED'>('UNREVIEWED')
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [evidenceItem, setEvidenceItem] = useState<ArchiveTitleMatchEvidenceSnapshot | null>(null)
   const query = useInfiniteQuery(
     trpc.archiveSearch.listItems.infiniteQueryOptions(
       {
@@ -54,6 +62,10 @@ export function ArchiveTitleFilteredResults({
   )
   const items = useMemo(() => query.data?.pages.flatMap((page) => page.items) ?? [], [query.data])
   const { pending, review } = useTitleReview(sourceId, rulesVersion, () => setSelected(new Set()))
+  const selectedItems = items.filter((item) => selected.has(item.id))
+  const acceptableIds = selectedItems
+    .filter((item) => item.matchEvaluation?.uploaderMatches !== false)
+    .map((item) => item.id)
   useEffect(() => setReady(true), [])
   useEffect(() => {
     setSelected((current) => new Set([...current].filter((id) => items.some((item) => item.id === id))))
@@ -158,12 +170,15 @@ export function ArchiveTitleFilteredResults({
           const title = decodeArchiveTitle(item.title)
           const sourceHref = `/api/archive/catalog/${encodeURIComponent(item.id)}/source`
           return (
-            <div
-              data-discovery-item={item.id}
+            <ArchiveDiscoverySelectionSurface
+              itemId={item.id}
+              title={title}
+              checked={selected.has(item.id)}
+              disabled={pending || (!selected.has(item.id) && selected.size >= 100)}
+              onToggle={(checked) => toggle(item.id, checked)}
               className={cn(
-                'grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)_auto] gap-2 bg-background p-3 sm:gap-3 sm:p-4',
-                resultView === 'cards' ? 'h-full rounded-lg border' : 'border-b',
-                selected.has(item.id) && 'bg-accent/50'
+                'grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)_auto] gap-2 p-3 sm:gap-3 sm:p-4',
+                resultView === 'cards' ? 'h-full rounded-lg border' : 'border-b'
               )}
             >
               <Checkbox
@@ -173,44 +188,27 @@ export function ArchiveTitleFilteredResults({
                 disabled={pending || (!selected.has(item.id) && selected.size >= 100)}
                 onCheckedChange={(checked) => toggle(item.id, checked === true)}
               />
-              <div className="col-start-3 row-start-1 flex items-center gap-1">
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-11 sm:size-9"
-                  aria-label="接纳"
-                  title="接纳"
-                  disabled={pending || item.matchEvaluation?.uploaderMatches === false}
-                  onClick={() => review([item.id], 'INCLUDE')}
-                >
-                  <CheckIcon aria-hidden="true" />
+              <div className="col-start-3 row-start-1 flex flex-wrap items-center justify-end gap-1 max-sm:flex-col">
+                {item.artworkId && item.workflowStage !== 'DELETED' ? (
+                  <Button variant="ghost" size="sm" className="min-h-11 sm:min-h-9" asChild>
+                    <a href={`/artworks/${item.artworkId}`} aria-label={`查看本地作品 ${title}`}>
+                      <BookOpenIcon aria-hidden="true" data-icon="inline-start" />
+                      本地作品
+                    </a>
+                  </Button>
+                ) : null}
+                <Button variant="ghost" size="sm" className="min-h-11 sm:min-h-9" asChild>
+                  <a
+                    href={sourceHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    referrerPolicy="no-referrer"
+                    aria-label={`打开原站 ${title}`}
+                  >
+                    <ExternalLinkIcon aria-hidden="true" data-icon="inline-start" />
+                    原站
+                  </a>
                 </Button>
-                {item.reviewDecision !== 'EXCLUDE' ? (
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-11 sm:size-9"
-                    aria-label="确认排除"
-                    title="确认排除"
-                    disabled={pending}
-                    onClick={() => review([item.id], 'EXCLUDE')}
-                  >
-                    <XIcon aria-hidden="true" />
-                  </Button>
-                ) : null}
-                {item.reviewDecision !== 'AUTO' ? (
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-11 sm:size-9"
-                    aria-label="恢复遵循规则"
-                    title="恢复遵循规则"
-                    disabled={pending}
-                    onClick={() => review([item.id], 'AUTO')}
-                  >
-                    <RotateCcwIcon aria-hidden="true" />
-                  </Button>
-                ) : null}
               </div>
               <div
                 className={cn(
@@ -228,21 +226,12 @@ export function ArchiveTitleFilteredResults({
                       key={item.id}
                       item={{ ...item, title }}
                       card={resultView === 'cards'}
-                      sourceHref={sourceHref}
                     />
                   </div>
                 ) : null}
                 <div className="min-w-0">
                   <PrivacySensitiveText as="p" className="break-words text-sm font-medium [overflow-wrap:anywhere]">
-                    <a
-                      className="hover:underline"
-                      href={sourceHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      referrerPolicy="no-referrer"
-                    >
-                      {title}
-                    </a>
+                    {title}
                   </PrivacySensitiveText>
                   <p className="mt-1 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
                     <span className="whitespace-nowrap tabular-nums">第 {index + 1} 条</span> · #{item.externalId} ·{' '}
@@ -253,41 +242,63 @@ export function ArchiveTitleFilteredResults({
                   className={resultView === 'preview' ? 'col-span-2 min-w-0 sm:col-span-1 sm:col-start-2' : 'min-w-0'}
                 >
                   <ArchiveTitleMatchEvidence
+                    variant="summary"
                     evaluation={item.matchEvaluation}
                     evidence={item.matchEvidence}
                     decision={item.reviewDecision}
                   />
                 </div>
               </div>
-            </div>
+            </ArchiveDiscoverySelectionSurface>
           )
         }}
       />
-      {selected.size ? (
-        <div
-          className="sticky bottom-[calc(var(--app-mobile-navigation-offset)+0.75rem)] z-20 flex flex-wrap items-center gap-2 rounded-md border bg-background p-3 shadow-lg lg:bottom-4"
-          aria-label="批量复核"
-        >
-          <span className="text-sm">已选 {selected.size} 条</span>
-          <Button className="h-11" disabled={pending} onClick={() => review([...selected], 'INCLUDE')}>
-            接纳所选
-          </Button>
+      <ArchiveDiscoverySelectionBar
+        selectedCount={selected.size}
+        pending={pending}
+        onClear={() => setSelected(new Set())}
+        label="批量复核"
+        primaryAction={
           <Button
-            className="h-11"
+            aria-label="接纳所选"
+            disabled={pending || acceptableIds.length === 0}
+            onClick={() => review(acceptableIds, 'INCLUDE')}
+          >
+            <CheckIcon data-icon="inline-start" />
+            接纳所选（{acceptableIds.length}）
+          </Button>
+        }
+        secondaryAction={
+          <Button
+            aria-label="确认排除"
             variant="outline"
             disabled={pending}
             onClick={() => review([...selected], 'EXCLUDE')}
           >
-            确认排除
+            <XIcon data-icon="inline-start" />
+            确认排除（{selected.size}）
           </Button>
-          <Button className="h-11" variant="ghost" disabled={pending} onClick={() => review([...selected], 'AUTO')}>
-            恢复遵循规则
-          </Button>
-          <Button className="h-11" variant="ghost" disabled={pending} onClick={() => setSelected(new Set())}>
-            清空勾选
-          </Button>
-        </div>
-      ) : null}
+        }
+        menuItems={
+          <DropdownMenuGroup>
+            <DropdownMenuItem
+              aria-label="恢复遵循规则"
+              disabled={pending}
+              onSelect={() => review([...selected], 'AUTO')}
+            >
+              <RotateCcwIcon />
+              恢复遵循规则（{selected.size}）
+            </DropdownMenuItem>
+            {selectedItems.length === 1 ? (
+              <DropdownMenuItem onSelect={() => setEvidenceItem(selectedItems[0]!)}>
+                <FileSearchIcon />
+                查看匹配证据
+              </DropdownMenuItem>
+            ) : null}
+          </DropdownMenuGroup>
+        }
+      />
+      <ArchiveTitleMatchEvidenceDialog item={evidenceItem} onClose={() => setEvidenceItem(null)} />
     </div>
   )
 }

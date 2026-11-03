@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { cn } from '@/lib/utils'
 import type { ArchiveDownloadMode, ArchiveQuality } from '../../_components/archive-intake-view-state'
 
 export interface ArchiveIntakeOptionsValue {
@@ -34,11 +35,13 @@ export function archiveIntakeOptionsSummary(value: ArchiveIntakeOptionsValue) {
 export function ArchiveIntakeOptionsDialog({
   value,
   onChange,
-  disabled = false
+  disabled = false,
+  presentation = 'toolbar'
 }: {
   value: ArchiveIntakeOptionsValue
   onChange: (value: ArchiveIntakeOptionsValue) => void
   disabled?: boolean
+  presentation?: 'toolbar' | 'selection'
 }) {
   const [open, setOpen] = useState(false)
   const summary = archiveIntakeOptionsSummary(value)
@@ -49,14 +52,24 @@ export function ArchiveIntakeOptionsDialog({
         type="button"
         variant="outline"
         size="sm"
-        className="max-sm:size-8 max-sm:p-0"
+        className={cn(
+          presentation === 'toolbar'
+            ? 'max-sm:size-8 max-sm:p-0'
+            : 'h-auto min-h-11 min-w-0 max-w-full px-2 py-2 sm:min-h-9 sm:px-3'
+        )}
         aria-label={summary}
         title={summary}
         onClick={() => setOpen(true)}
         disabled={disabled}
       >
-        <Settings2Icon aria-hidden="true" />
-        <span className="hidden sm:inline">{summary}</span>
+        <Settings2Icon
+          data-icon="inline-start"
+          aria-hidden="true"
+          className={presentation === 'selection' ? 'hidden sm:block' : undefined}
+        />
+        <span className={presentation === 'selection' ? 'min-w-0 whitespace-normal text-left' : 'hidden sm:inline'}>
+          {summary}
+        </span>
       </Button>
       <DialogContent>
         <DialogHeader>

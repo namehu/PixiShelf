@@ -92,7 +92,7 @@ export function ArchiveDiscoveryContentFilters({
         }
       }}
     >
-      <FieldGroup className="max-h-[50dvh] gap-5 overflow-y-auto p-1">
+      <FieldGroup className="max-h-[50dvh] gap-5 overflow-y-auto p-1 [&_[data-slot=field-label]]:min-h-11 sm:[&_[data-slot=field-label]]:min-h-0 [&_[data-slot=input]]:min-h-11 sm:[&_[data-slot=input]]:min-h-9">
         <FieldSet className="gap-2">
           <FieldLegend variant="label">分类</FieldLegend>
           <div className="grid grid-cols-2 gap-3">
@@ -178,7 +178,7 @@ export function ArchiveDiscoveryContentFilters({
           <FieldLabel htmlFor={`${id}-unbound`}>仅看未绑定</FieldLabel>
         </Field>
       </FieldGroup>
-      <div className="flex shrink-0 justify-between gap-2 pt-4 pb-[env(safe-area-inset-bottom)]">
+      <div className="flex shrink-0 justify-between gap-2 pt-4 pb-[env(safe-area-inset-bottom)] [&_[data-slot=button]]:h-11 sm:[&_[data-slot=button]]:h-9">
         <Button
           type="button"
           variant="ghost"
@@ -198,32 +198,37 @@ export function ArchiveDiscoveryContentFilters({
     </form>
   )
   const trigger = (
-    <Button variant="outline">
+    <Button variant="outline" className="h-11 sm:h-9">
       <SlidersHorizontalIcon data-icon="inline-start" aria-hidden="true" />
       筛选{chips.length ? `（${chips.length}）` : ''}
     </Button>
   )
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="flex min-w-0 flex-col gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         <form
-          className="flex min-w-0 flex-1 gap-2 sm:max-w-lg"
+          className="min-w-0 flex-1 sm:max-w-lg"
           onSubmit={(event) => {
             event.preventDefault()
             onChange({ ...value, search: search.trim() })
           }}
         >
-          <Input
-            type="search"
-            aria-label="搜索内容标题"
-            placeholder="搜索标题"
-            maxLength={200}
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-          <Button type="submit" variant="outline" size="icon" aria-label="搜索内容">
-            <SearchIcon aria-hidden="true" />
-          </Button>
+          <FieldGroup>
+            <Field orientation="horizontal" className="min-w-0 gap-2">
+              <Input
+                type="search"
+                aria-label="搜索内容标题"
+                placeholder="搜索标题"
+                maxLength={200}
+                className="h-11 sm:h-9"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+              <Button type="submit" variant="outline" size="icon" className="size-11 sm:size-9" aria-label="搜索内容">
+                <SearchIcon aria-hidden="true" />
+              </Button>
+            </Field>
+          </FieldGroup>
         </form>
         {desktop ? (
           <Popover open={open} onOpenChange={changeOpen}>
@@ -248,7 +253,14 @@ export function ArchiveDiscoveryContentFilters({
       {chips.length ? (
         <div className="flex flex-wrap gap-2" aria-label="已应用筛选">
           {chips.map((chip) => (
-            <Button key={chip.key} variant="secondary" size="sm" onClick={chip.remove} aria-label={`移除${chip.label}`}>
+            <Button
+              key={chip.key}
+              variant="secondary"
+              size="sm"
+              className="h-11 sm:h-8"
+              onClick={chip.remove}
+              aria-label={`移除${chip.label}`}
+            >
               <PrivacySensitiveText className="max-w-48 truncate">{chip.label}</PrivacySensitiveText>
               <XIcon data-icon="inline-end" aria-hidden="true" />
             </Button>
@@ -256,6 +268,7 @@ export function ArchiveDiscoveryContentFilters({
           <Button
             variant="ghost"
             size="sm"
+            className="h-11 sm:h-8"
             onClick={() => {
               setSearch('')
               onChange(DEFAULT_DISCOVERY_FILTERS)

@@ -3,7 +3,10 @@
 import { ArchiveDeleteFailedDialog } from './archive-delete-failed-dialog'
 import { ArchiveDiscoveryDeferred } from './archive-discovery-deferred'
 import { ScanResults } from './archive-discovery-scan-results'
-import { ArchiveTitleSourcePanel, ArchiveTitleReviewBulkActions } from './archive-title-source-panel'
+import { ArchiveTitleSourcePanel, ArchiveTitleReviewMenuItems } from './archive-title-source-panel'
+import { ArchiveTitleRuleSheet } from './archive-title-rule-sheet'
+import { ArchiveTitleCreatorCleanup } from './archive-title-creator-cleanup'
+import { ArchiveTitleMatchEvidenceDialog } from './archive-title-match-evidence'
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -44,7 +47,7 @@ import { ArchiveDiscoverySourceError } from './archive-discovery-source-error'
 import { IgnoredResults } from './archive-discovery-ignored-results'
 import { type ArchiveDiscoveryListPosition } from './archive-discovery-result-list'
 import { ArchiveDiscoveryResultsToolbar, type ArchiveDiscoveryCatalogView } from './archive-discovery-results-toolbar'
-import { DEFAULT_ARCHIVE_INTAKE_OPTIONS } from './archive-intake-options'
+import { ArchiveIntakeOptionsDialog, DEFAULT_ARCHIVE_INTAKE_OPTIONS } from './archive-intake-options'
 import { ArchiveSearchSourceDialog, type ArchiveSearchDialogState } from './archive-search-source-dialog'
 import { copyArchiveUploaderUid } from './archive-uploader-clipboard'
 import { ArchiveCreateSourceDialog } from './archive-create-source-dialog'
@@ -102,6 +105,8 @@ export function ArchiveUploaderSources({
   const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set())
   const [contentFilters, setContentFilters] = useState(DEFAULT_DISCOVERY_FILTERS)
   const [uidDialogOpen, setUidDialogOpen] = useState(false)
+  const [titleSettings, setTitleSettings] = useState<'rules' | 'cleanup' | null>(null)
+  const [evidenceItem, setEvidenceItem] = useState<ScanItem | null>(null)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
   const [ignoreSelection, setIgnoreSelection] = useState<DiscoveryIgnoreSelection | null>(null)
   const ignoreSubmitting = useRef(false)
@@ -225,6 +230,8 @@ export function ArchiveUploaderSources({
       setResultFeed('ACTIONABLE')
       setContentFilters(DEFAULT_DISCOVERY_FILTERS)
       setCreatorDialog(null)
+      setTitleSettings(null)
+      setEvidenceItem(null)
       setCancelRequestedRunId(null)
     }
     activeDraftSourceIdRef.current = selectedSourceId
@@ -539,6 +546,7 @@ export function ArchiveUploaderSources({
   const submittableItems = items.filter(isSubmittableItem)
   const bulkSelectableItems = items.slice(0, MAX_SELECTED_ITEMS)
   const selectedItems = items.filter((item) => selectedItemIds.has(item.id))
+  const singleSelectedItem = selectedItems.length === 1 ? selectedItems[0] : undefined
   const selectedSubmittable = submittableItems.filter((item) => selectedItemIds.has(item.id))
   const selectedIgnorable = selectedItems.filter((item) => item.actionable)
   const openCreators = (mode: 'bind' | 'cancel') => {
@@ -727,22 +735,18 @@ export function ArchiveUploaderSources({
             onEditUid={() => setUidDialogOpen(true)}
             onDelete={() => setDeleteSourceId(source.id)}
             onCopyUid={() => source.uploaderUid && void copyArchiveUploaderUid(source.uploaderUid)}
+            onEditDefaultCreators={() =>
+              setCreatorDialog({
+                mode: 'defaults',
+                sourceId: source.id,
+                itemIds: [],
+                immediateCount: 0,
+                initialCreators: source.defaultCreators ?? []
+              })
+            }
+            onEditRules={source.titleRules ? () => setTitleSettings('rules') : undefined}
+            onCleanupCreators={source.titleRules ? () => setTitleSettings('cleanup') : undefined}
           />
-
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => enterIgnored(source.id)}>
-              <BanIcon data-icon="inline-start" aria-hidden="true" />
-              查看本来源已忽略
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setDeferredView({ sourceId: source.id, sourceName: source.displayName })}
-            >
-              <ClockIcon data-icon="inline-start" aria-hidden="true" />
-              查看本来源稍后决定
-            </Button>
-          </div>
 
           {source.uidBindingState === 'REVALIDATION_REQUIRED' ? (
             <Alert variant="info">
@@ -751,15 +755,6 @@ export function ArchiveUploaderSources({
               <AlertDescription>
                 现有目录、收件箱关联和归档状态仍然有效。请从“扫描最新”开始，继续扫描到远端末尾以完成 UID 覆盖验证；重复
                 GID 只会更新原目录项。
-              </AlertDescription>
-            </Alert>
-          ) : null}
-
-          {source.titleQuery ? (
-            <Alert>
-              <AlertTitle>仅筛选远端返回的标题</AlertTitle>
-              <AlertDescription>
-                每批最多检查 100 条；零匹配不代表后面没有内容。可继续扫描更早内容，不会自动下载。
               </AlertDescription>
             </Alert>
           ) : null}
@@ -775,35 +770,6 @@ export function ArchiveUploaderSources({
             )
           ) : null}
 
-          <details className="rounded-lg border px-4 py-3 text-sm">
-            <summary className="cursor-pointer font-medium">
-              固定艺术家（{source.defaultCreators?.length ?? 0}）
-            </summary>
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              {source.titleQuery ? (
-                <p className="w-full text-muted-foreground">在你加入收件箱时追加；扫描和规则复核不会自动绑定艺术家。</p>
-              ) : null}
-              <PrivacySensitiveText>
-                {source.defaultCreators?.map((row) => row.name).join('、') || '未设置固定艺术家'}
-              </PrivacySensitiveText>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  setCreatorDialog({
-                    mode: 'defaults',
-                    sourceId: source.id,
-                    itemIds: [],
-                    immediateCount: 0,
-                    initialCreators: source.defaultCreators ?? []
-                  })
-                }
-              >
-                设置固定艺术家
-              </Button>
-            </div>
-          </details>
-
           <ArchiveTitleSourcePanel
             key={source.id}
             sourceId={source.id}
@@ -811,131 +777,174 @@ export function ArchiveUploaderSources({
             rulesVersion={source.rulesVersion ?? 1}
             activeScan={Boolean(activeRun)}
             onClearSelection={() => setSelectedItemIds(new Set())}
+            actions={
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="min-h-11 sm:min-h-9"
+                  aria-label="查看本来源稍后决定"
+                  onClick={() => setDeferredView({ sourceId: source.id, sourceName: source.displayName })}
+                >
+                  <ClockIcon data-icon="inline-start" aria-hidden="true" />
+                  稍后决定
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="min-h-11 sm:min-h-9"
+                  aria-label="查看本来源已忽略"
+                  onClick={() => enterIgnored(source.id)}
+                >
+                  <BanIcon data-icon="inline-start" aria-hidden="true" />
+                  已忽略
+                </Button>
+              </>
+            }
           >
-            <ArchiveDiscoveryResultsToolbar
-              view={resultFeed}
-              counts={{
-                ACTIONABLE: resultCounts?.actionable ?? null,
-                PROCESSING: resultCounts?.processing ?? null,
-                ARCHIVED: resultCounts?.archived ?? null,
-                DELETED: resultCounts?.deleted ?? null,
-                ATTENTION: resultCounts?.attention ?? null,
-                ALL: resultCounts?.total ?? null
-              }}
-              description={resultFeedDescription(resultFeed, items.length)}
-              resultView={resultView}
-              onViewChange={(next) => {
-                clearResultSelection()
-                resultPositionsRef.current.clear()
-                setResultFeed(next)
-              }}
-              onResultViewChange={setResultView}
-              intakeOptions={intakeOptions}
-              onIntakeOptionsChange={setIntakeOptions}
-              disabled={mutationPending}
-            />
-            <ArchiveDiscoveryContentFilters
-              key={`${selectedSourceId}:${contentFilters.search}`}
-              value={contentFilters}
-              onChange={applyContentFilters}
-            />
-            <ScanResults
-              titleReview={source.titleRules ? { sourceId: source.id, rulesVersion: source.rulesVersion } : undefined}
-              filtered={contentFiltered}
-              onClearFilters={() => applyContentFilters(DEFAULT_DISCOVERY_FILTERS)}
-              onScan={() => scanMutation.mutate({ sourceId: source.id, mode: 'LATEST' })}
-              canScan={source.status === 'ACTIVE' && !activeRun && !mutationPending}
-              view={resultFeed}
-              runs={detail?.runs ?? []}
-              activeRun={activeRun}
-              items={items}
-              resultView={resultView}
-              isLoading={itemsQuery.isLoading}
-              isError={itemsQuery.isError}
-              hasNextPage={itemsQuery.hasNextPage}
-              isFetchingNextPage={itemsQuery.isFetchingNextPage}
-              onLoadMore={loadMoreItems}
-              onRetry={retryItems}
-              onDefer={(itemId) => deferItems(source.id, [itemId])}
-              onIgnore={(itemId) =>
-                setIgnoreSelection({
-                  sourceId: source.id,
-                  items: items.filter((item) => item.id === itemId).map(({ id, title }) => ({ id, title }))
-                })
-              }
-              onAdd={(itemId) =>
-                submissionAttemptMutation.mutate({ sourceId: source.id, itemIds: [itemId], ...intakeOptions })
-              }
-              onNavigateInboxItem={onNavigateInboxItem}
-              mutationPending={mutationPending}
-              selectedItemIds={selectedItemIds}
-              allActionableSelected={allActionableSelected}
-              onToggleAll={(checked) =>
-                setSelectedItemIds(checked ? new Set(bulkSelectableItems.map(({ id }) => id)) : new Set())
-              }
-              onToggle={(itemId, checked) => setSelectedItemIds((current) => toggleSelection(current, itemId, checked))}
-              isDesktop={isDesktop}
-              layoutReady={layoutReady}
-              positionKey={resultPositionKey}
-              position={resultPositionsRef.current.get(resultPositionKey)}
-              onPositionChange={(position) => saveResultPosition(resultPositionKey, position)}
-            />
-            <ArchiveDiscoveryBulkBar
-              reviewActions={
-                source.titleRules ? (
-                  <ArchiveTitleReviewBulkActions
-                    sourceId={source.id}
-                    rulesVersion={source.rulesVersion}
-                    selectedIds={[...selectedItemIds]}
-                    disabled={mutationPending}
-                    onSaved={clearResultSelection}
-                  />
-                ) : undefined
-              }
-              deleteAction={
-                selectedItems.some((item) => item.deletableFailure) ? (
-                  <ArchiveDeleteFailedDialog
-                    targetType="DISCOVERY_ITEM"
-                    itemIds={selectedItems.filter((item) => item.deletableFailure).map((item) => item.id)}
-                    compact="mobile"
-                    disabled={mutationPending}
-                  />
-                ) : undefined
-              }
-              selectedCount={selectedItemIds.size}
-              kind="catalog"
-              pending={mutationPending}
-              ignoreDisabled={selectedIgnorable.length === 0}
-              onDefer={
-                selectedIgnorable.length
-                  ? () =>
-                      deferItems(
-                        source.id,
-                        selectedIgnorable.map((item) => item.id)
-                      )
-                  : undefined
-              }
-              addCount={selectedSubmittable.length}
-              onBind={() => openCreators('bind')}
-              onCancelPending={
-                selectedItems.some((item) => item.pendingCreators?.length) ? () => openCreators('cancel') : undefined
-              }
-              addLabel={resultFeed === 'ATTENTION' ? '重新加入收件箱' : '加入收件箱'}
-              onClear={() => setSelectedItemIds(new Set())}
-              onIgnore={() =>
-                setIgnoreSelection({
-                  sourceId: source.id,
-                  items: selectedIgnorable.map(({ id, title }) => ({ id, title }))
-                })
-              }
-              onAdd={() =>
-                submissionAttemptMutation.mutate({
-                  sourceId: source.id,
-                  itemIds: selectedSubmittable.map((item) => item.id),
-                  ...intakeOptions
-                })
-              }
-            />
+            {(review) => (
+              <>
+                <ArchiveDiscoveryResultsToolbar
+                  view={resultFeed}
+                  counts={{
+                    ACTIONABLE: resultCounts?.actionable ?? null,
+                    PROCESSING: resultCounts?.processing ?? null,
+                    ARCHIVED: resultCounts?.archived ?? null,
+                    DELETED: resultCounts?.deleted ?? null,
+                    ATTENTION: resultCounts?.attention ?? null,
+                    ALL: resultCounts?.total ?? null
+                  }}
+                  resultView={resultView}
+                  onViewChange={(next) => {
+                    clearResultSelection()
+                    resultPositionsRef.current.clear()
+                    setResultFeed(next)
+                  }}
+                  onResultViewChange={setResultView}
+                />
+                <ArchiveDiscoveryContentFilters
+                  key={`${selectedSourceId}:${contentFilters.search}`}
+                  value={contentFilters}
+                  onChange={applyContentFilters}
+                />
+                <ScanResults
+                  titleReview={
+                    source.titleRules ? { sourceId: source.id, rulesVersion: source.rulesVersion } : undefined
+                  }
+                  filtered={contentFiltered}
+                  onClearFilters={() => applyContentFilters(DEFAULT_DISCOVERY_FILTERS)}
+                  onScan={() => scanMutation.mutate({ sourceId: source.id, mode: 'LATEST' })}
+                  canScan={source.status === 'ACTIVE' && !activeRun && !mutationPending}
+                  view={resultFeed}
+                  runs={detail?.runs ?? []}
+                  activeRun={activeRun}
+                  items={items}
+                  resultView={resultView}
+                  isLoading={itemsQuery.isLoading}
+                  isError={itemsQuery.isError}
+                  hasNextPage={itemsQuery.hasNextPage}
+                  isFetchingNextPage={itemsQuery.isFetchingNextPage}
+                  onLoadMore={loadMoreItems}
+                  onRetry={retryItems}
+                  mutationPending={mutationPending || Boolean(review?.pending)}
+                  selectedItemIds={selectedItemIds}
+                  allActionableSelected={allActionableSelected}
+                  onToggleAll={(checked) =>
+                    setSelectedItemIds(checked ? new Set(bulkSelectableItems.map(({ id }) => id)) : new Set())
+                  }
+                  onToggle={(itemId, checked) =>
+                    setSelectedItemIds((current) => toggleSelection(current, itemId, checked))
+                  }
+                  isDesktop={isDesktop}
+                  layoutReady={layoutReady}
+                  positionKey={resultPositionKey}
+                  position={resultPositionsRef.current.get(resultPositionKey)}
+                  onPositionChange={(position) => saveResultPosition(resultPositionKey, position)}
+                />
+                <ArchiveDiscoveryBulkBar
+                  reviewActions={
+                    review ? (
+                      <ArchiveTitleReviewMenuItems
+                        review={review}
+                        selectedIds={[...selectedItemIds]}
+                        disabled={mutationPending}
+                      />
+                    ) : undefined
+                  }
+                  deleteAction={
+                    selectedItems.some((item) => item.deletableFailure) ? (
+                      <ArchiveDeleteFailedDialog
+                        targetType="DISCOVERY_ITEM"
+                        itemIds={selectedItems.filter((item) => item.deletableFailure).map((item) => item.id)}
+                        triggerVariant="menu"
+                        disabled={mutationPending || Boolean(review?.pending)}
+                      />
+                    ) : undefined
+                  }
+                  selectedCount={selectedItemIds.size}
+                  kind="catalog"
+                  pending={mutationPending || Boolean(review?.pending)}
+                  options={
+                    <ArchiveIntakeOptionsDialog
+                      presentation="selection"
+                      value={intakeOptions}
+                      onChange={setIntakeOptions}
+                      disabled={mutationPending || Boolean(review?.pending)}
+                    />
+                  }
+                  ignoreCount={selectedIgnorable.length}
+                  deferCount={selectedIgnorable.length}
+                  onViewEvidence={review && singleSelectedItem ? () => setEvidenceItem(singleSelectedItem) : undefined}
+                  onOpenInbox={
+                    singleSelectedItem?.workflowBucket === 'ATTENTION' && singleSelectedItem.intakeItemId
+                      ? () => onNavigateInboxItem(singleSelectedItem.intakeItemId!)
+                      : undefined
+                  }
+                  onRearchive={
+                    singleSelectedItem?.canRearchive
+                      ? () =>
+                          submissionAttemptMutation.mutate({
+                            sourceId: source.id,
+                            itemIds: [singleSelectedItem.id],
+                            ...intakeOptions
+                          })
+                      : undefined
+                  }
+                  ignoreDisabled={selectedIgnorable.length === 0}
+                  onDefer={
+                    selectedIgnorable.length
+                      ? () =>
+                          deferItems(
+                            source.id,
+                            selectedIgnorable.map((item) => item.id)
+                          )
+                      : undefined
+                  }
+                  addCount={selectedSubmittable.length}
+                  onBind={() => openCreators('bind')}
+                  onCancelPending={
+                    selectedItems.some((item) => item.pendingCreators?.length)
+                      ? () => openCreators('cancel')
+                      : undefined
+                  }
+                  addLabel={resultFeed === 'ATTENTION' ? '重新加入收件箱' : '加入收件箱'}
+                  onClear={() => setSelectedItemIds(new Set())}
+                  onIgnore={() =>
+                    setIgnoreSelection({
+                      sourceId: source.id,
+                      items: selectedIgnorable.map(({ id, title }) => ({ id, title }))
+                    })
+                  }
+                  onAdd={() =>
+                    submissionAttemptMutation.mutate({
+                      sourceId: source.id,
+                      itemIds: selectedSubmittable.map((item) => item.id),
+                      ...intakeOptions
+                    })
+                  }
+                />
+              </>
+            )}
           </ArchiveTitleSourcePanel>
         </>
       )}
@@ -987,6 +996,19 @@ export function ArchiveUploaderSources({
           onSaved={refresh}
         />
       ) : null}
+      <ArchiveTitleMatchEvidenceDialog item={evidenceItem} onClose={() => setEvidenceItem(null)} />
+      {source?.titleRules && titleSettings === 'rules' ? (
+        <ArchiveTitleRuleSheet
+          sourceId={source.id}
+          initialRules={source.titleRules}
+          rulesVersion={source.rulesVersion}
+          activeScan={Boolean(activeRun)}
+          onClose={() => setTitleSettings(null)}
+        />
+      ) : null}
+      {source?.titleRules && titleSettings === 'cleanup' ? (
+        <ArchiveTitleCreatorCleanup sourceId={source.id} onClose={() => setTitleSettings(null)} />
+      ) : null}
       {pendingCreators ? (
         <DiscoveryPendingCreators onBack={() => onNavigateSourceList('push')} />
       ) : ignored ? (
@@ -1029,7 +1051,6 @@ export function ArchiveUploaderSources({
             isFetchingNextPage={ignoredItemsQuery.isFetchingNextPage}
             onLoadMore={loadMoreIgnoredItems}
             onRetry={retryIgnoredItems}
-            onRestore={(ignoredItemId) => restoreMutation.mutate({ ignoredItemIds: [ignoredItemId] })}
             mutationPending={mutationPending}
             selectedItemIds={selectedIgnoredItemIds}
             allSelected={allIgnoredSelected}
@@ -1136,18 +1157,6 @@ export function ArchiveUploaderSources({
       />
     </div>
   )
-}
-
-function resultFeedDescription(feed: ArchiveDiscoveryCatalogView, itemCount: number) {
-  const descriptions: Record<ArchiveDiscoveryCatalogView, string> = {
-    ACTIONABLE: '尚未处理，或本地版本与当前公开信息存在稳定差异',
-    PROCESSING: '正在收件箱解析、等待确认或执行下载',
-    ARCHIVED: '已经完成下载并发布到本地归档',
-    DELETED: '已删除的作品；文件清理完成后可手动重新归档',
-    ATTENTION: '解析、下载或身份检查需要处理',
-    ALL: '这个来源长期保留的全部已发现画廊'
-  }
-  return `${descriptions[feed]}；已加载 ${itemCount} 条。`
 }
 
 function toggleSelection(current: Set<string>, itemId: string, checked: boolean) {

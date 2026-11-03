@@ -26,7 +26,8 @@ export function registerDiscoveryIgnoredCases({
       { sourceId: 'source-1', limit: 50 },
       expect.objectContaining({ enabled: true })
     )
-    fireEvent.click(screen.getByRole('button', { name: '恢复 Ignored Gallery 301' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Ignored Gallery 301' }))
+    fireEvent.click(screen.getByRole('button', { name: '恢复' }))
     await waitFor(() => expect(mocks.restoreIgnoredItems).toHaveBeenCalledWith({ ignoredItemIds: ['ignored-item-1'] }))
     fireEvent.click(screen.getByRole('button', { name: '返回来源详情' }))
     expect(screen.getByRole('button', { name: '查看本来源已忽略' })).toBeTruthy()

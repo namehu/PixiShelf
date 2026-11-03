@@ -6,11 +6,10 @@ import type { ArchiveTitleRules } from '@pixishelf/job-contracts'
 import { useTRPC } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ArchiveTitleRuleSheet } from './archive-title-rule-sheet'
 import { ArchiveTitleFilteredResults } from './archive-title-filtered-results'
-import { ArchiveTitleCreatorCleanup } from './archive-title-creator-cleanup'
 import { useTitleReview } from './use-title-review'
-import { ListFilterIcon, RotateCcwIcon } from 'lucide-react'
+import { CheckIcon, ListFilterIcon, RotateCcwIcon } from 'lucide-react'
+import { DropdownMenuGroup, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 
 type PanelProps = {
   sourceId: string
@@ -18,11 +17,46 @@ type PanelProps = {
   rulesVersion: number
   activeScan: boolean
   onClearSelection: () => void
-  children: ReactNode
+  actions?: ReactNode
+  children: (review?: ReturnType<typeof useTitleReview>) => ReactNode
+}
+
+export function ArchiveTitleReviewMenuItems({
+  review,
+  selectedIds,
+  disabled
+}: {
+  review: ReturnType<typeof useTitleReview>
+  selectedIds: string[]
+  disabled: boolean
+}) {
+  return (
+    <DropdownMenuGroup>
+      <DropdownMenuItem disabled={disabled || review.pending} onSelect={() => review.review(selectedIds, 'EXCLUDE')}>
+        <ListFilterIcon aria-hidden="true" />
+        从本来源排除（{selectedIds.length}）
+      </DropdownMenuItem>
+      <DropdownMenuItem disabled={disabled || review.pending} onSelect={() => review.review(selectedIds, 'INCLUDE')}>
+        <CheckIcon aria-hidden="true" />
+        记住为手动接纳（{selectedIds.length}）
+      </DropdownMenuItem>
+      <DropdownMenuItem disabled={disabled || review.pending} onSelect={() => review.review(selectedIds, 'AUTO')}>
+        <RotateCcwIcon aria-hidden="true" />
+        恢复遵循规则（{selectedIds.length}）
+      </DropdownMenuItem>
+    </DropdownMenuGroup>
+  )
 }
 
 export function ArchiveTitleSourcePanel(props: PanelProps) {
-  return props.rules ? <TitlePanel {...props} rules={props.rules} /> : props.children
+  return props.rules ? (
+    <TitlePanel {...props} rules={props.rules} />
+  ) : (
+    <div className="flex min-w-0 flex-col gap-3">
+      <div className="flex flex-wrap justify-end gap-1">{props.actions}</div>
+      {props.children()}
+    </div>
+  )
 }
 
 function TitlePanel({
@@ -31,12 +65,12 @@ function TitlePanel({
   rulesVersion,
   activeScan,
   onClearSelection,
+  actions,
   children
 }: PanelProps & { rules: ArchiveTitleRules }) {
   const trpc = useTRPC()
   const [view, setView] = useState('accepted')
-  const [edit, setEdit] = useState(false)
-  const [cleanup, setCleanup] = useState(false)
+  const review = useTitleReview(sourceId, rulesVersion, onClearSelection)
   const counts = useQuery(
     trpc.archiveSearch.reviewCounts.queryOptions(
       { sourceId },
@@ -54,22 +88,15 @@ function TitlePanel({
           }}
         >
           <TabsList>
-            <TabsTrigger className="min-h-11" value="accepted">
+            <TabsTrigger className="min-h-11" value="accepted" disabled={review.pending}>
               已接纳 {counts.data?.accepted ?? '—'}
             </TabsTrigger>
-            <TabsTrigger className="min-h-11" value="filtered">
+            <TabsTrigger className="min-h-11" value="filtered" disabled={review.pending}>
               已过滤 {counts.data?.filtered ?? '—'}
             </TabsTrigger>
           </TabsList>
         </Tabs>
-        <div className="flex flex-wrap gap-2">
-          <Button className="h-11 sm:h-9" variant="outline" onClick={() => setEdit(true)}>
-            编辑接纳规则
-          </Button>
-          <Button className="h-11 sm:h-9" variant="ghost" onClick={() => setCleanup(true)}>
-            清理历史艺术家标记
-          </Button>
-        </div>
+        <div className="flex flex-wrap gap-1">{actions}</div>
       </div>
       {counts.isError ? (
         <Button variant="outline" onClick={() => void counts.refetch()}>
@@ -77,62 +104,10 @@ function TitlePanel({
         </Button>
       ) : null}
       {view === 'accepted' ? (
-        children
+        children(review)
       ) : (
         <ArchiveTitleFilteredResults sourceId={sourceId} rulesVersion={rulesVersion} counts={counts.data} />
       )}
-      {edit ? (
-        <ArchiveTitleRuleSheet
-          sourceId={sourceId}
-          initialRules={rules}
-          rulesVersion={rulesVersion}
-          activeScan={activeScan}
-          onClose={() => setEdit(false)}
-        />
-      ) : null}
-      {cleanup ? <ArchiveTitleCreatorCleanup sourceId={sourceId} onClose={() => setCleanup(false)} /> : null}
     </div>
-  )
-}
-
-export function ArchiveTitleReviewBulkActions({
-  sourceId,
-  rulesVersion,
-  selectedIds,
-  onSaved,
-  disabled
-}: {
-  sourceId: string
-  rulesVersion: number
-  selectedIds: string[]
-  onSaved: () => void
-  disabled: boolean
-}) {
-  const review = useTitleReview(sourceId, rulesVersion, onSaved)
-  return (
-    <>
-      <Button
-        variant="outline"
-        className="size-11 p-0 sm:h-9 sm:w-auto sm:px-3"
-        aria-label="从本来源排除所选"
-        title="从本来源排除所选"
-        disabled={disabled || review.pending}
-        onClick={() => review.review(selectedIds, 'EXCLUDE')}
-      >
-        <ListFilterIcon aria-hidden="true" />
-        <span className="hidden sm:inline">从本来源排除</span>
-      </Button>
-      <Button
-        variant="ghost"
-        className="size-11 p-0 sm:h-9 sm:w-auto sm:px-3"
-        aria-label="恢复所选遵循规则"
-        title="恢复所选遵循规则"
-        disabled={disabled || review.pending}
-        onClick={() => review.review(selectedIds, 'AUTO')}
-      >
-        <RotateCcwIcon aria-hidden="true" />
-        <span className="hidden sm:inline">遵循规则</span>
-      </Button>
-    </>
   )
 }

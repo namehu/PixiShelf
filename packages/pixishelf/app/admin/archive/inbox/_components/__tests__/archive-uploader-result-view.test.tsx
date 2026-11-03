@@ -12,28 +12,27 @@ function Harness() {
 }
 
 describe('compact archive result view menu', () => {
-  it.each([false, true])(
-    'always navigates covers to the protected source, including missing or broken images (card=%s)',
-    (card) => {
-      const item = { id: 'catalog', title: 'Gallery', externalId: '123', thumbnailUrl: 'https://ehgt.org/cover.jpg' }
-      const { container, rerender } = render(
-        <ArchiveUploaderGalleryThumbnail item={item} card={card} sourceHref="/api/archive/catalog/catalog/source" />
-      )
-      const link = screen.getByRole('link', { name: '在新标签页打开原站 Gallery' })
-      expect(link.getAttribute('target')).toBe('_blank')
-      expect(link.getAttribute('rel')).toBe('noopener noreferrer')
-      fireEvent.error(container.querySelector('img')!)
-      expect(screen.getByRole('link').getAttribute('href')).toBe('/api/archive/catalog/catalog/source')
-      rerender(
-        <ArchiveUploaderGalleryThumbnail
-          item={{ ...item, thumbnailUrl: null }}
-          card={card}
-          sourceHref="/api/archive/catalog/catalog/source"
-        />
-      )
-      expect(screen.getByRole('link').getAttribute('href')).toBe('/api/archive/catalog/catalog/source')
-    }
-  )
+  it.each([false, true])('keeps covers display-only through loading and failure states (card=%s)', (card) => {
+    const item = { id: 'catalog', title: 'Gallery', externalId: '123', thumbnailUrl: 'https://ehgt.org/cover.jpg' }
+    const { container, rerender } = render(<ArchiveUploaderGalleryThumbnail item={item} card={card} />)
+    const cover = container.querySelector('[data-discovery-thumbnail]')!
+    const image = cover.querySelector('img')!
+    expect(image.getAttribute('loading')).toBe('lazy')
+    expect(image.getAttribute('referrerpolicy')).toBe('no-referrer')
+    expect(image.getAttribute('alt')).toBe('')
+    expect(image.classList.contains('opacity-0')).toBe(true)
+    fireEvent.load(image)
+    expect(image.classList.contains('opacity-0')).toBe(false)
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
+    fireEvent.error(image)
+    expect(cover.querySelector('img')).toBeNull()
+    expect(screen.getByLabelText('Gallery 没有可用首图')).toBeTruthy()
+    rerender(<ArchiveUploaderGalleryThumbnail item={{ ...item, thumbnailUrl: null }} card={card} />)
+    expect(screen.getByLabelText('Gallery 没有可用首图')).toBeTruthy()
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
   it('shows only one trigger and switches modes through the menu', async () => {
     render(<Harness />)
     expect(screen.getAllByRole('button')).toHaveLength(1)
