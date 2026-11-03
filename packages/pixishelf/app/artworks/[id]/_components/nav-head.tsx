@@ -6,7 +6,7 @@ import { useTRPC } from '@/lib/trpc'
 import { useArtworkReader } from '@/lib/reading/artwork-reader-provider'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { CheckCheckIcon, ListFilterIcon, RefreshCwIcon, ChevronLeftIcon, EllipsisIcon, FullscreenIcon, ListOrderedIcon, Settings2Icon } from 'lucide-react'
+import { CheckCheckIcon, ListFilterIcon, RefreshCwIcon, ChevronLeftIcon, EllipsisIcon, FullscreenIcon, ListOrderedIcon, Settings2Icon, Trash2Icon } from 'lucide-react'
 import { useSafeBack } from '@/hooks/use-safe-back'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import PageToolbar from '@/components/layout/page-toolbar'
@@ -26,6 +26,7 @@ import MediaOrderReviewDialog from './media-order-review-dialog'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store'
 import { useArtworkMediaView } from './artwork-media-view-context'
+import ArtworkDetailDelete from './artwork-detail-delete'
 
 export default function NavHead({ data, id }: { id: string; data: ArtworkResponseDto }) {
   const router = useRouter()
@@ -36,6 +37,7 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
   const setTotal = useArtworkStore((state) => state.setTotal)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const [orderReviewOpen, setOrderReviewOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const total = reader?.total ?? data.images.length
   const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   const [showScrolledTitle, setShowScrolledTitle] = useState(false)
@@ -154,6 +156,13 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
                   全屏预览
                 </DropdownMenuItem>
               </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuItem variant="destructive" className="min-h-11" onSelect={() => setDeleteOpen(true)}>
+                  <Trash2Icon aria-hidden="true" />
+                  删除作品
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
         }
@@ -167,6 +176,8 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
           </PrivacySensitiveText>
         )}
       </PageToolbar>
+
+      <ArtworkDetailDelete artworkId={data.id} open={deleteOpen} onOpenChange={setDeleteOpen} />
 
       {orderReviewOpen && (reader ? <DeferredOrderReview artworkId={data.id} onClose={() => setOrderReviewOpen(false)} onSaved={setImages} /> : (
         <MediaOrderReviewDialog artworkId={data.id} images={data.images} onClose={() => setOrderReviewOpen(false)} onSaved={setImages} />

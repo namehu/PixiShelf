@@ -81,7 +81,7 @@ export function ArtworkDeletePreviewDrawer({ artworkId, loadPreview, onDelete, o
               <AlertTitle>无法读取删除清单</AlertTitle>
               <AlertDescription>未执行任何删除，请重新加载。</AlertDescription>
             </Alert>
-            <Button variant="outline" onClick={() => setReload((value) => value + 1)}>
+            <Button variant="outline" className="min-h-11 sm:min-h-9" onClick={() => setReload((value) => value + 1)}>
               重新加载
             </Button>
           </div>
@@ -180,7 +180,7 @@ function PreviewContent({
           {preview.warnings.length > 0 && !archive && (
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="范围说明">
+                <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="范围说明">
                   <Info />
                 </Button>
               </PopoverTrigger>
@@ -193,7 +193,14 @@ function PreviewContent({
               </PopoverContent>
             </Popover>
           )}
-          <Button variant="ghost" size="icon" aria-label="重新加载" disabled={pending} onClick={onReload}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-11 sm:size-9"
+            aria-label="重新加载"
+            disabled={pending}
+            onClick={onReload}
+          >
             <RefreshCw />
           </Button>
         </div>
@@ -227,6 +234,7 @@ function PreviewContent({
               </FieldLabel>
               <Input
                 id="delete-preview-search"
+                className="min-h-11 sm:min-h-9"
                 placeholder="搜索文件…"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
@@ -234,14 +242,20 @@ function PreviewContent({
               />
             </Field>
             <Select value={filter} onValueChange={setFilter} disabled={pending}>
-              <SelectTrigger aria-label="显示范围" className="w-28 shrink-0">
+              <SelectTrigger aria-label="显示范围" className="min-h-11 w-28 shrink-0 sm:min-h-9">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectItem value="all">全部</SelectItem>
-                  <SelectItem value="delete">将删除</SelectItem>
-                  <SelectItem value="retain">将保留</SelectItem>
+                  <SelectItem value="all" className="min-h-11 sm:min-h-0">
+                    全部
+                  </SelectItem>
+                  <SelectItem value="delete" className="min-h-11 sm:min-h-0">
+                    将删除
+                  </SelectItem>
+                  <SelectItem value="retain" className="min-h-11 sm:min-h-0">
+                    将保留
+                  </SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -252,6 +266,7 @@ function PreviewContent({
               <Button
                 variant="ghost"
                 size="sm"
+                className="min-h-11 sm:min-h-8"
                 disabled={pending || Boolean(preview.recovery) || !optional.length}
                 onClick={() =>
                   toggle(
@@ -265,6 +280,7 @@ function PreviewContent({
               <Button
                 variant="ghost"
                 size="sm"
+                className="min-h-11 sm:min-h-8"
                 disabled={pending || Boolean(preview.recovery) || !optional.length}
                 onClick={() =>
                   toggle(
@@ -288,7 +304,7 @@ function PreviewContent({
           />
         </>
       )}
-      <SheetFooter className="shrink-0 border-t py-3">
+      <SheetFooter className="shrink-0 border-t pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="flex flex-wrap items-center justify-between gap-3">
           {!archive && (
             <div role="status" className="flex min-w-0 flex-col gap-0.5 text-sm tabular-nums">
@@ -299,11 +315,12 @@ function PreviewContent({
             </div>
           )}
           <div className="ml-auto flex shrink-0 gap-2">
-            <Button variant="outline" disabled={pending} onClick={onClose}>
+            <Button variant="outline" className="min-h-11 sm:min-h-9" disabled={pending} onClick={onClose}>
               取消
             </Button>
             <Button
               variant="destructive"
+              className="min-h-11 sm:min-h-9"
               disabled={!preview.canDelete || pending || unconfirmed}
               onClick={() => void submit()}
             >
@@ -446,21 +463,23 @@ export function DeleteFileList({
                   isDirectory && 'bg-muted/40'
                 )}
               >
-                <Checkbox
-                  aria-label={`选择 ${entry.path}`}
-                  data-privacy-sensitive
-                  disabled={disabled}
-                  checked={checked}
-                  onCheckedChange={(value) =>
-                    toggle(entry.selection === 'DIRECTORY' ? children : [entry.path], value === true)
-                  }
-                />
+                <label className="-ml-3 flex size-11 shrink-0 items-center justify-center sm:ml-0 sm:size-auto">
+                  <Checkbox
+                    aria-label={`选择 ${entry.path}`}
+                    data-privacy-sensitive
+                    disabled={disabled}
+                    checked={checked}
+                    onCheckedChange={(value) =>
+                      toggle(entry.selection === 'DIRECTORY' ? children : [entry.path], value === true)
+                    }
+                  />
+                </label>
                 <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
                 <Popover>
                   <PopoverTrigger asChild>
                     <button
                       type="button"
-                      className="min-w-0 flex-1 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="min-h-11 min-w-0 flex-1 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-0"
                       aria-label={`文件详情 ${entry.path}`}
                       data-privacy-sensitive
                     >

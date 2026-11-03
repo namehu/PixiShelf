@@ -85,7 +85,7 @@ function ReportContent({ report, onClose }: { report: ArtworkDeleteReport; onClo
         </div>
         <Popover>
           <PopoverTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="报告详情">
+            <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="报告详情">
               <Info />
             </Button>
           </PopoverTrigger>
@@ -165,7 +165,7 @@ function ReportContent({ report, onClose }: { report: ArtworkDeleteReport; onClo
         <div className="flex flex-1 flex-col items-start gap-2 px-4 py-3 text-sm text-muted-foreground">
           <p>文件回收由后台任务处理。</p>
           {report.archive?.jobId && (
-            <Button asChild variant="outline" size="sm">
+            <Button asChild variant="outline" size="sm" className="min-h-11 sm:min-h-8">
               <Link
                 href={`/admin/tasks?jobId=${encodeURIComponent(report.archive.jobId)}`}
                 target="_blank"
@@ -185,20 +185,23 @@ function ReportContent({ report, onClose }: { report: ArtworkDeleteReport; onClo
               </FieldLabel>
               <Input
                 id="delete-report-search"
+                className="min-h-11 sm:min-h-9"
                 placeholder="搜索文件…"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
             </Field>
             <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger aria-label="执行结果" className="w-32 shrink-0">
+              <SelectTrigger aria-label="执行结果" className="min-h-11 w-32 shrink-0 sm:min-h-9">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectItem value="all">全部结果</SelectItem>
+                  <SelectItem value="all" className="min-h-11 sm:min-h-0">
+                    全部结果
+                  </SelectItem>
                   {Object.entries(DELETE_STATUS_LABELS).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
+                    <SelectItem key={value} value={value} className="min-h-11 sm:min-h-0">
                       {label}
                     </SelectItem>
                   ))}
@@ -209,17 +212,19 @@ function ReportContent({ report, onClose }: { report: ArtworkDeleteReport; onClo
           <ReportFileList entries={filtered} directory={report.artwork.directory} searchKey={`${status}:${search}`} />
         </>
       )}
-      <SheetFooter className="shrink-0 border-t py-3">
-        <div className="flex items-center justify-between gap-3">
+      <SheetFooter className="shrink-0 border-t pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <span className="text-xs text-muted-foreground">
             {archive ? '下载含完整路径' : `${filtered.length} 项 · 下载含完整路径`}
           </span>
-          <div className="flex shrink-0 gap-2">
-            <Button variant="outline" onClick={download}>
+          <div className="ml-auto flex shrink-0 gap-2">
+            <Button variant="outline" className="min-h-11 sm:min-h-9" onClick={download}>
               <Download data-icon="inline-start" aria-hidden="true" />
               下载总结
             </Button>
-            <Button onClick={onClose}>关闭</Button>
+            <Button className="min-h-11 sm:min-h-9" onClick={onClose}>
+              关闭
+            </Button>
           </div>
         </div>
       </SheetFooter>
@@ -290,7 +295,7 @@ function ReportFileList({
                       type="button"
                       aria-label={`文件详情 ${entry.path}`}
                       data-privacy-sensitive
-                      className="flex min-w-0 flex-1 flex-col rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="flex min-h-11 min-w-0 flex-1 flex-col justify-center rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-0"
                     >
                       <PrivacySensitiveText className="block w-full truncate">{path}</PrivacySensitiveText>
                       {entry.status === 'FAILED' && (

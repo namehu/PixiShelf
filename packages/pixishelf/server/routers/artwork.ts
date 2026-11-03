@@ -14,6 +14,8 @@ import { resolveRatingLevels } from '@/schemas/artwork-filter.dto'
 import { MediaUploadReceiptSchema } from '@/schemas/media-content.dto'
 import { ReaderInputSchema, MediaPageInputSchema } from '@/schemas/artwork-reader.dto'
 import { SummaryGenerateInputSchema } from '@/schemas/artwork-summary.dto'
+import { ArtworkUpdateTagsSchema } from '@/schemas/artwork-tags.dto'
+import { updateArtworkTags } from '@/services/artwork-service/tags'
 import { generateArtworkSummary, getArtworkSummary } from '@/services/artwork-summary-service'
 import { getReaderInitialization } from '@/services/reading-service'
 import { getReaderMediaPage } from '@/services/artwork-service/reader'
@@ -116,6 +118,7 @@ export const artworkRouter = router({
   getById: authProcedure.input(z.number()).query(async ({ input }) => {
     return getArtworkById(input)
   }),
+  updateTags: adminProcedure.input(ArtworkUpdateTagsSchema).mutation(({ input }) => updateArtworkTags(input)),
   /**
    * 获取作品列表 (无限加载)
    */

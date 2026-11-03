@@ -131,11 +131,9 @@ export default async function ArtworkDetailPage({ params, searchParams }: PagePr
                       />
                     </header>
 
-                    {!!data.tags.length && (
-                      <div className="mb-6">
-                        <TagArea tags={data.tags} />
-                      </div>
-                    )}
+                    <div className="mb-6">
+                      <TagArea artworkId={data.id} tags={data.tags} />
+                    </div>
                   </PageContainer>
 
                   <div id={`artwork-media-start-${data.id}`} aria-hidden="true" className="h-px" />

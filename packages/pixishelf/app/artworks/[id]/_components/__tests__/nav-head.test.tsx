@@ -68,6 +68,14 @@ vi.mock('../media-order-review-dialog', () => ({
   )
 }))
 
+vi.mock('../artwork-detail-delete', () => ({
+  default: ({ artworkId, open, onOpenChange }: { artworkId: number; open: boolean; onOpenChange: (open: boolean) => void }) => (
+    <div data-testid="detail-delete-host" data-artwork-id={artworkId}>
+      {open && <div role="dialog" aria-label="删除作品前预览"><button onClick={() => onOpenChange(false)}>取消删除</button></div>}
+    </div>
+  )
+}))
+
 const data = {
   id: 7,
   title: '这是一个用于验证顶部居中省略的非常非常长的作品标题',
@@ -104,7 +112,7 @@ describe('NavHead', () => {
     vi.unstubAllGlobals()
   })
 
-  it('groups the three artwork actions under a single more menu trigger', () => {
+  it('groups artwork actions under a single more menu trigger and keeps deletion outside the menu', () => {
     render(<NavHead data={data} id="7" />)
 
     expect(screen.getByRole('button', { name: '更多作品操作' })).toBeTruthy()
@@ -116,6 +124,16 @@ describe('NavHead', () => {
     fireEvent.click(screen.getByRole('button', { name: '全屏预览' }))
     expect(useArtworkStore.getState().images).toEqual([])
     expect(mocks.push).toHaveBeenCalledWith('/artworks/preview?artworkId=7')
+
+    const remove = screen.getByRole('button', { name: '删除作品' })
+    expect(remove.parentElement?.previousElementSibling?.tagName).toBe('HR')
+    fireEvent.click(remove)
+    const host = screen.getByTestId('detail-delete-host')
+    expect(host.dataset.artworkId).toBe('7')
+    expect(host.contains(remove)).toBe(false)
+    expect(screen.getByRole('dialog', { name: '删除作品前预览' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '取消删除' }))
+    expect(screen.queryByRole('dialog', { name: '删除作品前预览' })).toBeNull()
   })
 
   it('routes reading actions through the top-right menu', () => {

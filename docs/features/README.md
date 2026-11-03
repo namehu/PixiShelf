@@ -20,6 +20,7 @@ sources:
 | [创作者、社团与作品](./creator-relations.md)      | 有效归属、证据、人工抑制与发现绑定     |
 | [艺术家合并](./artist-merge.md)                   | 合并预览、原子提交、身份冲突与恢复     |
 | [系列管理](./series-management.md)                | 成员草稿、排序、并发保护与保存         |
+| [作品详情标签整理](./artwork-tags.md)             | 标签草稿、搜索新建、显式关联增删与保存 |
 | [旧身份字段清理](./legacy-identity-retirement.md) | 正式迁移、依赖替换及不可直接回退的边界 |
 
 ## 导入与来源
