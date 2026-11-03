@@ -102,7 +102,8 @@ export async function stagingCleanupIntentDigest(tx: Prisma.TransactionClient, a
     if (page.length < 100) break
     cursor = page.at(-1)!.token
   }
-  if (!generationCount) throw changed()
+  // DOWNLOAD imports paused before their first attempt have no generation to drain.
+  if (!generationCount && (archive.phase !== 'DOWNLOAD' || archive.generationToken)) throw changed()
   digest.update(`items:${generationCount}\n`)
   cursor = undefined
   while (true) {

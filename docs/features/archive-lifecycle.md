@@ -70,6 +70,8 @@ DOWNLOAD 阶段的整项重试、单张重试和继续共用轻量控制服务�
 
 `cleanupRequestedAt` 是领取、控制与交接门禁。清理先 CAS 保存意图，确认没有当前执行，再只删除登记且明确 `drainedAt` 的代。lease 过期不代表旧 I/O 停止；没有 drain 证据的旧代保留为隔离 orphan，不能在线按超时盲删。旧版本已 rename 未发布的目录必须核对 manifest 来源/导入身份和持久检查点后才能复用或清理；未知身份保留原样并报冲突。普通扫描无论环境排除列表如何配置，均硬排除 `sources`、`.archive-staging`、`.trash`。
 
+2026-11-03 局部核验：DOWNLOAD 任务在首次执行前排队或暂停时，可以没有任何 staging generation 和当前 generation 指针；清理仍保存原意图与目录检查点，完成后清除 `cleanupRequestedAt`，不要求先启动下载。PUBLISH／LEGACY 缺少 generation、当前指针存在但没有 generation 记录，以及已有 generation 缺少 drain 证明时仍拒绝清理。旧版本因此失败并遗留清理标记的恢复步骤见[领域恢复手册](../operations/runbooks/domain-recovery.md#未开始下载时清理失败)。
+
 这不是跨数据库和文件系统的分布式事务。文件准备后事务失败可能留下未发布目录；重试复用已验证文件并重新完成发布，取消或清理由持久维护任务收口，不把孤立文件直接暴露。更新同一来源身份仍保留人工标题／描述覆盖、受保护标签和创作者关系；普通重建媒体使旧阅读状态失效；显式补全按[部分归档规则](./archive-partial-coverage.md#详情与阅读)保留已验证的媒体身份和阅读。不同 E-Hentai 版本身份保留独立作品，见[版本关系](./archive-intake.md#e-hentai-版本关系与归档身份)。
 
 本次批量保存不变更 schema。升级或回退 Worker 前停止调度并等待活动任务退出，保留数据库及暂存媒体；旧版只能复用已入库的结果，最后未保存的一批可能重新下载。恢复单位沿用[备份基线](../operations/backup-and-recovery.md)，验证范围见[批量下载验证记录](../records/features/archive-download-batches-2026-10-29.md)。

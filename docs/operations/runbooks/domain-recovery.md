@@ -36,6 +36,17 @@ sources:
 
 详见[作品删除](../../features/artwork-deletion.md)与[归档回收站](../../features/archive-trash.md)。
 
+### 未开始下载时清理失败
+
+2026-11-03 局部核验：旧版本对尚未开始的 DOWNLOAD 任务执行暂存清理时，可能因没有 staging generation 报 `Original staging cleanup checkpoint is missing or changed`，清理标记保留后，取消会返回 `CLEANUP_IN_PROGRESS`。适用条件为原下载仍排队／暂停、没有暂存代，且原清理在准备阶段失败、没有留下未解决的媒体写入声明。
+
+1. 按[发布前一致性检查点](../backup-and-recovery.md#发布前一致性检查点)保全数据库、媒体、配置及镜像，停止旧 Worker 后部署包含修复的配套 App／Worker。本修复没有新增 migration；仍遵循正常 generate／deploy 与 READY 检查。
+2. 在 `/admin/archive?entry=direct` 找到原下载任务，在该行操作菜单再次选择“清理暂存文件”。此入口允许已有清理标记，按原归档重新创建清理子任务；不要点击下载的“继续”或“重试”来解除标记。
+3. 等待新的 `ARCHIVE_MAINTENANCE / CLEAN_STAGING` 子任务完成，确认原归档的 `cleanupRequestedAt` 已清空。原失败子任务作为历史保留。
+4. 在原下载任务重新选择“取消任务”，确认归档与绑定下载任务均为 `CANCELLED`。页面新操作会生成新幂等键；使用 curl 时必须更换 `idempotencyKey`，原键只重放旧冲突结果。
+
+若第二步提示有未解决的媒体写入声明，停止此流程，按[原媒体写入异常恢复](./media-content-recovery.md)核对并恢复原清理任务；不能新建清理绕过声明。不要手工清除 `cleanupRequestedAt`、修改任务终态或删除目录代替领域清理。修复与隔离回归证据见[验证记录](../../records/operations/archive-unstarted-cleanup-2026-11-03.md)，该记录不代表生产已经恢复。
+
 ## 来源、创作者与补全
 
 | 场景             | 恢复依据与限制                                                                                                                                                    |

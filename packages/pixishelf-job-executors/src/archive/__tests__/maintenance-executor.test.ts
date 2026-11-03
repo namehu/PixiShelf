@@ -203,6 +203,44 @@ describe('archive maintenance executor', () => {
     expect(() => registration.parsePayload?.({ action: 'CLEAN_STAGING', artworkId: 7 })).toThrow()
   })
 
+  it.each([
+    ['DOWNLOAD', null],
+    ['DOWNLOAD', 'missing-generation'],
+    ['PUBLISH', null],
+    ['LEGACY', null]
+  ] as const)(
+    'handles %s cleanup without a staging generation and pointer %s',
+    async (phase, generationToken) => {
+      const root = await temporaryRoot()
+      await writeFixture(root, 'neighbor/file.txt')
+      const transaction = cleanTransaction()
+      const archive = await transaction.archiveImport.findUnique()
+      Object.assign(archive, {
+        phase,
+        status: 'PAUSED',
+        generationToken,
+        generations: [],
+        systemJob: { id: archive.systemJobId, status: 'PAUSED' }
+      })
+      transaction.archiveStagingGeneration.findMany.mockResolvedValue([])
+      const context = executionContext({ action: 'CLEAN_STAGING', archiveImportId: archive.id }, transaction)
+      const result = executeArchiveMaintenance(context, { database: {} as never, config: { scanRoot: root } })
+
+      if (phase !== 'DOWNLOAD' || generationToken) {
+        await expect(result).rejects.toThrow()
+        expect(contentGuards.begin).not.toHaveBeenCalled()
+        expect(transaction.archiveImport.updateMany).not.toHaveBeenCalled()
+      } else {
+        await expect(result).resolves.toEqual(TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME)
+        expect(transaction.archiveImport.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ cleanupRequestedAt: null }) })
+        )
+        expect(context.__scope.complete).toHaveBeenCalledOnce()
+      }
+      expect(await readFile(path.join(root, 'neighbor/file.txt'), 'utf8')).toBe('fixture')
+    }
+  )
+
   it('removes staging and prepared revision paths before atomically clearing cleanup checkpoints', async () => {
     const root = await temporaryRoot()
     await writeFixture(root, '.archive-staging/import-1--generation-1/file.txt')

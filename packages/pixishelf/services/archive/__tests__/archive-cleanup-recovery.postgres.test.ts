@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import type { ArchiveMaintenancePayload, WorkerCapability } from '@pixishelf/job-contracts'
@@ -27,6 +27,7 @@ import { resolveMediaContentRoots } from '../../../../pixishelf-job-executors/sr
 import { executeArchiveMaintenance } from '../../../../pixishelf-job-executors/src/archive/maintenance-executor.ts'
 
 import { requestArchiveStagingCleanup } from '../archive-maintenance-service'
+import { actionArchiveTasksMany } from '../archive-task-service'
 
 const databaseUrl =
   process.env.QUEUE_KERNEL_TEST_DATABASE_URL ?? (process.env.CI === 'true' ? process.env.DATABASE_URL : undefined)
@@ -34,10 +35,11 @@ const describePostgres = databaseUrl ? describe.sequential : describe.skip
 const prisma = databaseUrl ? new PrismaClient({ datasourceUrl: databaseUrl }) : null
 const prefix = `archive-cleanup-command-${randomUUID()}`
 const capabilities: WorkerCapability[] = [
-  { jobType: 'ARCHIVE_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
+  { jobType: 'ARCHIVE_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2] }
 ]
 const roots: string[] = []
 const sourceIds: string[] = []
+const cleanupJobIds: string[] = []
 
 describePostgres('archive staging cleanup recovery PostgreSQL integration', () => {
   beforeEach(async () => {
@@ -51,6 +53,108 @@ describePostgres('archive staging cleanup recovery PostgreSQL integration', () =
     await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
     await prisma.$disconnect()
   })
+
+  it.each(['PENDING', 'PAUSED'] as const)(
+    'recovers failed cleanup before a %s download ever starts, then cancels',
+    async (status) => {
+      const root = await temporaryRoot(),
+        now = new Date()
+      const importId = `${prefix}-unstarted-import`,
+        importJobId = `${prefix}-unstarted-download`
+      await seedSystemJob(importJobId, 'ARCHIVE_DOWNLOAD', { archiveImportId: importId }, now, status)
+      await db().archiveImport.create({
+        data: {
+          id: importId,
+          systemJobId: importJobId,
+          providerKey: 'test',
+          externalId: prefix,
+          submittedUrl: 'https://example.test/cleanup',
+          canonicalUrl: 'https://example.test/cleanup',
+          locator: {},
+          status,
+          phase: 'DOWNLOAD',
+          normalizedMetadata: {},
+          rawMetadata: {},
+          metadataHash: 'a'.repeat(64),
+          creatorBucket: 'bucket',
+          stagingPath: `.archive-staging/${importId}`,
+          totalItems: 130
+        }
+      })
+      await writeFixture(root, 'neighbor/checkpoint')
+      const clock = new MutableQueueClock(now)
+      const repository = new PostgresQueueRepository(db() as unknown as QueueDatabase, {
+        clock,
+        leaseDurationMs: 60_000,
+        transactionTimeoutMs: 20_000
+      })
+      const first = await requestArchiveStagingCleanup(
+        { archiveImportId: importId, requestedByUserId: prefix, requestedAt: now },
+        { database: db() as never, now: () => now }
+      )
+      cleanupJobIds.push(first.jobId)
+      const failed = (await repository.claim(`${prefix}-old-cleanup`, capabilities))!
+      expect(failed.id).toBe(first.jobId)
+      // Reproduce the persisted state left by the old executor, before any file claims existed.
+      await executionContext(repository, failed).finalizeInTransaction(async (scope) => {
+        await scope.fail({
+          errorCode: 'INTERNAL_ERROR',
+          error: 'Original staging cleanup checkpoint is missing or changed'
+        })
+      })
+      const cancel = { idempotencyKey: `${prefix}-blocked-cancel`, taskIds: [importId], action: 'CANCEL' as const }
+      const blocked = await actionArchiveTasksMany(cancel, prefix, { database: db(), now: () => now })
+      expect(blocked?.items).toEqual([expect.objectContaining({ result: 'CONFLICT', code: 'CLEANUP_IN_PROGRESS' })])
+
+      const next = await requestArchiveStagingCleanup(
+        { archiveImportId: importId, requestedByUserId: prefix, requestedAt: now },
+        { database: db() as never, now: () => now }
+      )
+      cleanupJobIds.push(next.jobId)
+      expect(next).toMatchObject({ reused: false })
+      expect(next.jobId).not.toBe(first.jobId)
+      clock.set(new Date(now.getTime() + 1_000))
+      const cleanup = (await repository.claim(`${prefix}-fixed-cleanup`, capabilities))!
+      expect(cleanup.id).toBe(next.jobId)
+      await executeArchiveMaintenance(executionContext(repository, cleanup), {
+        database: db(),
+        config: { scanRoot: root },
+        now: () => now
+      })
+      expect(await db().systemJob.findUniqueOrThrow({ where: { id: next.jobId } })).toMatchObject({
+        status: 'COMPLETED'
+      })
+      expect(await db().archiveImport.findUniqueOrThrow({ where: { id: importId } })).toMatchObject({
+        status,
+        cleanupRequestedAt: null,
+        generationToken: null,
+        completedItems: 0,
+        failedItems: 0
+      })
+      expect(await db().archiveStagingGeneration.count({ where: { archiveImportId: importId } })).toBe(0)
+      expect(
+        await db().systemJobEvent.count({ where: { jobId: next.jobId, type: 'archive.cleanup.checkpoint' } })
+      ).toBe(1)
+      expect(await db().mediaContentPathWrite.findMany({ where: { jobId: next.jobId } })).toEqual([
+        expect.objectContaining({ status: 'COMPLETED' })
+      ])
+      expect((await actionArchiveTasksMany(cancel, prefix, { database: db() }))?.items).toEqual(blocked?.items)
+      const cancelled = await actionArchiveTasksMany({ ...cancel, idempotencyKey: `${prefix}-fresh-cancel` }, prefix, {
+        database: db(),
+        now: () => now
+      })
+      expect(cancelled?.counts.applied).toBe(1)
+      expect(await db().archiveImport.findUniqueOrThrow({ where: { id: importId } })).toMatchObject({
+        status: 'CANCELLED'
+      })
+      expect(await db().systemJob.findUniqueOrThrow({ where: { id: importJobId } })).toMatchObject({
+        status: 'CANCELLED',
+        attempt: 0,
+        startedAt: null
+      })
+      expect(await readFile(path.join(root, 'neighbor/checkpoint'), 'utf8')).toBe('fixture')
+    }
+  )
 
   it.each(['FAILED', 'CANCELLED'] as const)(
     'preserves %s cleanup intent through App and RECONCILE, then recovers the original scope',
@@ -264,16 +368,16 @@ function resumeMaintenance(fixture: { now: Date }, grantId: string) {
 
 async function seedSystemJob(
   id: string,
-  type: 'ARCHIVE_IMPORT' | 'ARCHIVE_MAINTENANCE',
+  type: 'ARCHIVE_IMPORT' | 'ARCHIVE_DOWNLOAD' | 'ARCHIVE_MAINTENANCE',
   payload: Record<string, unknown>,
   now: Date,
-  status: 'PENDING' | 'COMPLETED' = 'PENDING'
+  status: 'PENDING' | 'PAUSED' | 'COMPLETED' = 'PENDING'
 ) {
   await db().systemJob.create({
     data: {
       id,
       type,
-      executionLane: 'BACKGROUND_WRITER',
+      executionLane: type === 'ARCHIVE_DOWNLOAD' ? 'ARCHIVE_DOWNLOAD' : 'BACKGROUND_WRITER',
       definitionVersion: 1,
       status,
       triggerSource: type === 'ARCHIVE_MAINTENANCE' ? 'MANUAL' : 'SYSTEM',
@@ -313,10 +417,12 @@ async function cleanupDatabase() {
   await prisma.artworkDedupSourceIdentity.deleteMany({ where: { id: { in: sourceIds } } })
   sourceIds.length = 0
   await prisma.archiveImport.deleteMany({ where: { id: { startsWith: prefix } } })
+  await prisma.archiveBulkOperation.deleteMany({ where: { idempotencyKey: { startsWith: prefix } } })
   await prisma.artwork.deleteMany({ where: { title: prefix } })
   await prisma.jobResourceLease.deleteMany({ where: { ownerJobId: { startsWith: prefix } } })
   await prisma.mediaContentRecoveryGrant.deleteMany({ where: { jobId: { startsWith: prefix } } })
-  await prisma.systemJob.deleteMany({ where: { id: { startsWith: prefix } } })
+  await prisma.systemJob.deleteMany({ where: { OR: [{ id: { startsWith: prefix } }, { id: { in: cleanupJobIds } }] } })
+  cleanupJobIds.length = 0
   // Test executors have returned before cleanup; remove only these synthetic roots' durable claims.
   for (const root of roots) {
     const binding = await resolveMediaContentRoots({
