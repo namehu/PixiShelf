@@ -467,6 +467,22 @@ describe('ArtworkImages', () => {
     fireEvent.contextMenu(screen.getByTestId('lazy-media'), { clientX: 40, clientY: 60 })
     expect(screen.getAllByTestId('media-mark-actions').at(-1)!.getAttribute('data-media-id')).toBe('1')
     expect(screen.queryByTestId('adaptive-media-preview')).toBeNull()
+    expect(screen.getByLabelText('原文件大小').textContent).toContain('JPG大小未知')
+  })
+
+  it('shows both paired original sizes in the existing menu', () => {
+    const [video, raw] = generateImages(2)
+    render(<ArtworkImages images={[{
+      ...video!, path: '/paired.mp4', mediaType: 'video', size: 3 * 1024 ** 3,
+      raw: { ...raw!, path: '/paired.apng', size: 2 * 1024 ** 2 }
+    }]} artworkId={1} />)
+    fireEvent.click(screen.getByRole('button', { name: '图片操作' }))
+    const sizes = within(screen.getByLabelText('原文件大小'))
+    expect(sizes.getByText('MP4')).toBeTruthy()
+    expect(sizes.getByText('3 GB')).toBeTruthy()
+    expect(sizes.getByText('APNG')).toBeTruthy()
+    expect(sizes.getByText('2 MB')).toBeTruthy()
+    expect(screen.queryByTestId('adaptive-media-preview')).toBeNull()
   })
 
   it('excludes videos when an image opens the adaptive preview', () => {

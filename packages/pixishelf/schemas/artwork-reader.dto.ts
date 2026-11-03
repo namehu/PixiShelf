@@ -37,6 +37,7 @@ export interface ReaderInitialPage {
   artwork: ArtworkResponseDto
   fingerprint: string
   total: number
+  unknownMediaSizeCount?: number
 }
 export interface MediaPage {
   fingerprint: string

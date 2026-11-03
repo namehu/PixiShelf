@@ -55,6 +55,28 @@ async function counts(tx: Prisma.TransactionClient, expected: number) {
 }
 
 describe.skipIf(!url)('statistics on migrated PostgreSQL', () => {
+  it('sums original bytes including trashed and unassigned files and reports missing sizes', () =>
+    fixture(async (tx) => {
+      const trashed = await tx.artwork.create({ data: {
+        title: randomUUID(), deletedAt: new Date(), archiveLifecycleState: 'TRASHED'
+      } })
+      await tx.image.createMany({ data: [
+        { path: 'paired.mp4', mediaType: 'VIDEO', size: 3_000_000_000n, artworkId: trashed.id },
+        { path: 'paired.apng', mediaType: 'ANIMATION', size: 500n, artworkId: trashed.id },
+        { path: 'unassigned.jpg', mediaType: 'IMAGE', size: 100n },
+        { path: 'unknown', mediaType: 'UNKNOWN' }
+      ] })
+      const sections = loadStatisticsSections()
+      await Promise.all(Object.values(sections))
+      expect(await sections.storage).toMatchObject({ ok: true, value: {
+        totalBytes: 3_000_000_600, unknownSizeCount: 1,
+        categories: expect.arrayContaining([
+          { type: 'VIDEO', bytes: 3_000_000_000 }, { type: 'ANIMATION', bytes: 500 },
+          { type: 'IMAGE', bytes: 100 }, { type: 'UNKNOWN', bytes: 0 }
+        ])
+      } })
+    }))
+
   it('counts empty, unassigned, trashed, inserted, deleted and reassigned images exactly', () =>
     fixture(async (tx) => {
       await counts(tx, 0)

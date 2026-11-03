@@ -5,7 +5,7 @@ import { ROUTES } from '@/lib/constants'
 import { loadStatisticsSections } from '@/services/statistics-service'
 import { Skeleton } from '@/components/ui/skeleton'
 import { AdminMetric, AdminWorkbench } from '../_components/admin-workbench'
-import { StatisticsMetric, StatisticsLeaderboard, RankingPlaceholder } from './_components/statistics-sections'
+import { StatisticsMetric, StatisticsLeaderboard, RankingPlaceholder, StatisticsStorageSection, StoragePlaceholder } from './_components/statistics-sections'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: '状态管理 - PixiShelf Admin' }
@@ -66,6 +66,9 @@ export default function StatsDashboardPage() {
             )
           })}
         </section>
+        <Suspense fallback={<StoragePlaceholder />}>
+          <StatisticsStorageSection data={sections.storage} />
+        </Suspense>
         <div className="grid min-w-0 gap-8 xl:grid-cols-2">
           <Suspense fallback={<RankingPlaceholder title="热门艺术家" />}>
             <StatisticsLeaderboard

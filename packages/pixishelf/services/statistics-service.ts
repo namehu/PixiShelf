@@ -1,11 +1,19 @@
 import { unstable_cache } from 'next/cache'
+import type { MediaType } from '@prisma/client'
 import { activeCreatorMembership, visibleCreatorArtwork } from '@pixishelf/db'
 import { prisma } from '@/lib/prisma'
 import logger from '@/lib/logger'
+import { toApiImageSize } from '@/utils/image-size'
 import { optimizedImageCountSql, toStatisticsCount } from './statistics-queries'
 
 export type StatisticsResult<T> = { ok: true; value: T } | { ok: false }
 export type StatisticsRanking = { id: number; name: string; count: number }[]
+export interface StatisticsStorage {
+  totalBytes: number
+  categories: { type: MediaType; bytes: number }[]
+  unknownSizeCount: number
+  computedAt: string
+}
 
 async function measure<T>(query: string, read: () => Promise<T>): Promise<T> {
   const started = performance.now()
@@ -48,6 +56,29 @@ const getImageCount = unstable_cache(
   },
   ['statistics-images-v3'],
   { revalidate: 60 }
+)
+
+const getStorage = unstable_cache(
+  async (): Promise<StatisticsStorage> => {
+    const groups = await measure('storage', () =>
+      prisma.image.groupBy({
+        by: ['mediaType'],
+        _sum: { size: true },
+        _count: { _all: true, size: true }
+      })
+    )
+    return {
+      totalBytes: toApiImageSize(groups.reduce((sum, group) => sum + (group._sum.size ?? 0n), 0n)) ?? 0,
+      categories: groups.map((group) => ({
+        type: group.mediaType,
+        bytes: toApiImageSize(group._sum.size) ?? 0
+      })),
+      unknownSizeCount: groups.reduce((sum, group) => sum + group._count._all - group._count.size, 0),
+      computedAt: new Date().toISOString()
+    }
+  },
+  ['statistics-storage-v1'],
+  { revalidate: 300 }
 )
 
 const getTopArtists = unstable_cache(
@@ -96,7 +127,7 @@ const getTopTags = unstable_cache(
 
 export function loadStatisticsSections() {
   const started = performance.now()
-  let remaining = 4
+  let remaining = 5
   let failed = 0
   async function section<T>(name: string, read: () => Promise<T>): Promise<StatisticsResult<T>> {
     const sectionStarted = performance.now()
@@ -127,6 +158,7 @@ export function loadStatisticsSections() {
       getImageCount(process.env.STATISTICS_IMAGE_COUNT_MODE === 'counter' ? 'counter' : 'exact')
     ),
     artists: section('artists', getTopArtists),
-    tags: section('tags', getTopTags)
+    tags: section('tags', getTopTags),
+    storage: section('storage', getStorage)
   }
 }

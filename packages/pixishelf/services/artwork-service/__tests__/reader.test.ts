@@ -31,13 +31,29 @@ describe('reader payload bounds and media identity', () => {
     mocks.findImages.mockResolvedValue(Array.from({ length: count }, (_, index) => row(index + 1)))
     const initial = await getArtworkReaderInitial(1)
     expect(initial?.total).toBe(count)
+    expect(initial?.artwork.totalMediaSize).toBe(count * 100)
+    expect(initial?.unknownMediaSizeCount).toBe(0)
     expect(initial?.artwork.images).toHaveLength(24)
     expect(mocks.detail.mock.calls[0]?.[2]).toHaveLength(24)
     expect(mocks.findImages.mock.calls[0]?.[0]).toMatchObject({
       select: { id: true, width: true }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }]
     })
     expect(JSON.stringify(initial)).not.toContain('memberMediaIds')
+    expect(mocks.findImages).toHaveBeenCalledTimes(1)
+    expect(mocks.detail).toHaveBeenCalledTimes(1)
   })
+  it('counts every paired original file but only one reading item, without probing missing sizes', async () => {
+    mocks.findImages.mockResolvedValue([
+      { ...row(1, '/paired.mp4'), size: 3_000_000_000n, mediaType: 'VIDEO' },
+      { ...row(2, '/paired.apng'), size: 500n, mediaType: 'ANIMATION' },
+      { ...row(3), size: null }
+    ])
+    const initial = await getArtworkReaderInitial(1)
+    expect(initial).toMatchObject({ total: 2, unknownMediaSizeCount: 1, artwork: { totalMediaSize: 3_000_000_500, mediaCount: 2 } })
+    expect(mocks.findImages).toHaveBeenCalledTimes(1)
+    expect(mocks.detail.mock.calls[0]?.[2]).toEqual([1, 2, 3])
+  })
+
   it('hydrates the complete APNG/video group even when physical members straddle a page boundary', async () => {
     const rows = Array.from({ length: 23 }, (_, index) => row(index + 1))
     rows.push({ ...row(24, '/paired.webm'), mediaType: 'VIDEO' })

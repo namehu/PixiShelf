@@ -7,7 +7,7 @@ const mocks = await vi.hoisted(async () => {
   return {
     artwork: { count: vi.fn() },
     artist: { count: vi.fn(), findMany: vi.fn() },
-    image: { count: vi.fn() },
+    image: { count: vi.fn(), groupBy: vi.fn() },
     tag: { count: vi.fn(), findMany: vi.fn() },
     artworkArtist: { groupBy: vi.fn() },
     $queryRaw: vi.fn(),
@@ -46,6 +46,7 @@ beforeEach(() => {
   mocks.artist.count.mockResolvedValue(4)
   mocks.tag.count.mockResolvedValue(7)
   mocks.image.count.mockResolvedValue(100)
+  mocks.image.groupBy.mockResolvedValue([])
   mocks.artworkArtist.groupBy.mockResolvedValue([{ artistId: 2, _count: { artistId: 8 } }])
   mocks.artist.findMany.mockResolvedValue([{ id: 2, name: 'Artist' }])
   mocks.tag.findMany.mockResolvedValue([{ id: 3, name: 'Tag', artworkCount: 9 }])
@@ -54,6 +55,61 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs())
 
 describe('statistics independent reads and real Next cache', () => {
+  it('aggregates original sizes once across all lifecycle states and includes unknown types and missing sizes', async () => {
+    mocks.image.groupBy.mockResolvedValue([
+      { mediaType: 'IMAGE', _sum: { size: 4_000_000_000n }, _count: { _all: 3, size: 2 } },
+      { mediaType: 'ANIMATION', _sum: { size: 500n }, _count: { _all: 1, size: 1 } },
+      { mediaType: 'VIDEO', _sum: { size: 2_000_000_000n }, _count: { _all: 1, size: 1 } },
+      { mediaType: 'UNKNOWN', _sum: { size: null }, _count: { _all: 2, size: 0 } }
+    ])
+    const sections = loadStatisticsSections()
+    await settle(sections)
+    const result = await sections.storage
+    expect(result).toEqual({ ok: true, value: {
+      totalBytes: 6_000_000_500,
+      categories: [
+        { type: 'IMAGE', bytes: 4_000_000_000 }, { type: 'ANIMATION', bytes: 500 },
+        { type: 'VIDEO', bytes: 2_000_000_000 }, { type: 'UNKNOWN', bytes: 0 }
+      ],
+      unknownSizeCount: 3,
+      computedAt: expect.any(String)
+    } })
+    expect(() => JSON.stringify(result)).not.toThrow()
+    expect(mocks.image.groupBy).toHaveBeenCalledExactlyOnceWith({
+      by: ['mediaType'], _sum: { size: true }, _count: { _all: true, size: true }
+    })
+  })
+
+  it('returns an empty library and reuses storage independently for five minutes', async () => {
+    const first = loadStatisticsSections()
+    await settle(first)
+    expect(await first.storage).toMatchObject({ ok: true, value: { totalBytes: 0, categories: [], unknownSizeCount: 0 } })
+    now = 299_000
+    await settle(loadStatisticsSections())
+    expect(mocks.image.groupBy).toHaveBeenCalledTimes(1)
+    expect(mocks.image.count).toHaveBeenCalledTimes(2)
+    now = 301_000
+    await settle(loadStatisticsSections())
+    expect(mocks.image.groupBy).toHaveBeenCalledTimes(2)
+  })
+
+  it('isolates a slow or failed storage read and retries without caching false zero', async () => {
+    let reject!: (reason: Error) => void
+    mocks.image.groupBy.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail }))
+    const sections = loadStatisticsSections()
+    expect(await sections.basic).toMatchObject({ ok: true })
+    expect(await sections.images).toEqual({ ok: true, value: 100 })
+    expect(await sections.artists).toMatchObject({ ok: true })
+    reject(new Error('private connection information'))
+    expect(await sections.storage).toEqual({ ok: false })
+    await settle(sections)
+    const retry = loadStatisticsSections()
+    await settle(retry)
+    expect(await retry.storage).toMatchObject({ ok: true, value: { totalBytes: 0 } })
+    expect(mocks.image.groupBy).toHaveBeenCalledTimes(2)
+    expect(JSON.stringify(mocks.info.mock.calls)).not.toContain('private connection information')
+  })
+
   it('resolves other sections while the image count is pending', async () => {
     let resolveImages!: (count: number) => void
     mocks.image.count.mockReturnValueOnce(

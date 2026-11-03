@@ -20,6 +20,7 @@ import CreatorTimeline from './_components/creator-timeline'
 import SeriesNav from './_components/series-nav'
 import TagArea from './_components/tag-area'
 import { ArtworkDetailControlsProvider } from './_components/artwork-detail-controls'
+import { ArtworkMediaSummary } from './_components/artwork-media-summary'
 
 export default async function ArtworkDetailPage({ params, searchParams }: PageProps<'/artworks/[id]'>) {
   const { id } = await params
@@ -123,6 +124,11 @@ export default async function ArtworkDetailPage({ params, searchParams }: PagePr
                           </a>
                         )}
                       </div>
+                      <ArtworkMediaSummary
+                        count={initial!.total}
+                        totalBytes={data.totalMediaSize}
+                        unknownSizeCount={initial!.unknownMediaSizeCount}
+                      />
                     </header>
 
                     {!!data.tags.length && (

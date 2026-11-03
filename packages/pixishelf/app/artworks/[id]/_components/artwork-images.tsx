@@ -16,7 +16,8 @@ import { useRouter } from 'next/navigation'
 import { useArtworkStore } from '@/store/use-artwork-store'
 import { useArtworkMediaAnchorInterval } from '@/components/user-setting'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
-import { isVideoFile } from '@/lib/media'
+import { getFileExtension, isVideoFile } from '@/lib/media'
+import { formatFileSize } from '@/utils/media'
 import { hasReliableSingleFrameDimensions } from '@/lib/media-animation'
 import { cn } from '@/lib/utils'
 import { MediaAnchorNavigation } from './media-anchor-navigation'
@@ -445,6 +446,16 @@ function PreviewContextMenu({
       >
         {selectedMedia && (
           <ReadingMediaStatus reading={reading} mediaId={selectedMedia.id} loadFailed={contextMenu?.loadFailed} />
+        )}
+        {selectedMedia && (
+          <dl aria-label="原文件大小" className="flex flex-col gap-1 px-3 pb-2 text-xs leading-5 text-muted-foreground">
+            {[selectedMedia, ...(selectedMedia.raw ? [selectedMedia.raw] : [])].map((file) => (
+              <div key={file.id} className="flex items-baseline justify-between gap-6">
+                <dt>{getFileExtension(file.path).slice(1).toUpperCase() || '原文件'}</dt>
+                <dd className="font-utility whitespace-nowrap tabular-nums">{file.size == null ? '大小未知' : formatFileSize(file.size)}</dd>
+              </div>
+            ))}
+          </dl>
         )}
         {selectedMedia ? (
           <MediaMarkActions

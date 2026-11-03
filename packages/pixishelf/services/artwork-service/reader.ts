@@ -34,7 +34,13 @@ export async function loadReaderIndex(tx: AppTransaction, artworkId: number) {
   })
   const fingerprint = createHash('sha256').update(JSON.stringify([artwork.mediaRevision, items])).digest('hex')
   const index: MediaIndex = { fingerprint, mediaRevision: artwork.mediaRevision, items }
-  return { title: artwork.title, index, totalMediaSize: groups.reduce((sum, group) => sum + (toApiImageSize(group.item.size) ?? 0), 0) }
+  return {
+    title: artwork.title,
+    index,
+    // Display groups can contain both an APNG and a video; storage counts every original file.
+    totalMediaSize: toApiImageSize(rows.reduce((sum, row) => sum + (row.size ?? 0n), 0n)) ?? 0,
+    unknownMediaSizeCount: rows.filter((row) => row.size === null).length
+  }
 }
 
 export async function loadReaderPage(tx: AppTransaction, artworkId: number, index: MediaIndex, page: number): Promise<MediaPage> {
@@ -57,14 +63,14 @@ export async function getReaderMediaPage(artworkId: number, fingerprint: string,
 export async function getArtworkReaderInitial(artworkId: number): Promise<ReaderInitialPage | null> {
   try {
     return await prisma.$transaction(async (tx) => {
-      const { index, totalMediaSize } = await loadReaderIndex(tx, artworkId)
+      const { index, totalMediaSize, unknownMediaSizeCount } = await loadReaderIndex(tx, artworkId)
       const ids = index.items.slice(0, MEDIA_PAGE_SIZE).flatMap((item) => item.memberMediaIds)
       const artwork = await getArtworkDetailRecord(artworkId, tx, ids)
       if (!artwork) return null
       const hasVideo = index.items.some((item) => item.mediaType === 'video')
       return {
         artwork: { ...artwork, totalMediaSize, imageCount: hasVideo ? 0 : index.items.length, mediaCount: index.items.length },
-        total: index.items.length, fingerprint: index.fingerprint
+        total: index.items.length, fingerprint: index.fingerprint, unknownMediaSizeCount
       }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead })
   } catch (error) {
