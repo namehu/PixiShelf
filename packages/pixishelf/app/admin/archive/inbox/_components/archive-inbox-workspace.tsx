@@ -47,10 +47,10 @@ export function ArchiveInboxWorkspace() {
           className={
             discoveryDetail
               ? 'mx-auto w-full max-w-7xl max-lg:pt-2 max-lg:[&>[data-slot=page-header]]:hidden'
-              : 'mx-auto w-full max-w-7xl [&>[data-slot=page-header]]:pb-4'
+              : 'mx-auto w-full max-w-7xl max-sm:py-4 max-sm:[&_[data-slot=page-header]>div>div]:hidden [&>[data-slot=page-header]]:pb-3 sm:[&>[data-slot=page-header]]:pb-4'
           }
         >
-          <div className={discoveryDetail ? 'hidden' : 'pt-4 pb-2'}>
+          <div className={discoveryDetail ? 'hidden' : 'pt-2 pb-1 sm:pt-4 sm:pb-2'}>
             <TabsList aria-label="归档收件工作区" className="grid h-11 w-full max-w-md grid-cols-2">
               <TabsTrigger value="uploaders">
                 <UserSearchIcon data-icon="inline-start" aria-hidden="true" />

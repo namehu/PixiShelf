@@ -130,7 +130,6 @@ function ArchiveTaskManagement() {
   } = useArchiveTaskFilters()
   const [selectionBrowseKey, setSelectionBrowseKey] = useState(browseKey)
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
-  const [bulkToolbarHeight, setBulkToolbarHeight] = useState(0)
   const [detailTask, setDetailTask] = useState<ArchiveTaskOutput | null>(null)
   const [detailRefreshVersion, setDetailRefreshVersion] = useState(0)
   const liveEvents = useArchiveLiveEvents(detailTask?.systemJobId)
@@ -448,30 +447,6 @@ function ArchiveTaskManagement() {
         />
       }
     >
-        <ArchiveDownloadFloater
-          task={activeTask}
-          unfinishedCount={dashboardQuery.data?.archiveUnfinishedCount}
-          dashboardError={dashboardQuery.isError}
-          refreshedAt={dashboardQuery.dataUpdatedAt}
-          realtimeConnected={realtimeConnected}
-          liveJobById={liveJobById}
-          bottomOffset={bulkToolbarHeight}
-          pausePending={Boolean(activeTask && pendingSingleActions.has(singleActionKey(activeTask.id, 'PAUSE')))}
-          cancelPending={Boolean(activeTask && pendingSingleActions.has(singleActionKey(activeTask.id, 'CANCEL')))}
-          onViewItems={() => setDetailTask(activeTask)}
-          onViewTask={setDetailTask}
-          onPause={() =>
-            activeTask && requestSingleTaskAction(activeTask, 'PAUSE', (action) =>
-              singleActionMutation.mutate({ taskId: activeTask.id, action })
-            )
-          }
-          onCancel={() =>
-            activeTask && requestSingleTaskAction(activeTask, 'CANCEL', (action) =>
-              singleActionMutation.mutate({ taskId: activeTask.id, action })
-            )
-          }
-        />
-
       {requestedTaskId &&
       (deepLinkedTaskQuery.isError ||
         (deepLinkedTaskQuery.isSuccess && deepLinkedTaskQuery.data.items.length === 0)) ? (
@@ -482,6 +457,30 @@ function ArchiveTaskManagement() {
       ) : null}
 
       <ArchiveTaskToolbar
+        downloadStatus={
+          <ArchiveDownloadFloater
+            task={activeTask}
+            unfinishedCount={dashboardQuery.data?.archiveUnfinishedCount}
+            dashboardError={dashboardQuery.isError}
+            refreshedAt={dashboardQuery.dataUpdatedAt}
+            realtimeConnected={realtimeConnected}
+            liveJobById={liveJobById}
+            pausePending={Boolean(activeTask && pendingSingleActions.has(singleActionKey(activeTask.id, 'PAUSE')))}
+            cancelPending={Boolean(activeTask && pendingSingleActions.has(singleActionKey(activeTask.id, 'CANCEL')))}
+            onViewItems={() => setDetailTask(activeTask)}
+            onViewTask={setDetailTask}
+            onPause={() =>
+              activeTask && requestSingleTaskAction(activeTask, 'PAUSE', (action) =>
+                singleActionMutation.mutate({ taskId: activeTask.id, action })
+              )
+            }
+            onCancel={() =>
+              activeTask && requestSingleTaskAction(activeTask, 'CANCEL', (action) =>
+                singleActionMutation.mutate({ taskId: activeTask.id, action })
+              )
+            }
+          />
+        }
         value={draftFilters}
         appliedValue={filters}
         onChange={setDraftFilters}
@@ -621,7 +620,6 @@ function ArchiveTaskManagement() {
             )}
             {selectionState.selectedCount > 0 && (
               <BulkActionToolbar
-                onHeightChange={setBulkToolbarHeight}
                 selectedCount={selectionState.selectedCount}
                 eligibleCounts={{
                   PAUSE: eligibleArchiveTaskIds(tasks, selectedTaskIds, 'PAUSE').length,
@@ -705,7 +703,6 @@ function ArchiveTaskManagement() {
 }
 
 function BulkActionToolbar({
-  onHeightChange,
   selectedCount,
   eligibleCounts,
   pending,
@@ -713,7 +710,6 @@ function BulkActionToolbar({
   onAction,
   onClear
 }: {
-  onHeightChange: (height: number) => void
   selectedCount: number
   eligibleCounts: Record<ArchiveTaskBulkAction, number>
   pending: boolean
@@ -721,20 +717,6 @@ function BulkActionToolbar({
   onAction: (action: ArchiveTaskBulkAction) => void
   onClear: () => void
 }) {
-  const toolbarRef = useRef<HTMLElement>(null)
-  useEffect(() => {
-    const toolbar = toolbarRef.current
-    if (!toolbar) return
-    const measure = () => onHeightChange(toolbar.getBoundingClientRect().height)
-    measure()
-    // 批量按钮在窄屏换行后，用实际高度为浮球让位。
-    const observer = new ResizeObserver(measure)
-    observer.observe(toolbar)
-    return () => {
-      observer.disconnect()
-      onHeightChange(0)
-    }
-  }, [onHeightChange])
   const actionButton = (action: ArchiveTaskBulkAction, label: string, icon: React.ReactNode, destructive = false) => (
     <Button
       key={action}
@@ -749,7 +731,6 @@ function BulkActionToolbar({
   )
   return (
     <section
-      ref={toolbarRef}
       className="sticky bottom-[calc(var(--app-mobile-navigation-offset)+0.75rem)] flex flex-col gap-3 rounded-lg border bg-background/95 p-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:flex-row sm:items-center sm:justify-between lg:bottom-4"
       aria-label="当前页批量操作"
     >

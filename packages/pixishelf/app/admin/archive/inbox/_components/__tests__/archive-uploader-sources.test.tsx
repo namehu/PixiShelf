@@ -46,6 +46,7 @@ vi.mock('@/hooks/use-media-query', () => ({ useMediaQuery: () => mocks.isDesktop
 
 vi.mock('@/components/ui/dropdown-menu', async () => {
   const { createContext, useContext } = await import('react')
+  const { Slot } = await import('@radix-ui/react-slot')
   const RadioContext = createContext<(value: string) => void>(() => {})
   return {
     DropdownMenuLabel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -78,20 +79,25 @@ vi.mock('@/components/ui/dropdown-menu', async () => {
     DropdownMenuGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
     DropdownMenuSeparator: () => <hr />,
     DropdownMenuItem: ({
+      asChild,
       children,
       disabled,
       onSelect,
       'aria-label': label
     }: {
+      asChild?: boolean
       children: ReactNode
       disabled?: boolean
       onSelect?: () => void
       'aria-label'?: string
-    }) => (
-      <button type="button" disabled={disabled} onClick={onSelect} aria-label={label}>
-        {children}
-      </button>
-    )
+    }) => {
+      const Component = asChild ? Slot : 'button'
+      return (
+        <Component type="button" role={asChild ? 'menuitem' : undefined} disabled={disabled} onClick={onSelect} aria-label={label}>
+          {children}
+        </Component>
+      )
+    }
   }
 })
 

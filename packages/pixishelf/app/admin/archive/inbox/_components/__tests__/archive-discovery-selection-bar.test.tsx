@@ -96,6 +96,24 @@ describe('discovery selection actions', () => {
     expect(restore).toHaveBeenCalledOnce()
     expect(screen.queryByRole('button', { name: '更多操作' })).toBeNull()
   })
+
+  it('runs the mobile secondary action from the menu and closes it', async () => {
+    const defer = vi.fn()
+    render(
+      <ArchiveDiscoveryBulkBar
+        selectedCount={100}
+        kind="catalog"
+        pending={false}
+        onClear={vi.fn()}
+        onAdd={vi.fn()}
+        onDefer={defer}
+      />
+    )
+    fireEvent.keyDown(screen.getByRole('button', { name: '更多操作' }), { key: 'ArrowDown' })
+    fireEvent.click(await screen.findByRole('menuitem', { name: '稍后决定' }))
+    expect(defer).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
 })
 
 it('keeps the intake summary textual in selection presentation and edits the same options', () => {

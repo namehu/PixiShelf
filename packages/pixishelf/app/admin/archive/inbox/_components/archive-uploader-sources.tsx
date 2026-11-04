@@ -7,11 +7,10 @@ import { ArchiveTitleSourcePanel, ArchiveTitleReviewMenuItems } from './archive-
 import { ArchiveTitleRuleSheet } from './archive-title-rule-sheet'
 import { ArchiveTitleCreatorCleanup } from './archive-title-creator-cleanup'
 import { ArchiveTitleMatchEvidenceDialog } from './archive-title-match-evidence'
-
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { inferRouterOutputs } from '@trpc/server'
-import { ArrowLeftIcon, BanIcon, ClockIcon, InfoIcon, PlusIcon } from 'lucide-react'
+import { ArrowLeftIcon, BanIcon, ClockIcon, EllipsisIcon, InfoIcon, PlusIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppRouter } from '@/server'
 import { useTRPC } from '@/lib/trpc'
@@ -21,6 +20,13 @@ import { archiveClientErrorMessage } from '@/app/admin/archive/_components/archi
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { ArchiveDiscoveryIgnoreDialog, type DiscoveryIgnoreSelection } from './archive-discovery-ignore-dialog'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -591,7 +597,7 @@ export function ArchiveUploaderSources({
   if (!active) return null
 
   const globalHeader = !discoveryDetail ? (
-    <div className="sticky top-14 z-30 bg-background py-3 lg:top-16">
+    <div className="sticky top-14 z-30 bg-background py-2 lg:top-16 lg:py-3">
       <ArchiveDiscoverySourceFilters
         summary={
           <p className="text-sm text-muted-foreground" aria-live="polite">
@@ -606,28 +612,24 @@ export function ArchiveUploaderSources({
         onChange={setSourceFilters}
         actions={
           <>
-            <Button variant="ghost" className="h-11 sm:h-9" onClick={() => setDeferredView({})}>
-              <ClockIcon data-icon="inline-start" aria-hidden="true" />
-              全局稍后决定
-            </Button>
-            {onNavigatePendingCreators ? (
-              <Button variant="ghost" className="h-11 sm:h-9" onClick={onNavigatePendingCreators}>
-                待生效绑定
-              </Button>
-            ) : null}
-            <Button
-              variant="ghost"
-              className="h-11 sm:h-9"
-              aria-label={ignored ? '返回发现来源' : '查看全局已忽略'}
-              onClick={ignored ? returnFromIgnored : () => enterIgnored()}
-            >
-              {ignored ? (
-                <ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
-              ) : (
-                <BanIcon data-icon="inline-start" aria-hidden="true" />
-              )}
-              {ignored ? '返回发现来源' : '全局已忽略'}
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="来源更多操作">
+                  <EllipsisIcon aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="[&_[role=menuitem]]:min-h-11">
+                <DropdownMenuGroup>
+                  <DropdownMenuItem onSelect={() => setDeferredView({})}>全局稍后决定</DropdownMenuItem>
+                  {onNavigatePendingCreators && (
+                    <DropdownMenuItem onSelect={onNavigatePendingCreators}>待生效绑定</DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem aria-label="查看全局已忽略" onSelect={() => enterIgnored()}>
+                    全局已忽略
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button className="h-11 sm:h-9" onClick={() => setCreateOpen(true)}>
               <PlusIcon data-icon="inline-start" aria-hidden="true" />
               新增来源

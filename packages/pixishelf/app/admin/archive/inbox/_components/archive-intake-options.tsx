@@ -53,9 +53,7 @@ export function ArchiveIntakeOptionsDialog({
         variant="outline"
         size="sm"
         className={cn(
-          presentation === 'toolbar'
-            ? 'max-sm:size-8 max-sm:p-0'
-            : 'h-auto min-h-11 min-w-0 max-w-full px-2 py-2 sm:min-h-9 sm:px-3'
+          presentation === 'toolbar' ? 'max-sm:size-8 max-sm:p-0' : 'h-11 min-w-0 max-w-full px-2 sm:h-9 sm:px-3'
         )}
         aria-label={summary}
         title={summary}
@@ -67,7 +65,7 @@ export function ArchiveIntakeOptionsDialog({
           aria-hidden="true"
           className={presentation === 'selection' ? 'hidden sm:block' : undefined}
         />
-        <span className={presentation === 'selection' ? 'min-w-0 whitespace-normal text-left' : 'hidden sm:inline'}>
+        <span className={presentation === 'selection' ? 'min-w-0 truncate text-xs sm:text-sm' : 'hidden sm:inline'}>
           {summary}
         </span>
       </Button>

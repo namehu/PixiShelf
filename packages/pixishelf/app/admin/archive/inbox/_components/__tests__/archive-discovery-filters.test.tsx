@@ -2,9 +2,11 @@ import { useState } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ArchiveDiscoveryContentFilters } from '../archive-discovery-content-filters'
+import { ArchiveDiscoverySourceFilters } from '../archive-discovery-source-filters'
 import {
   DEFAULT_DISCOVERY_FILTERS,
   DEFAULT_SOURCE_FILTERS,
+  DEFAULT_SOURCE_SORT,
   discoveryQueryFilters,
   filterDiscoverySources
 } from '../archive-discovery-filter-state'
@@ -55,6 +57,35 @@ function Harness({ changed }: { changed: (value: unknown) => void }) {
 }
 
 describe('discovery filters', () => {
+  it('collapses mobile source filters without clearing active conditions or hiding search', () => {
+    layout.desktop = false
+    function Sources() {
+      const [value, setValue] = useState(DEFAULT_SOURCE_FILTERS)
+      return (
+        <ArchiveDiscoverySourceFilters
+          value={value}
+          onChange={setValue}
+          sort={DEFAULT_SOURCE_SORT}
+          onSortChange={vi.fn()}
+          countsReady
+        />
+      )
+    }
+    render(<Sources />)
+    const trigger = screen.getByRole('button', { name: '来源筛选与排序' })
+    expect(screen.getByRole('searchbox', { name: '搜索来源' })).toBeTruthy()
+    expect(screen.queryByRole('checkbox', { name: '有待处理' })).toBeNull()
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('checkbox', { name: '有待处理' }))
+    fireEvent.click(trigger)
+    expect(trigger.textContent).toBe('筛选 · 1')
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(trigger)
+    expect(screen.getByRole('checkbox', { name: '有待处理' }).getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: '重置来源筛选' }))
+    expect(trigger.textContent).toBe('筛选')
+  })
+
   it('filters the full source collection before pagination and excludes stopped sources by default', () => {
     const sources = Array.from({ length: 120 }, (_, index) => ({
       ...source,

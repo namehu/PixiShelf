@@ -10,7 +10,8 @@ import {
   InboxIcon,
   RotateCcwIcon,
   UnlinkIcon,
-  UserRoundPlusIcon
+  UserRoundPlusIcon,
+  XIcon
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,7 +23,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Spinner } from '@/components/ui/spinner'
-import { cn } from '@/lib/utils'
+import { useMediaQuery } from '@/hooks/use-media-query'
 
 export function ArchiveDiscoverySelectionBar({
   selectedCount,
@@ -43,51 +44,62 @@ export function ArchiveDiscoverySelectionBar({
   options?: ReactNode
   label?: string
 }) {
+  const desktop = useMediaQuery('(min-width: 640px)')
   if (selectedCount === 0) return null
 
   return (
     <div
-      className="sticky bottom-[calc(var(--app-mobile-navigation-offset)+0.75rem)] z-20 mt-3 grid grid-cols-2 items-center gap-2 rounded-lg bg-background p-3 shadow-lg sm:flex sm:flex-wrap sm:gap-3 lg:bottom-4"
+      className="sticky bottom-[calc(var(--app-mobile-navigation-offset)+0.5rem)] z-20 mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-background p-2 shadow-lg sm:gap-3 sm:p-3 lg:bottom-4"
       role="region"
       aria-label={label}
       aria-busy={pending}
     >
-      <div className={cn('flex min-w-0 items-center gap-2 sm:mr-auto', !options && 'col-span-2')}>
-        <span className="min-w-0 text-sm font-medium tabular-nums">已选择 {selectedCount} 项</span>
+      <div className="flex min-w-0 items-center sm:mr-auto sm:gap-2">
+        <span className="min-w-0 text-xs font-medium whitespace-nowrap tabular-nums sm:text-sm">
+          已选择 {selectedCount} 项
+        </span>
         <Button
           type="button"
           variant="ghost"
-          size="sm"
-          className="min-h-11 min-w-11 shrink-0 px-2 sm:min-h-9"
+          size="icon"
+          className="size-11 sm:size-9"
           aria-label="清除选择"
           onClick={onClear}
           disabled={pending}
         >
-          清除
+          <XIcon aria-hidden="true" />
         </Button>
       </div>
-      {options ? <div className="flex min-w-0 justify-end sm:ml-auto">{options}</div> : null}
-      <div
-        className={cn(
-          'col-span-2 grid min-w-0 items-start gap-2 sm:flex sm:items-center [&_button]:h-auto [&_button]:min-h-11 [&_button]:min-w-0 [&_button]:max-w-full [&_button]:whitespace-normal [&_button]:px-2 [&_button]:py-2 [&_button]:sm:min-h-9 [&_button]:sm:px-3',
-          menuItems && secondaryAction ? 'grid-cols-3' : menuItems || secondaryAction ? 'grid-cols-2' : 'grid-cols-1'
-        )}
-      >
-        {menuItems ? (
+      {options ? <div className="flex min-w-0 flex-1 justify-end sm:ml-auto sm:flex-none">{options}</div> : null}
+      <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto [&_button]:min-h-11 [&_button]:min-w-0 [&_button]:sm:min-h-9">
+        {menuItems || (!desktop && secondaryAction) ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline" disabled={pending}>
-                <EllipsisIcon data-icon="inline-start" aria-hidden="true" className="hidden sm:block" />
-                更多操作
+              <Button
+                type="button"
+                variant="outline"
+                className="max-sm:size-11 max-sm:p-0"
+                aria-label="更多操作"
+                disabled={pending}
+              >
+                <EllipsisIcon data-icon="inline-start" aria-hidden="true" />
+                <span className="hidden sm:inline">更多操作</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" className="min-w-52 [&_[role=menuitem]]:min-h-11">
+              {!desktop && secondaryAction ? (
+                <DropdownMenuGroup>
+                  <DropdownMenuItem asChild disabled={pending} className="w-full justify-start border-0 shadow-none">
+                    {secondaryAction}
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              ) : null}
               {menuItems}
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}
-        {secondaryAction ? <div className="min-w-0 [&_button]:w-full">{secondaryAction}</div> : null}
-        <div className="min-w-0 [&_button]:w-full">{primaryAction}</div>
+        {secondaryAction ? <div className="hidden min-w-0 sm:block [&_button]:w-full">{secondaryAction}</div> : null}
+        <div className="min-w-0 flex-1 [&_button]:w-full">{primaryAction}</div>
       </div>
     </div>
   )

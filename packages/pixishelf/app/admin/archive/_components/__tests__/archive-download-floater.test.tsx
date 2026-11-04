@@ -189,7 +189,7 @@ describe('archive download task switcher', () => {
     const calls = mocks.list.mock.calls.length
     view.update({ refreshedAt: 11 })
     await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(calls + 1))
-    view.update({ bottomOffset: 100 })
+    view.update({ pausePending: true })
     await act(async () => {})
     expect(mocks.list).toHaveBeenCalledTimes(calls + 1)
   })

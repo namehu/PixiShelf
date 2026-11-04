@@ -65,7 +65,9 @@ describe('archive task layout interactions', () => {
     const bound = screen.getByRole('link', { name: '已绑定艺术家（已绑定）' })
     expect(bound.getAttribute('href')).toBe('/artists/11')
     expect(bound.querySelector('[data-privacy-sensitive]')).toBeTruthy()
-    expect(screen.getByRole('link', { name: '待生效艺术家（归档发布后生效）' }).getAttribute('href')).toBe('/artists/12')
+    expect(screen.getByRole('link', { name: '待生效艺术家（归档发布后生效）' }).getAttribute('href')).toBe(
+      '/artists/12'
+    )
     expect(screen.queryByRole('button', { name: '管理艺术家' })).toBeNull()
     fireEvent.keyDown(screen.getByRole('button', { name: '打开任务操作菜单' }), { key: 'Enter' })
     fireEvent.click(await screen.findByRole('menuitem', { name: '管理艺术家' }))
@@ -75,21 +77,37 @@ describe('archive task layout interactions', () => {
   })
 
   it('starts collapsed and retains download controls when expanded', () => {
+    const filters: TaskFilters = { status: 'ALL', providerKey: '', kind: 'ALL', submissionId: '', search: '' }
     const onViewItems = vi.fn()
     const onPause = vi.fn()
     const onCancel = vi.fn()
     render(
-      <ArchiveDownloadFloater
-        task={task}
-        unfinishedCount={6}
-        onViewTask={vi.fn()}
-        pausePending={false}
-        cancelPending={false}
-        onViewItems={onViewItems}
-        onPause={onPause}
-        onCancel={onCancel}
+      <ArchiveTaskToolbar
+        value={filters}
+        appliedValue={filters}
+        onChange={vi.fn()}
+        onImmediateChange={vi.fn()}
+        onSubmit={vi.fn()}
+        onReset={vi.fn()}
+        downloadStatus={
+          <ArchiveDownloadFloater
+            task={task}
+            unfinishedCount={6}
+            onViewTask={vi.fn()}
+            pausePending={false}
+            cancelPending={false}
+            onViewItems={onViewItems}
+            onPause={onPause}
+            onCancel={onCancel}
+          />
+        }
       />
     )
+    expect(
+      within(screen.getByRole('region', { name: '归档任务筛选' })).getByRole('button', {
+        name: '当前下载 25%，待完成 6 项，点击展开'
+      })
+    ).toBeTruthy()
     expect(screen.queryByRole('region', { name: '当前归档下载' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '当前下载 25%，待完成 6 项，点击展开' }))
     expect(screen.getByRole('region', { name: '当前归档下载' })).toBeTruthy()

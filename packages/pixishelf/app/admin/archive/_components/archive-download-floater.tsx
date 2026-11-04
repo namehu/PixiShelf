@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { Download, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -24,7 +24,6 @@ export function ArchiveDownloadFloater({
   refreshedAt = 0,
   realtimeConnected = true,
   liveJobById,
-  bottomOffset = 0,
   pausePending,
   cancelPending,
   onViewItems,
@@ -38,7 +37,6 @@ export function ArchiveDownloadFloater({
   refreshedAt?: number
   realtimeConnected?: boolean
   liveJobById?: ReadonlyMap<string, LatestArchiveJobEvent>
-  bottomOffset?: number
   pausePending: boolean
   cancelPending: boolean
   onViewItems: () => void
@@ -67,10 +65,7 @@ export function ArchiveDownloadFloater({
     onViewTask(selected)
   }
   return (
-    <div
-      className="fixed right-4 bottom-[calc(var(--app-mobile-navigation-offset)+var(--archive-download-bottom-offset)+1rem)] z-30 lg:right-6 lg:bottom-[calc(var(--archive-download-bottom-offset)+1.5rem)]"
-      style={{ '--archive-download-bottom-offset': `${bottomOffset}px` } as CSSProperties}
-    >
+    <div className="min-w-0">
       <Popover
         open={open}
         onOpenChange={(next) => {
@@ -81,18 +76,19 @@ export function ArchiveDownloadFloater({
         <PopoverTrigger asChild>
           <Button
             type="button"
-            className="h-auto min-h-14 flex-col items-start gap-0.5 rounded-2xl px-4 py-2 shadow-floating"
+            variant="secondary"
+            className="h-auto min-h-11 max-w-full gap-2 px-3 py-1.5 sm:min-h-9"
             aria-label={`${currentLabel}，${countLabel}，点击${open ? '收起' : '展开'}`}
           >
-            <span className="flex items-center gap-1.5 text-xs">
-              <Download aria-hidden="true" />
-              {currentLabel}
+            <Download data-icon="inline-start" aria-hidden="true" className="max-sm:hidden" />
+            <span className="flex min-w-0 flex-col items-start text-xs sm:flex-row sm:items-center sm:gap-2">
+              <span className="truncate">{currentLabel}</span>
+              <span className="tabular-nums text-muted-foreground">{countLabel}</span>
             </span>
-            <span className="text-xs tabular-nums">{countLabel}</span>
           </Button>
         </PopoverTrigger>
         <PopoverContent
-          side="top"
+          side="bottom"
           align="end"
           sideOffset={12}
           collisionPadding={16}
