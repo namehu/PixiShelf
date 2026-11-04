@@ -126,7 +126,8 @@ jobs:
         run: node packages/pixishelf-worker/scripts/build-dedup-native.mjs
 
       - name: Run database and Worker unit tests
-        run: pnpm --filter @pixishelf/worker... test
+        # Packages share the PostgreSQL catalog lock and the single writer lane.
+        run: pnpm --workspace-concurrency=1 --filter @pixishelf/worker... test
 
       - name: Verify legacy dedup evidence through review and deletion
         env:
