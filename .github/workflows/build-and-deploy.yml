@@ -195,9 +195,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install pinned Trivy from GitHub Release
+        working-directory: ${{ runner.temp }}
+        env:
+          TRIVY_VERSION: '0.76.1'
+          TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+        run: |
+          archive="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl --fail --show-error --location --retry 3 \
+            --output "$archive" \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${archive}"
+          printf '%s  %s\n' "$TRIVY_SHA256" "$archive" | sha256sum --check -
+          mkdir -p trivy-bin
+          tar -xzf "$archive" -C trivy-bin trivy
+          echo "$RUNNER_TEMP/trivy-bin" >> "$GITHUB_PATH"
+
       - name: Run Trivy vulnerability scanner for PixiShelf Web
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          skip-setup-trivy: 'true'
           image-ref: '${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}'
           format: 'sarif'
           output: 'trivy-web-results.sarif'
@@ -209,8 +225,9 @@ jobs:
           category: 'pixishelf-web'
 
       - name: Run Trivy vulnerability scanner for worker
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          skip-setup-trivy: 'true'
           image-ref: '${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.WORKER_IMAGE_NAME }}:${{ github.ref_name }}'
           format: 'sarif'
           output: 'trivy-worker-results.sarif'

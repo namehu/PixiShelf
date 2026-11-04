@@ -53,6 +53,8 @@ Android：[2026-10-28 核心阅读页面迁移](./features/android-core-parity-2
 
 ## 发布、迁移与事故
 
+安全扫描：[2026-11-04 v0.55.25 Trivy 安装失败与修复](./operations/trivy-release-installer-2026-11-04.md)。
+
 镜像发布：[2026-11-04 CI 与镜像发布独立执行](./operations/independent-image-publishing-2026-11-04.md)。
 
 Worker CI：[2026-11-04 测试写入通道隔离](./operations/worker-test-lane-isolation-2026-11-04.md)。

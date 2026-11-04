@@ -36,6 +36,8 @@ CI 的 `webp` job 固定使用 `ubuntu-24.04`（2026-10-28 局部核验）：当
 
 当前镜像为 `ghcr.io/<owner>/pixishelf`、`ghcr.io/<owner>/pixishelf-worker` 及 Docker Hub 同名镜像，没有 API/Web 双镜像。tag 运行发布版本与 latest，另外包含 SHA 标签；手动运行按 metadata 规则产生标签，不保证更新 latest。当前不构建 arm64。
 
+安全扫描使用固定提交的 Trivy Action v0.36.0，两个扫描步骤共用从 GitHub Release 下载的 Trivy 0.76.1。安装包先校验工作流中固定的 SHA-256，再解压并加入 PATH；扫描 Action 跳过自带安装流程。扫描安装失败会使该 job 和整次发布工作流标红，已完成的镜像发布与 Release 保留；排查时需区分构建、发布与扫描各 job 的结果。
+
 ## 权限与配置
 
 - GHCR 使用内置 `GITHUB_TOKEN` 和 job 的 `packages: write` 权限。
