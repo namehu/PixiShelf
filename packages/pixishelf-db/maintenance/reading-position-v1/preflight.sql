@@ -31,12 +31,19 @@ FROM owners o JOIN positions p ON p.id = o.owner_id AND p."artworkId" = o."artwo
 ), counts AS (
 SELECT a.id, count(DISTINCT m.owner_id)::integer AS logical_count FROM "Artwork" a
 LEFT JOIN media_map m ON m."artworkId" = a.id GROUP BY a.id
+), read_counts AS (
+-- Aggregate once across all accounts; do not rescan the materialized media_map per summary.
+SELECT r."userId", r."artworkId", count(DISTINCT m.owner_id) AS current_read_logical_count
+FROM artwork_read_media r JOIN media_map m ON m.member_id = r."mediaId" AND m."artworkId" = r."artworkId"
+GROUP BY r."userId", r."artworkId"
 ), audits AS (
 SELECT s."userId", s."artworkId", s."seenCount", s."totalCount", c.logical_count,
   (s."totalCount" > 0 AND s."seenCount"::bigint * 100 >= s."totalCount"::bigint * 90) AS keep_old_completed,
-  s."lastMediaId" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM media_map m WHERE m.member_id = s."lastMediaId" AND m."artworkId" = s."artworkId") AS invalid_last,
-  (SELECT count(DISTINCT m.owner_id) FROM artwork_read_media r JOIN media_map m ON m.member_id = r."mediaId" AND m."artworkId" = r."artworkId" WHERE r."userId" = s."userId" AND r."artworkId" = s."artworkId") AS current_read_logical_count
+  s."lastMediaId" IS NOT NULL AND last_media.member_id IS NULL AS invalid_last,
+  coalesce(r.current_read_logical_count, 0) AS current_read_logical_count
 FROM artwork_reading_summaries s JOIN counts c ON c.id = s."artworkId"
+LEFT JOIN media_map last_media ON last_media.member_id = s."lastMediaId" AND last_media."artworkId" = s."artworkId"
+LEFT JOIN read_counts r ON r."userId" = s."userId" AND r."artworkId" = s."artworkId"
 )
 SELECT count(*) AS summaries,
   count(*) FILTER (WHERE "totalCount" <> logical_count) AS stale_total_snapshots,

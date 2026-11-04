@@ -12,6 +12,8 @@ const migrationName = '20261104010000_reading_position_progress'
 const prismaDirectory = path.resolve(process.cwd(), 'prisma')
 const migration = readFileSync(path.join(prismaDirectory, 'migrations', migrationName, 'migration.sql'), 'utf8')
 const maintenanceDirectory = path.resolve(process.cwd(), 'maintenance/reading-position-v1')
+const preflight = readFileSync(path.join(maintenanceDirectory, 'preflight.sql'), 'utf8')
+const preflightAudit = preflight.slice(preflight.indexOf('WITH names AS ('), preflight.indexOf('FROM audits;') + 'FROM audits'.length)
 const require = createRequire(import.meta.url)
 const prismaCli = require.resolve('prisma')
 let temporaryDirectory: string | undefined
@@ -107,6 +109,86 @@ describe.skipIf(!databaseUrl).sequential('reading position migration on disposab
     expect(actual).toEqual(expected)
   })
 
+  it('preserves every legacy preflight diagnostic with set-based account/media joins', () => {
+    // Keep the previous scalar audit as a semantic oracle on the small legacy fixture.
+    const legacyAudit = preflightAudit.slice(0, preflightAudit.indexOf('), read_counts AS (')) + `), audits AS (
+      SELECT s."userId",s."artworkId",s."seenCount",s."totalCount",c.logical_count,
+        (s."totalCount">0 AND s."seenCount"::bigint*100>=s."totalCount"::bigint*90) AS keep_old_completed,
+        s."lastMediaId" IS NOT NULL AND NOT EXISTS (
+          SELECT 1 FROM media_map m WHERE m.member_id=s."lastMediaId" AND m."artworkId"=s."artworkId"
+        ) AS invalid_last,
+        (SELECT count(DISTINCT m.owner_id) FROM artwork_read_media r JOIN media_map m
+          ON m.member_id=r."mediaId" AND m."artworkId"=r."artworkId"
+          WHERE r."userId"=s."userId" AND r."artworkId"=s."artworkId") AS current_read_logical_count
+      FROM artwork_reading_summaries s JOIN counts c ON c.id=s."artworkId"
+    )` + preflightAudit.slice(preflightAudit.indexOf('\nSELECT count(*) AS summaries'))
+    const expected = [{ summaries: 8, stale_total_snapshots: 2, differing_read_snapshots: 4,
+      preserved_completed: 3, completed_with_stale_total: 1, invalid_last_anchors: 0 }]
+    expect(query(preflightAudit)).toEqual(expected)
+    expect(query(preflightAudit)).toEqual(query(legacyAudit))
+    expect(sql(`SELECT count(*) FROM (SELECT "userId","artworkId" FROM artwork_read_media
+      EXCEPT SELECT "userId","artworkId" FROM artwork_reading_summaries) k`)).toBe('1')
+    // An APNG and its video are two read members but still one logical read; a last
+    // Image from another artwork is invalid even though its legacy FK is satisfied.
+    sql(`INSERT INTO artwork_read_media ("userId","artworkId","mediaId") VALUES ('reading-fixture-user',90,9002);
+      UPDATE artwork_reading_summaries SET "lastMediaId"=603 WHERE "artworkId"=2;`)
+    expect(query(preflightAudit)).toEqual([{ ...expected[0], invalid_last_anchors: 1 }])
+    expect(query(preflightAudit)).toEqual(query(legacyAudit))
+    sql(`DELETE FROM artwork_read_media WHERE "artworkId"=90 AND "mediaId"=9002;
+      UPDATE artwork_reading_summaries SET "lastMediaId"=207 WHERE "artworkId"=2;`)
+  })
+
+  it('scans the logical mapping once per set join, while formal count lookups use the temporary index', () => {
+    // Shadow only this psql session's tables: 20,000 synthetic media and 400 summaries.
+    const fixture = `BEGIN;
+      CREATE TEMP TABLE "Artwork" (id integer PRIMARY KEY,"logicalMediaCount" integer DEFAULT 0) ON COMMIT DROP;
+      CREATE TEMP TABLE "Image" (id integer,"artworkId" integer,"sortOrder" integer,path text,"mediaType" text) ON COMMIT DROP;
+      CREATE TEMP TABLE artwork_reading_summaries ("userId" text,"artworkId" integer,"seenCount" integer,"totalCount" integer,"lastMediaId" integer) ON COMMIT DROP;
+      CREATE TEMP TABLE artwork_read_media ("userId" text,"artworkId" integer,"mediaId" integer) ON COMMIT DROP;
+      INSERT INTO "Artwork" (id) SELECT generate_series(1,200);
+      INSERT INTO "Image" SELECT (a.id-1)*100+p,a.id,p*17,'/fixture/large/'||a.id||'/'||p||'.jpg','IMAGE'
+        FROM "Artwork" a CROSS JOIN generate_series(0,99) p;
+      INSERT INTO artwork_reading_summaries SELECT 'account-'||u,a.id,20,100,(a.id-1)*100+19
+        FROM "Artwork" a CROSS JOIN generate_series(1,2) u;
+      INSERT INTO artwork_read_media SELECT 'account-'||u,a.id,(a.id-1)*100+p
+        FROM "Artwork" a CROSS JOIN generate_series(1,2) u CROSS JOIN generate_series(0,19) p;
+      ANALYZE "Artwork"; ANALYZE "Image"; ANALYZE artwork_reading_summaries; ANALYZE artwork_read_media;`
+    interface PlanNode {
+      'Node Type': string
+      'Parent Relationship'?: string
+      'CTE Name'?: string
+      'Actual Loops'?: number
+      'Actual Rows'?: number
+      'Index Cond'?: string
+      Plans?: PlanNode[]
+    }
+    const plan = JSON.parse(sql(`${fixture} EXPLAIN (ANALYZE,FORMAT JSON) ${preflightAudit}; ROLLBACK;`))[0].Plan as PlanNode
+    const nodes: PlanNode[] = []
+    const visit = (node: PlanNode) => { nodes.push(node); node.Plans?.forEach(visit) }
+    visit(plan)
+    expect(nodes.some((node) => node['Parent Relationship'] === 'SubPlan')).toBe(false)
+    const mapScans = nodes.filter((node) => node['Node Type'] === 'CTE Scan' && node['CTE Name'] === 'media_map')
+    expect(mapScans.length).toBeGreaterThan(0)
+    expect(mapScans.every((node) => node['Actual Loops'] === 1)).toBe(true)
+
+    const mappingSetup = migration.slice(migration.indexOf('CREATE TEMP TABLE reading_position_media_map'), migration.indexOf('UPDATE "Artwork" a'))
+    const countUpdate = migration.slice(migration.indexOf('UPDATE "Artwork" a'), migration.indexOf('CREATE TEMP TABLE reading_position_expected_progress'))
+    const formalPlan = JSON.parse(sql(`${fixture} ${mappingSetup} EXPLAIN (FORMAT JSON) ${countUpdate} ROLLBACK;`))[0].Plan as PlanNode
+    nodes.length = 0
+    visit(formalPlan)
+    expect(nodes.some((node) => node['Index Cond']?.includes('"artworkId" = a.id'))).toBe(true)
+    // Execute only the unchanged count expression as a SELECT over synthetic temp
+    // tables: each of 200 artworks reads its own 100 rows, not the whole mapping.
+    const countSelect = countUpdate.replace('UPDATE "Artwork" a SET "logicalMediaCount" =', 'SELECT a.id,')
+      .replace(/;\s*$/, ' AS logical_count FROM "Artwork" a')
+    const countPlan = JSON.parse(sql(`${fixture} ${mappingSetup} EXPLAIN (ANALYZE,FORMAT JSON) ${countSelect}; ROLLBACK;`))[0].Plan as PlanNode
+    nodes.length = 0
+    visit(countPlan)
+    const indexedCount = nodes.find((node) => node['Index Cond']?.includes('"artworkId" = a.id'))
+    expect(indexedCount?.['Actual Loops']).toBe(200)
+    expect(indexedCount?.['Actual Rows']).toBe(100)
+  })
+
   it('runs read-only preflight and fully rolls back DDL/backfill/sealing on a late failure', () => {
     sql(readFileSync(path.join(maintenanceDirectory, 'preflight.sql'), 'utf8'))
     const failed = spawnSync('psql', [databaseUrl!, '-X', '-v', 'ON_ERROR_STOP=1', '-q'], {
@@ -131,7 +213,11 @@ describe.skipIf(!databaseUrl).sequential('reading position migration on disposab
     execFileSync(process.execPath, [prismaCli, 'migrate', 'deploy', '--schema', path.join(prismaDirectory, 'schema.prisma')], {
       env: { ...process.env, DATABASE_URL: databaseUrl! }, stdio: 'pipe'
     })
-    sql(readFileSync(path.join(maintenanceDirectory, 'postflight.sql'), 'utf8'))
+    const postflight = readFileSync(path.join(maintenanceDirectory, 'postflight.sql'), 'utf8')
+    sql(postflight)
+    const postflightAudit = postflight.slice(postflight.indexOf('WITH names AS ('), postflight.indexOf('INTO progress_mismatches'))
+    // The two final counts may use InitPlans; neither depends on an outer progress row.
+    expect(sql(`EXPLAIN (ANALYZE,FORMAT JSON) ${postflightAudit}`)).not.toMatch(/"Parent Relationship":\s*"SubPlan"/)
     const rows = query<Array<Record<string, unknown>>>('SELECT * FROM artwork_reading_progress ORDER BY "artworkId"')
     const find = (artworkId: number) => rows.find((row) => row.artworkId === artworkId)
     expect(rows).toHaveLength(9)

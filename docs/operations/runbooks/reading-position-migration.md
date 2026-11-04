@@ -29,6 +29,8 @@ sources:
 
 首次发布的 `prisma/migrations` 仅包含 phase 1。清理 SQL 留在 maintenance，不能随首次发布自动部署，也不由启动代码或后台任务自动执行。没有 TS 升级框架、旧表 fallback 或双写。
 
+当前 preflight 将旧已读行按账户/作品一次聚合后集合关联，最后锚点也通过集合关联核对，避免对每条摘要重复扫描完整逻辑映射；分组规则和诊断计数不变。维护 SQL 的修订与已发布正式 migration 分开追踪：演练/发布时记录实际脚本来源与 SHA-256，不将旧发布包中的维护脚本误认作修订版，也不为此改写已发布 migration、历史或 tag。
+
 ## 回填规则
 
 逻辑顺序与共享 `groupLogicalMedia` 相同：先按 Image 的 `sortOrder,id` 排列，以区分大小写的文件名 stem 将尾缀 APNG 归入同 stem 的第一个视频，目录不同不妨碍分组。视频类型或受支持扩展均可识别，扩展识别忽略查询串，但 stem 与 APNG 检测保留其原规则。逻辑分母不是原 Image 行数；迁移为所有 Artwork 写入 `logicalMediaCount`，含没有阅读记录或没有媒体的作品。
