@@ -10,7 +10,12 @@ last-verified: 2026-11-04
 
 2026-11-04 用户明确暂停独立客户端工作、优先 Web，后续是否继续客户端尚未决定。已完成 Flutter 改动和验证事实保留；原生视频衔接未验收、最终正常 release 未重建，均按用户要求暂停，**不阻塞本次 Web 交付，也不表示客户端整体就绪**。
 
-适用版本：2026-11-04 本地工作区，当前尚未登记代码提交、镜像 digest 或生产版本。本记录不表示代码已提交。
+适用版本：2026-11-04，分支 `codex/reading-position-progress` 的本地提交，按交付范围分开保存：
+
+- Web、共享 DB、Worker、正式 phase 1 迁移、独立 phase 2 材料及文档：`cfd680e9ee235a8b436062c859cc04a5ec6a58d0`。
+- Android 暂停验收的 WIP，仅包含 `packages/pixishelf-app`：`3cfa9d454f7b08ddaabcb98a4bc7cc6a7f61c9f0`。该提交不表示客户端整体就绪。
+
+以上提交仅保存在本地，未 push；没有登记发布镜像 digest 或生产版本。
 
 生产状态：未执行生产写入、迁移、部署或清理；本记录中的验证仅限本地与明确隔离数据库。
 
@@ -136,6 +141,6 @@ flutter drive --driver=test_driver/gallery.dart \
 
 - 尚未执行：生产写入、迁移、部署、数据库或媒体备份/恢复演练、真实用户验收、生产副本审计、上线后的至少 7 天观察与 phase 2 清理。
 - 正式发布需要用户按[位置迁移手册](../../operations/runbooks/reading-position-migration.md)执行。7 天从**生产上线验收后的实际观察**计算，开发完成或隔离验证经过的时间不算。
-- Web、服务端、Worker 与 SQL 的本次本地/隔离门禁已完成。代码提交信息待实际提交后短补，当前不虚构提交号。
+- Web、服务端、Worker 与 SQL 的本次本地/隔离门禁已完成，主实现与 Android 暂停 WIP 的精确本地提交和分离范围已在本文开头登记。
 - 独立 Android 客户端按用户要求暂停：已有 65/65、analyze、gallery +2 和 4 张原生截图是已执行事实；原生视频衔接未验收、最终正常 release 未重建，不阻塞 Web 发布。Web/Worker 按新契约发布，旧客户端暂停使用，服务端不提供旧阅读协议兼容分支。
 - 真实 NAS/实体 Android 手机/HTTPS/跨设备性能仍只按实际执行边界报告；没有这些证据不应宣称已覆盖。
