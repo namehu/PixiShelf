@@ -7,6 +7,8 @@ import {
   checkArtworkSummarySource,
   invalidateAnimationDurationSource,
   lockArtworkForReading,
+  readArtworkReadingLayout,
+  refreshArtworkReadingLayout,
   assertArtworkDedupWritable
 } from '@pixishelf/db'
 import type { EnqueuedChildJob, ExecutionContext, QueueSqlExecutor } from '@pixishelf/job-runtime'
@@ -144,6 +146,7 @@ export async function reconcileLocalArtworkImages(
     }
     incomingIdentities.add(identity)
   }
+  const previousLayout = await readArtworkReadingLayout(transaction, artworkId)
   const existing = await transaction.image.findMany({
     where: { artworkId },
     orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
@@ -256,6 +259,7 @@ export async function reconcileLocalArtworkImages(
     await transaction.image.deleteMany({ where: { artworkId, id: { in: removedIds } } })
   }
   if (additions.length > 0) await transaction.image.createMany({ data: additions })
+  await refreshArtworkReadingLayout(transaction, artworkId, previousLayout)
   return ordered
 }
 

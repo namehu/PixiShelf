@@ -23,12 +23,12 @@ vi.mock('@/lib/trpc', () => {
   return { useTRPCClient: () => client, useTRPC: () => trpc }
 })
 const context: ReadingContextDto = {
-  artworkId: 7, mediaRevision: 1, seenMediaIds: [], resume: null,
+  artworkId: 7, readingLayoutVersion: 1, resume: null,
   media: [{ mediaId: 11, memberMediaIds: [11], index: 0 }, { mediaId: 12, memberMediaIds: [12], index: 1 }],
-  summary: { artworkId: 7, mediaRevision: 1, stateVersion: 0, viewCount: 0, seenCount: 0, totalCount: 2,
-    status: 'UNREAD', lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null }
+  summary: { artworkId: 7, readingLayoutVersion: 1, stateVersion: 0, viewCount: 0, progressCount: 0, totalCount: 2,
+    status: 'UNREAD', completed: false, furthestMediaId: null, furthestMediaIndex: null, lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null }
 }
-const response = { mediaRevision: 1, seenMediaIds: [11], summary: { ...context.summary, stateVersion: 1, seenCount: 1, status: 'IN_PROGRESS' as const } }
+const response = { readingLayoutVersion: 1, summary: { ...context.summary, stateVersion: 1, progressCount: 1, status: 'IN_PROGRESS' as const, completed: false, furthestMediaId: null, furthestMediaIndex: null } }
 const init = (fingerprint: string): ReaderInitialization => ({ title: 'A', reading: context,
   index: { fingerprint, mediaRevision: 1, items: context.media.map(item => ({ ...item, width: 100, height: 150,
     mediaType: 'image', isAnimated: false, reliableDimensions: true })) } })
@@ -89,7 +89,7 @@ describe('reader navigation and pending saves', () => {
     collector.clearArtwork(7)
     collector.observe('reader-b', { artworkId: 8, mediaId: 12, ready: true, visible: true, automatic: false })
     const flush = collector.flush()
-    pending.get(8)!({ ...response, summary: { ...response.summary, artworkId: 8 }, seenMediaIds: [12] })
+    pending.get(8)!({ ...response, summary: { ...response.summary, artworkId: 8 }, })
     await flush
     pending.get(7)!(response)
     for (let i = 0; i < 5; i++) await Promise.resolve()
@@ -111,7 +111,7 @@ describe('reader navigation and pending saves', () => {
     }
     const ui = render(<Root detail />)
     act(() => handle.observe('detail', { mediaId: 11, ready: true, visible: true, automatic: false }))
-    expect(handle.summary?.seenCount).toBe(1)
+    expect(handle.summary?.progressCount).toBe(1)
     ui.rerender(<Root detail={false} />)
     expect(mocks.report).toHaveBeenCalledTimes(1)
     await act(async () => { reject({ data: { code: 'BAD_REQUEST' } }); for (let i = 0; i < 5; i++) await Promise.resolve() })
@@ -137,7 +137,7 @@ describe('reader navigation and pending saves', () => {
   it('flushes on pagehide without duplicating an in-flight request', async () => {
     let finish!: (value: ReadingReportResult) => void
     mocks.report.mockImplementationOnce(() => new Promise<ReadingReportResult>(resolve => { finish = resolve }))
-      .mockResolvedValue({ ...response, seenMediaIds: [11, 12] })
+      .mockResolvedValue({ ...response, })
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const hook = renderHook(() => useArtworkReading(7, { external: true, context, isLoading: false, error: null, retry: vi.fn() }), {
       wrapper: ({ children }) => <QueryClientProvider client={client}><ReadingProvider>{children}</ReadingProvider></QueryClientProvider>

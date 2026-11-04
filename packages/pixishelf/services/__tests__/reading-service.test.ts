@@ -1,386 +1,215 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-// The maintenance boundary is covered with actual PostgreSQL/service calls in artwork-dedup-app-guards.postgres.test.ts.
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ReadingReportEvent } from '@pixishelf/db/reading-contract'
+vi.mock('server-only', () => ({}))
 vi.mock('../artwork-dedup-write-guard', () => ({ assertArtworkDedupAppWrite: vi.fn() }))
-
-const { lockMock, state, tx } = vi.hoisted(() => {
+const { lock, state, tx } = vi.hoisted(() => {
   const state = {
-    summary: null as null | Record<string, unknown>,
-    seen: [] as number[],
-    media: [
-      { id: 1, path: '/a.apng', mediaType: 'ANIMATION' },
-      { id: 2, path: '/a.webm', mediaType: 'VIDEO' },
-      { id: 3, path: '/b.jpg', mediaType: 'IMAGE' }
-    ]
+    row: null as Record<string, unknown> | null,
+    total: 100,
+    images: Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      path: `${index}.jpg`,
+      mediaType: 'IMAGE',
+      webpAnimationStatus: null as number | null
+    }))
   }
   const tx = {
-    $queryRaw: vi.fn(),
-    artworkSummary: { findUnique: vi.fn() },
-    artwork: { findUnique: vi.fn(async () => ({ deletedAt: null, archiveLifecycleState: 'ACTIVE' })) },
-    image: { findMany: vi.fn(async () => state.media) },
-    artworkReadingSummary: {
-      findUnique: vi.fn(async () => state.summary),
-      update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
-        state.summary = { ...state.summary, ...data, stateVersion: Number(state.summary?.stateVersion ?? 0) + 1 }
-        return state.summary
-      }),
-      upsert: vi.fn(async ({ create, update }: { create: Record<string, unknown>; update: Record<string, unknown> }) => {
-        state.summary = state.summary ? { ...state.summary, ...update, stateVersion: Number(state.summary.stateVersion ?? 0) + 1 } : { viewCount: 0, lastMediaId: null, lastMediaIndex: null, ...create }
-        return state.summary
-      })
+    $queryRaw: vi.fn().mockResolvedValue([]),
+    artwork: { findUnique: vi.fn().mockResolvedValue({ deletedAt: null, archiveLifecycleState: 'ACTIVE' }) },
+    image: {
+      findMany: vi.fn(async ({ where }: { where: { id?: { in: number[] } } }) =>
+        state.images.filter((item) => !where.id || where.id.in.includes(item.id))
+      )
     },
-    artworkReadMedia: {
-      findMany: vi.fn(async () => state.seen.map((mediaId) => ({ mediaId }))),
-      createMany: vi.fn(async ({ data }: { data: Array<{ mediaId: number }> }) => {
-        state.seen = [...new Set([...state.seen, ...data.map(({ mediaId }) => mediaId)])]
-        return { count: data.length }
-      })
+    artworkReadingProgress: {
+      findUnique: vi.fn(async () => state.row),
+      upsert: vi.fn(
+        async ({ create, update }: { create: Record<string, unknown>; update: Record<string, unknown> }) => {
+          state.row = state.row
+            ? { ...state.row, ...update, stateVersion: Number(state.row.stateVersion) + 1 }
+            : {
+                viewCount: 0,
+                lastViewedAt: null,
+                lastActiveAt: null,
+                lastMediaId: null,
+                lastMediaIndex: null,
+                furthestMediaId: null,
+                furthestMediaIndex: null,
+                completed: false,
+                ...create
+              }
+          return state.row
+        }
+      )
     }
   }
-  return { lockMock: vi.fn(), state, tx }
+  return {
+    lock: vi.fn(async () => ({ id: 10, mediaRevision: 1, readingLayoutVersion: 3, logicalMediaCount: state.total })),
+    state,
+    tx
+  }
 })
-
-vi.mock('server-only', () => ({}))
-vi.mock('@pixishelf/db', async (importOriginal) => ({ ...await importOriginal<object>(), lockArtworkForReading: lockMock }))
-vi.mock('@/lib/prisma', () => ({ prisma: { $transaction: (callback: (client: typeof tx) => unknown) => callback(tx) } }))
+vi.mock('@pixishelf/db', async (original) => ({ ...(await original<object>()), lockArtworkForReading: lock }))
+vi.mock('@/lib/prisma', () => ({ prisma: { $transaction: (callback: (tx: unknown) => unknown) => callback(tx) } }))
 vi.mock('@/services/artwork-service', () => ({ getArtworkCardsByIds: vi.fn() }))
-
-import { getReaderInitialization, getReadingContext, reportReading, markReadingRead } from '../reading-service'
-import type { ReadingReportEvent } from '@pixishelf/db/reading-contract'
-
-const NOW = new Date('2026-09-24T12:00:00.000Z')
-function event(type: 'VIEW' | 'HEARTBEAT', mediaId = 2, at = NOW): ReadingReportEvent {
-  return { type, mediaId, observedAt: at.toISOString(),
-    ...([1, 2].includes(mediaId) ? { playback: { currentTime: 90, duration: 100 } } : {}) }
+import { getReadingContext, markReadingRead, reportReading } from '../reading-service'
+const NOW = new Date('2026-11-04T10:00:00Z')
+function view(index: number, observedAt = NOW): ReadingReportEvent {
+  return { type: 'VIEW', mediaId: index + 1, index, observedAt: observedAt.toISOString() }
 }
-function input(events: ReturnType<typeof event>[], mediaRevision = 1) {
-  return { artworkId: 10, expectedUserId: 'user-1', mediaRevision, events }
+function input(events: ReadingReportEvent[], readingLayoutVersion = 3) {
+  return { artworkId: 10, expectedUserId: 'u', readingLayoutVersion, events }
 }
-
-describe('reading service', () => {
+describe('position reading service', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(NOW)
-    state.summary = null
-    state.seen = []
-    state.media = [
-      { id: 1, path: '/a.apng', mediaType: 'ANIMATION' },
-      { id: 2, path: '/a.webm', mediaType: 'VIDEO' },
-      { id: 3, path: '/b.jpg', mediaType: 'IMAGE' }
-    ]
-    lockMock.mockReset().mockResolvedValue({ id: 10, mediaRevision: 1 })
-    for (const delegate of [tx.artwork, tx.image, tx.artworkReadingSummary, tx.artworkReadMedia]) {
-      for (const method of Object.values(delegate)) method.mockClear()
-    }
-  })
-
-  it('ignores video posters and legacy visibility-only reports, including grouped posters', async () => {
-    const result = await reportReading('user-1', input([1, 2].map((mediaId) => ({
-      type: 'VIEW', mediaId, observedAt: NOW.toISOString()
-    }))))
-    expect(result.summary).toMatchObject({ status: 'UNREAD', viewCount: 0, seenCount: 0 })
-    expect(tx.artworkReadingSummary.upsert).not.toHaveBeenCalled()
-  })
-
-  it('starts a video visit without completing it and accepts a seek to exactly 90%', async () => {
-    state.media = [state.media[1]!]
-    const progress = (currentTime: number, duration = 100) => input([
-      { ...event('VIEW'), playback: { currentTime, duration } }
-    ])
-    for (const [currentTime, duration] of [[0, 0], [1, 100], [89.99, 100]]) {
-      const result = await reportReading('user-1', progress(currentTime!, duration!))
-      expect(result.summary).toMatchObject({ status: 'IN_PROGRESS', viewCount: 1, seenCount: 0 })
-    }
-    const complete = await reportReading('user-1', progress(90))
-    expect(complete.summary).toMatchObject({ status: 'COMPLETED', viewCount: 1, seenCount: 1 })
-    expect((await reportReading('user-1', progress(2))).summary.status).toBe('COMPLETED')
-  })
-
-  it('applies the same percentage to sub-second videos', async () => {
-    state.media = [state.media[1]!]
-    const result = await reportReading('user-1', input([
-      { ...event('VIEW'), playback: { currentTime: 0.45, duration: 0.5 } }
-    ]))
-    expect(result.summary.status).toBe('COMPLETED')
-  })
-
-  it.each([
-    [0, 0, 'UNREAD'],
-    [8, 9, 'IN_PROGRESS'],
-    [9, 10, 'COMPLETED'],
-    [17, 20, 'IN_PROGRESS'],
-    [18, 20, 'COMPLETED'],
-    [89, 100, 'IN_PROGRESS'],
-    [90, 100, 'COMPLETED'],
-    [899, 1000, 'IN_PROGRESS'],
-    [900, 1000, 'COMPLETED']
-  ] as const)('reports %i/%i as %s without marking missing images read', async (seenCount, totalCount, status) => {
-    state.media = Array.from({ length: totalCount }, (_, index) => ({ id: index + 100, path: `/${index}.jpg`, mediaType: 'IMAGE' }))
-    const seenIds = state.media.slice(0, seenCount).map(({ id }) => id)
-    const result = await reportReading('user-1', input(seenIds.map((id) => event('VIEW', id))))
-    expect(result.summary).toMatchObject({ seenCount, totalCount, status })
-    expect(result.seenMediaIds).toEqual(seenIds)
-    expect(state.seen).toEqual(seenIds)
-    expect((await getReadingContext('user-1', 10)).summary).toMatchObject({ seenCount, totalCount, status })
-  })
-
-  it('keeps missing images unread after tolerant completion and fills them only on an explicit all-read mark', async () => {
-    state.media = Array.from({ length: 100 }, (_, index) => ({ id: index + 100, path: `/${index}.jpg`, mediaType: 'IMAGE' }))
-    const seenIds = state.media.slice(0, 90).map(({ id }) => id)
-    const missingIds = state.media.slice(90).map(({ id }) => id)
-    await reportReading('user-1', input(seenIds.map((id) => event('VIEW', id))))
-    const completed = await getReadingContext('user-1', 10)
-    expect(completed.summary.status).toBe('COMPLETED')
-    expect(completed.media.filter((item) => !completed.seenMediaIds.includes(item.mediaId)).map((item) => item.mediaId)).toEqual(missingIds)
-    const marked = await markReadingRead('user-1', { artworkId: 10, expectedUserId: 'user-1', mediaRevision: 1, target: { kind: 'ALL' } })
-    expect(marked.summary).toMatchObject({ status: 'COMPLETED', seenCount: 100, viewCount: 1 })
-    expect(marked.seenMediaIds).toHaveLength(100)
-    expect(tx.artworkReadMedia.createMany.mock.lastCall?.[0].data.map(({ mediaId }) => mediaId)).toEqual(missingIds)
-  })
-
-  it('keeps added images unread while complete at 100/111, then reopens at 100/112', async () => {
-    state.media = Array.from({ length: 100 }, (_, index) => ({ id: index + 100, path: `/${index}.jpg`, mediaType: 'IMAGE' }))
-    await reportReading('user-1', input(state.media.map(({ id }) => event('VIEW', id))))
-    state.media.push(...Array.from({ length: 11 }, (_, index) => ({ id: index + 200, path: `/${index + 100}.jpg`, mediaType: 'IMAGE' })))
-    const first = await getReadingContext('user-1', 10)
-    expect(first.summary).toMatchObject({ status: 'COMPLETED', seenCount: 100, totalCount: 111 })
-    expect(first.seenMediaIds).toEqual(state.media.slice(0, 100).map(({ id }) => id))
-    state.media.push({ id: 211, path: '/111.jpg', mediaType: 'IMAGE' })
-    const next = await getReadingContext('user-1', 10)
-    expect(next.summary).toMatchObject({ status: 'IN_PROGRESS', seenCount: 100, totalCount: 112 })
-    expect(next.seenMediaIds).toHaveLength(100)
-  })
-
-  it('keeps an unfinished video visit alive without marking it complete', async () => {
-    await reportReading('user-1', input([{ ...event('VIEW'), playback: { currentTime: 1, duration: 600 } }]))
-    vi.setSystemTime(new Date(NOW.getTime() + 60_000))
-    const result = await reportReading('user-1', input([
-      { ...event('HEARTBEAT', 2, new Date()), playback: { currentTime: 61, duration: 600 } }
-    ]))
-    expect(result.summary).toMatchObject({ status: 'IN_PROGRESS', viewCount: 1, seenCount: 0,
-      lastActiveAt: new Date().toISOString(), lastViewedAt: NOW.toISOString() })
-  })
-
-  it('initializes logical mapping without creating a visit or seen media', async () => {
-    const result = await getReadingContext('user-1', 10)
-    expect(result.media).toEqual([
-      { mediaId: 2, memberMediaIds: [2, 1], index: 0, isVideo: true },
-      { mediaId: 3, memberMediaIds: [3], index: 1, isVideo: false }
-    ])
-    expect(result.summary).toMatchObject({ status: 'UNREAD', viewCount: 0, totalCount: 2 })
-    expect(tx.artworkReadingSummary.upsert).not.toHaveBeenCalled()
-    expect(tx.artworkReadMedia.createMany).not.toHaveBeenCalled()
-  })
-
-  it('counts one visit and all group members, then merges a repeat observation', async () => {
-    const first = await reportReading('user-1', input([event('VIEW')]))
-    expect(first.summary).toMatchObject({ viewCount: 1, seenCount: 1, totalCount: 2, status: 'IN_PROGRESS', lastMediaId: 2 })
-    expect(state.seen).toEqual([2, 1])
-    const second = await reportReading('user-1', input([event('VIEW', 1)]))
-    expect(second.summary.viewCount).toBe(1)
-    expect(second.summary.seenCount).toBe(1)
-  })
-
-  it('merges a late device observation without moving activity time backwards or reopening the visit', async () => {
-    const firstAt = new Date(NOW.getTime() - 1_000)
-    const lateAt = new Date(NOW.getTime() - 2_000)
-    const first = await reportReading('user-1', input([event('VIEW', 2, firstAt)]))
-    expect(first.summary).toMatchObject({ viewCount: 1, seenCount: 1, lastMediaId: 2 })
-
-    const late = await reportReading('user-1', input([event('VIEW', 3, lateAt)]))
-    expect(late.summary).toMatchObject({ viewCount: 1, seenCount: 2, totalCount: 2, lastMediaId: 3, lastMediaIndex: 1 })
-    expect(late.summary.lastActiveAt).toBe(firstAt.toISOString())
-    expect(late.summary.lastViewedAt).toBe(firstAt.toISOString())
-    expect(state.seen).toEqual([2, 1, 3])
-
-    const repeated = await reportReading('user-1', input([event('VIEW', 3, lateAt)]))
-    expect(repeated.summary.viewCount).toBe(1)
-    expect(repeated.summary.seenCount).toBe(2)
-  })
-
-  it('does not create or reopen a visit from a heartbeat', async () => {
-    const empty = await reportReading('user-1', input([event('HEARTBEAT')]))
-    expect(empty.summary.viewCount).toBe(0)
-    expect(tx.artworkReadingSummary.upsert).not.toHaveBeenCalled()
-
-    await reportReading('user-1', input([event('VIEW')]))
-    const before = tx.artworkReadingSummary.upsert.mock.calls.length
-    vi.setSystemTime(new Date(NOW.getTime() + 31 * 60_000))
-    const stale = await reportReading('user-1', input([event('HEARTBEAT', 2, new Date())]))
-    expect(stale.summary.viewCount).toBe(1)
-    expect(tx.artworkReadingSummary.upsert).toHaveBeenCalledTimes(before)
-  })
-
-  it('starts a new visit after 30 minutes and completes by distinct logical groups', async () => {
-    await reportReading('user-1', input([event('VIEW')]))
-    vi.setSystemTime(new Date(NOW.getTime() + 30 * 60_000))
-    const result = await reportReading('user-1', input([event('VIEW', 3, new Date())]))
-    expect(result.summary).toMatchObject({ viewCount: 2, seenCount: 2, totalCount: 2, status: 'COMPLETED', lastMediaId: 3, lastMediaIndex: 1 })
-    expect(state.seen).toEqual([2, 1, 3])
-  })
-
-  it('keeps a visit active across devices without overwriting the last viewed position', async () => {
-    await reportReading('user-1', input([event('VIEW', 2)]))
-    vi.setSystemTime(new Date(NOW.getTime() + 20_000))
-    await reportReading('user-1', input([event('VIEW', 3, new Date())]))
-    for (let minute = 1; minute <= 31; minute++) {
-      vi.setSystemTime(new Date(NOW.getTime() + minute * 60_000))
-      const heartbeat = await reportReading('user-1', input([event('HEARTBEAT', 2, new Date())]))
-      expect(heartbeat.summary).toMatchObject({ viewCount: 1, lastMediaId: 3, lastActiveAt: new Date().toISOString() })
-    }
-    const next = await reportReading('user-1', input([event('VIEW', 2, new Date())]))
-    expect(next.summary.viewCount).toBe(1)
-  })
-
-  it('does not accept heartbeats for media without an effective view', async () => {
-    const first = await reportReading('user-1', input([event('VIEW', 2)]))
-    vi.setSystemTime(new Date(NOW.getTime() + 60_000))
-    const result = await reportReading('user-1', input([event('HEARTBEAT', 3, new Date())]))
-    expect(result.summary).toEqual(first.summary)
-  })
-
-  it('reconciles ordinary media changes and resumes from the first unseen item when the last item vanished', async () => {
-    await reportReading('user-1', input([event('VIEW')]))
-    state.media = [
-      { id: 1, path: '/a.apng', mediaType: 'ANIMATION' },
-      { id: 3, path: '/b.jpg', mediaType: 'IMAGE' }
-    ]
-    const context = await getReadingContext('user-1', 10)
-    expect(context.summary).toMatchObject({ viewCount: 1, seenCount: 1, totalCount: 2, lastMediaId: null, lastMediaIndex: null })
-    expect(context.resume).toEqual({ mediaId: 3, index: 1 })
-    expect(tx.artworkReadingSummary.update).toHaveBeenCalledOnce()
-  })
-
-  it('drops deleted media events while accepting surviving media in the same batch', async () => {
-    state.media = state.media.filter(({ id }) => id !== 3)
-    const result = await reportReading('user-1', input([event('VIEW', 3), event('VIEW', 2)]))
-    expect(result.summary).toMatchObject({ viewCount: 1, seenCount: 1, totalCount: 1, lastMediaId: 2 })
-    expect(state.seen).toEqual([2, 1])
-  })
-
-  it('returns the current summary without activity when every media event is invalid', async () => {
-    const empty = await reportReading('user-1', input([event('VIEW', 99)]))
-    expect(empty.summary).toMatchObject({ status: 'UNREAD', viewCount: 0, seenCount: 0 })
-    expect(tx.artworkReadingSummary.upsert).not.toHaveBeenCalled()
-    expect(tx.artworkReadMedia.createMany).not.toHaveBeenCalled()
-
-    const first = await reportReading('user-1', input([event('VIEW', 2)]))
-    const writes = tx.artworkReadingSummary.upsert.mock.calls.length
-    const invalid = await reportReading('user-1', input([event('VIEW', 99)]))
-    expect(invalid.summary).toEqual(first.summary)
-    expect(tx.artworkReadingSummary.upsert).toHaveBeenCalledTimes(writes)
-  })
-
-  it('rejects stale batches and old revisions without a write', async () => {
-    await expect(reportReading('user-1', input([event('VIEW', 2, new Date(NOW.getTime() - 60_001))]))).rejects.toMatchObject({ code: 'BAD_REQUEST' })
-    await expect(reportReading('user-1', input([event('VIEW')], 0))).rejects.toMatchObject({ code: 'CONFLICT', message: 'READING_MEDIA_REVISION_CONFLICT' })
-    expect(tx.artworkReadingSummary.upsert).not.toHaveBeenCalled()
-    expect(tx.artworkReadMedia.createMany).not.toHaveBeenCalled()
-  })
-  const mark = (target: { kind: 'ALL' } | { kind: 'MEDIA'; mediaId: number } = { kind: 'ALL' }) =>
-    markReadingRead('user-1', { artworkId: 10, expectedUserId: 'user-1', mediaRevision: 1, target })
-
-  it('marks a logical group without inventing a visit, timestamps, or a resume position', async () => {
-    const first = await mark({ kind: 'MEDIA', mediaId: 1 })
-    expect(first.seenMediaIds).toEqual([2])
-    expect(first.summary).toMatchObject({ status: 'IN_PROGRESS', stateVersion: 1, viewCount: 0,
-      seenCount: 1, totalCount: 2, lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null })
-    expect(state.seen).toEqual([2, 1])
-    const complete = await mark()
-    expect(complete.summary).toMatchObject({ status: 'COMPLETED', stateVersion: 2, viewCount: 0, seenCount: 2 })
-    expect(await mark()).toEqual(complete)
-    expect(tx.artworkReadingSummary.upsert).toHaveBeenCalledTimes(2)
-    const visit = await reportReading('user-1', input([event('VIEW', 3)]))
-    expect(visit.summary).toMatchObject({ viewCount: 1, seenCount: 2, lastMediaId: 3 })
-  })
-
-  it('manual completion preserves existing activity and later appended media remains unread', async () => {
-    const before = await reportReading('user-1', input([event('VIEW', 2)]))
-    const completed = await mark()
-    expect(completed.summary).toMatchObject({ viewCount: before.summary.viewCount,
-      lastViewedAt: before.summary.lastViewedAt, lastActiveAt: before.summary.lastActiveAt,
-      lastMediaId: before.summary.lastMediaId, lastMediaIndex: before.summary.lastMediaIndex })
-    state.media.push({ id: 4, path: '/c.jpg', mediaType: 'IMAGE' })
-    const after = await getReadingContext('user-1', 10)
-    expect(after.summary).toMatchObject({ status: 'IN_PROGRESS', seenCount: 2, totalCount: 3 })
-    expect(after.seenMediaIds).toEqual([2, 3])
-    expect(after.summary.stateVersion).toBeGreaterThan(completed.summary.stateVersion)
-  })
-
-  it('rejects unrelated media and stale manual requests before writing', async () => {
-    await expect(mark({ kind: 'MEDIA', mediaId: 999 })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
-    lockMock.mockResolvedValue({ id: 10, mediaRevision: 2 })
-    await expect(mark()).rejects.toMatchObject({ code: 'CONFLICT' })
-    expect(tx.artworkReadMedia.createMany).not.toHaveBeenCalled()
-    expect(tx.artworkReadingSummary.upsert).not.toHaveBeenCalled()
-  })
-
-  it('does not complete an empty artwork or write a manual visit', async () => {
-    state.media = []
-    const result = await mark()
-    expect(result.summary).toMatchObject({ status: 'UNREAD', viewCount: 0, totalCount: 0, stateVersion: 0 })
-    expect(result.seenMediaIds).toEqual([])
-    expect(tx.artworkReadingSummary.upsert).not.toHaveBeenCalled()
-  })
-
-})
-
-describe('summary group reading grants', () => {
-  const generationId = 'e5633c62-9b53-4723-a063-0fc235fc49ce'
-  const snapshot = () => ({ generationId, sourceRevision: 4, publishedRevision: 4, algorithmVersion: 1, replaceInProgress: false,
-    groups: [{ id: '3', mediaIds: [3, 4], representativeMediaId: 3, startIndex: 0, endIndex: 1 }] })
-  beforeEach(() => {
-    vi.setSystemTime(NOW)
-    state.summary = null; state.seen = []
-    state.media = [3, 4, 5].map((id) => ({ id, path: `/${id}.jpg`, mediaType: 'IMAGE' }))
-    lockMock.mockResolvedValue({ id: 10, mediaRevision: 1 })
-    tx.artworkSummary.findUnique.mockResolvedValue(snapshot())
-  })
-  const observation = () => ({ type: 'VIEW' as const, mediaId: 4, observedAt: NOW.toISOString(), summary: { generationId, groupId: '3' } })
-  it('grants the original group from its effective unread representative, without inventing visits or last position', async () => {
-    const result = await reportReading('user-1', input([observation()]))
-    expect(state.seen).toEqual([3, 4])
-    expect(result.summary).toMatchObject({ seenCount: 2, totalCount: 3, viewCount: 1, lastMediaId: 4, lastMediaIndex: 1 })
-    await reportReading('user-1', input([observation()]))
-    expect(state.summary?.viewCount).toBe(1)
-  })
-  it.each([
-    { sourceRevision: 5 }, { generationId: 'replaced' }, { replaceInProgress: true },
-    { groups: [{ id: '3', mediaIds: [3, 99], representativeMediaId: 3, startIndex: 0, endIndex: 1 }] }
-  ])('rejects an obsolete or malformed snapshot before any reading writes: %j', async (change) => {
-    tx.artworkSummary.findUnique.mockResolvedValue({ ...snapshot(), ...change })
-    await expect(reportReading('user-1', input([observation()]))).rejects.toThrow('ARTWORK_SUMMARY_CONFLICT')
-    expect(state.seen).toEqual([])
-    expect(state.summary).toBeNull()
-  })
-})
-
-
-describe('stack reading grants', () => {
-  beforeEach(() => {
-    vi.useFakeTimers(); vi.setSystemTime(NOW)
-    state.summary = null; state.seen = []
-    state.media = Array.from({ length: 8 }, (_, index) => ({ id: index + 1, path: `/stack/${index}.jpg`, mediaType: 'IMAGE' }))
-    lockMock.mockResolvedValue({ id: 10, mediaRevision: 1 })
     vi.clearAllMocks()
+    state.row = null
+    state.total = 100
+    state.images = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      path: `${index}.jpg`,
+      mediaType: 'IMAGE',
+      webpAnimationStatus: null
+    }))
+    lock.mockImplementation(async () => ({
+      id: 10,
+      mediaRevision: 1,
+      readingLayoutVersion: 3,
+      logicalMediaCount: state.total
+    }))
   })
-  it('loads the ordered index once per batch and grants only the observed group', async () => {
-    const reader = await getReaderInitialization('user-1', 10)
-    tx.image.findMany.mockClear()
-    const result = await reportReading('user-1', input([3, 4].map((mediaId) => ({ type: 'VIEW', mediaId,
-      observedAt: NOW.toISOString(), stack: { ruleVersion: 1, fingerprint: reader.index.fingerprint, groupId: 'stack-v1-1-4' } }))))
-    expect(tx.image.findMany).toHaveBeenCalledTimes(1)
-    expect(result.seenMediaIds).toEqual([1, 2, 3, 4])
-    expect(result.summary).toMatchObject({ viewCount: 1, seenCount: 4, lastMediaId: 4, lastMediaIndex: 3 })
+  afterEach(() => vi.useRealTimers())
+  it('jumping to item 80 records a prefix, then going back only changes the current position', async () => {
+    expect((await reportReading('u', input([view(79)]))).summary).toMatchObject({
+      progressCount: 80,
+      completed: false,
+      furthestMediaIndex: 79,
+      lastMediaIndex: 79,
+      viewCount: 1
+    })
+    expect((await reportReading('u', input([view(2, new Date(NOW.getTime() + 1))]))).summary).toMatchObject({
+      progressCount: 80,
+      furthestMediaIndex: 79,
+      lastMediaIndex: 2,
+      viewCount: 1
+    })
+    expect(tx.image.findMany).toHaveBeenLastCalledWith({
+      where: { artworkId: 10, id: { in: [3] } },
+      select: { id: true, path: true, mediaType: true, webpAnimationStatus: true }
+    })
   })
-  it.each(['fingerprint', 'group', 'media', 'order'])('rejects stale or forged %s evidence before writing', async (kind) => {
-    const reader = await getReaderInitialization('user-1', 10)
-    if (kind === 'order') state.media.reverse()
-    const stack = { ruleVersion: 1 as const, fingerprint: kind === 'fingerprint' ? 'b'.repeat(64) : reader.index.fingerprint,
-      groupId: kind === 'group' ? 'stack-v1-999-1002' : 'stack-v1-1-4' }
-    await expect(reportReading('user-1', input([{ type: 'VIEW', mediaId: kind === 'media' ? 8 : 1,
-      observedAt: NOW.toISOString(), stack }]))).rejects.toMatchObject({ message: 'ARTWORK_STACK_CONFLICT' })
-    expect(state.seen).toEqual([])
-    expect(tx.artworkReadMedia.createMany).not.toHaveBeenCalled()
+  it('90 percent is unfinished; reaching the final item completes and ordinary append remains complete', async () => {
+    expect((await reportReading('u', input([view(89)]))).summary.status).toBe('IN_PROGRESS')
+    expect((await reportReading('u', input([view(99)]))).summary.completed).toBe(true)
+    state.total = 112
+    expect((await getReadingContext('u', 10)).summary).toMatchObject({ progressCount: 112, completed: true })
+  })
+  it('uses the later position within a same-millisecond batch and never rewinds from an older observation', async () => {
+    expect((await reportReading('u', input([view(79), view(2)]))).summary).toMatchObject({
+      lastMediaIndex: 2,
+      furthestMediaIndex: 79
+    })
+    const result = await reportReading('u', input([view(90, new Date(NOW.getTime() - 1))]))
+    expect(result.summary).toMatchObject({ lastMediaIndex: 2, furthestMediaIndex: 90, lastViewedAt: NOW.toISOString() })
+  })
+  it('starts video activity at playback start and advances only at 90 percent', async () => {
+    state.total = 1
+    state.images = [{ id: 1, path: 'a.mp4', mediaType: 'VIDEO', webpAnimationStatus: null }]
+    const event = view(0)
+    expect((await reportReading('u', input([event]))).summary.viewCount).toBe(0)
+    expect(
+      (await reportReading('u', input([{ ...event, playback: { currentTime: 0, duration: 100 } }]))).summary
+    ).toMatchObject({ viewCount: 1, progressCount: 0, completed: false, lastMediaIndex: 0 })
+    expect(
+      (await reportReading('u', input([{ ...event, playback: { currentTime: 89.99, duration: 100 } }]))).summary
+        .completed
+    ).toBe(false)
+    expect(
+      (await reportReading('u', input([{ ...event, playback: { currentTime: 90, duration: 100 } }]))).summary.completed
+    ).toBe(true)
+  })
+  it('keeps the real current position while advancing a static stack tail', async () => {
+    const result = await reportReading(
+      'u',
+      input([{ ...view(2), type: 'VIEW', advanceTo: { mediaId: 80, index: 79 } }])
+    )
+    expect(result.summary).toMatchObject({ progressCount: 80, lastMediaId: 3, lastMediaIndex: 2, furthestMediaId: 80 })
+  })
+  it.each(['VIDEO', 'ANIMATION'])('rejects %s stack tails', async (mediaType) => {
+    state.images[79]!.mediaType = mediaType
+    await expect(
+      reportReading('u', input([{ ...view(2), type: 'VIEW', advanceTo: { mediaId: 80, index: 79 } }]))
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(tx.artworkReadingProgress.upsert).not.toHaveBeenCalled()
+  })
+  it('rejects paired APNG posters even when they submit playback', async () => {
+    state.images[0]!.path = 'a.apng'
+    tx.$queryRaw.mockResolvedValueOnce([{ id: 1 }])
+    await expect(
+      reportReading('u', input([{ ...view(0), playback: { currentTime: 100, duration: 100 } }]))
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+  it('manual completion never creates visit dates or positions', async () => {
+    const result = await markReadingRead('u', { artworkId: 10, expectedUserId: 'u', readingLayoutVersion: 3 })
+    expect(result.summary).toMatchObject({
+      completed: true,
+      progressCount: 100,
+      viewCount: 0,
+      lastViewedAt: null,
+      lastActiveAt: null,
+      lastMediaId: null,
+      furthestMediaId: null
+    })
+  })
+  it('empty works never auto-complete or manually manufacture reading rows', async () => {
+    state.total = 0
+    state.images = []
+    expect(
+      (await markReadingRead('u', { artworkId: 10, expectedUserId: 'u', readingLayoutVersion: 3 })).summary
+    ).toMatchObject({ completed: false, totalCount: 0 })
+    expect(tx.artworkReadingProgress.upsert).not.toHaveBeenCalled()
+  })
+  it('heartbeats cannot start visits or alter current positions, and unseen image heartbeats do not extend visits', async () => {
+    const hb = (index: number, at: Date): ReadingReportEvent => ({
+      type: 'HEARTBEAT',
+      mediaId: index + 1,
+      index,
+      observedAt: at.toISOString()
+    })
+    expect((await reportReading('u', input([hb(0, NOW)]))).summary.viewCount).toBe(0)
+    await reportReading('u', input([view(2)]))
+    vi.setSystemTime(new Date(NOW.getTime() + 60_000))
+    expect((await reportReading('u', input([hb(5, new Date())]))).summary.lastActiveAt).toBe(NOW.toISOString())
+    expect((await reportReading('u', input([hb(1, new Date())]))).summary).toMatchObject({
+      viewCount: 1,
+      lastMediaIndex: 2,
+      lastActiveAt: new Date().toISOString()
+    })
+  })
+  it('starts a new visit after 30 minutes and rejects events older than 60 seconds', async () => {
+    await reportReading('u', input([view(2)]))
+    vi.setSystemTime(new Date(NOW.getTime() + 30 * 60_000))
+    expect((await reportReading('u', input([view(3, new Date())]))).summary.viewCount).toBe(2)
+    await expect(reportReading('u', input([view(4, NOW)]))).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+  it('rejects account, layout, ownership and boundary mismatches before writing', async () => {
+    await expect(reportReading('other', input([view(0)]))).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(reportReading('u', input([view(0)], 2))).rejects.toMatchObject({ code: 'CONFLICT' })
+    await expect(reportReading('u', input([{ ...view(0), mediaId: 999 }]))).rejects.toMatchObject({
+      code: 'BAD_REQUEST'
+    })
+    await expect(reportReading('u', input([{ ...view(0), index: 100 }]))).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(tx.artworkReadingProgress.upsert).not.toHaveBeenCalled()
+  })
+  it.each([100, 1000, 10000])('fetches only batch anchors for an artwork of %i items', async (total) => {
+    state.total = total
+    await reportReading('u', input([view(2), view(5)]))
+    expect(tx.image.findMany).toHaveBeenCalledExactlyOnceWith({
+      where: { artworkId: 10, id: { in: [3, 6] } },
+      select: { id: true, path: true, mediaType: true, webpAnimationStatus: true }
+    })
+    expect(tx.artworkReadingProgress.findUnique).toHaveBeenCalledOnce()
   })
 })

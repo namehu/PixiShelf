@@ -24,7 +24,7 @@ const artwork = {
 }
 
 const unread: ReadingSummaryDto = {
-  artworkId: 42, mediaRevision: 1, stateVersion: 0, viewCount: 0, seenCount: 0, totalCount: 3, status: 'UNREAD',
+  artworkId: 42, readingLayoutVersion: 1, stateVersion: 0, viewCount: 0, progressCount: 0, totalCount: 3, status: 'UNREAD', completed: false, furthestMediaId: null, furthestMediaIndex: null,
   lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null
 }
 
@@ -56,11 +56,11 @@ describe('ArtworkCard', () => {
     expect(cover.querySelector('[data-slot="reading-marker"]')?.textContent).toBe('未读')
     expect(cover.querySelector('[data-slot="reading-marker"] svg')).toBeNull()
 
-    view.rerender(<ArtworkCard artwork={artwork as never} displayMode={displayMode} showReadingStatus reading={{ ...unread, status: 'IN_PROGRESS', seenCount: 1 }} />)
+    view.rerender(<ArtworkCard artwork={artwork as never} displayMode={displayMode} showReadingStatus reading={{ ...unread, status: 'IN_PROGRESS', completed: false, furthestMediaId: null, furthestMediaIndex: null, progressCount: 1 }} />)
     expect(cover.querySelector('[data-slot="reading-marker"]')?.textContent).toBe('阅读中')
     expect(screen.queryByText('1/3')).toBeNull()
 
-    view.rerender(<ArtworkCard artwork={artwork as never} displayMode={displayMode} showReadingStatus reading={{ ...unread, status: 'COMPLETED', seenCount: 3 }} />)
+    view.rerender(<ArtworkCard artwork={artwork as never} displayMode={displayMode} showReadingStatus reading={{ ...unread, status: 'COMPLETED', completed: true, furthestMediaId: null, furthestMediaIndex: null, progressCount: 3 }} />)
     expect(cover.querySelector('[data-slot="reading-marker"]')).toBeNull()
   })
 
@@ -70,7 +70,7 @@ describe('ArtworkCard', () => {
     expect(screen.queryByText('未读')).toBeNull()
     view.rerender(<ArtworkCard artwork={artwork as never} showReadingStatus reading={unread} />)
     expect(screen.getByText('未读')).toBeTruthy()
-    view.rerender(<ArtworkCard artwork={artwork as never} showReadingStatus reading={{ ...unread, status: 'COMPLETED', seenCount: 3 }} />)
+    view.rerender(<ArtworkCard artwork={artwork as never} showReadingStatus reading={{ ...unread, status: 'COMPLETED', completed: true, furthestMediaId: null, furthestMediaIndex: null, progressCount: 3 }} />)
     expect(screen.queryByText('未读')).toBeNull()
   })
 
@@ -87,7 +87,7 @@ describe('ArtworkCard', () => {
 
   it('leaves completed covers unmarked in minimal mode', () => {
     render(<ArtworkCard artwork={artwork as never} displayMode="minimal" showReadingStatus reading={{
-      artworkId: 42, mediaRevision: 1, stateVersion: 0, viewCount: 2, seenCount: 3, totalCount: 3, status: 'COMPLETED',
+      artworkId: 42, readingLayoutVersion: 1, stateVersion: 0, viewCount: 2, progressCount: 3, totalCount: 3, status: 'COMPLETED', completed: true, furthestMediaId: null, furthestMediaIndex: null,
       lastViewedAt: null, lastActiveAt: null, lastMediaId: 1, lastMediaIndex: 0
     }} />)
     expect(screen.getByRole('link').getAttribute('aria-description')).toBeNull()

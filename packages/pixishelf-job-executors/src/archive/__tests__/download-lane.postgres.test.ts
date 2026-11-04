@@ -1,4 +1,6 @@
-vi.mock('node:fs/promises', async (importOriginal) => ({ ...await importOriginal<typeof import('node:fs/promises')>() }))
+vi.mock('node:fs/promises', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:fs/promises')>())
+}))
 import {
   enqueueArchiveIntakeItemInTransaction,
   recoverArchiveIntakeEnqueueRace,
@@ -88,14 +90,25 @@ suite('archive download lane real database and filesystem', () => {
     a.root = await fs.realpath(a.root)
     const uuid = randomUUID()
     await writeFile(path.join(a.root, '.pixishelf-root'), JSON.stringify({ version: 1, id: uuid }))
-    const original = (await resolveMediaContentRoots({ sourceRoot: a.root, archiveRoot: a.root, expectedPixivRootIdentity: uuid })).source
-    await db!.pixivMetadataInventoryState.create({ data: {
-      id: 'pixiv', rootIdentity: uuid, rootPathHash: hashScanRootIdentity(a.root),
-      rootDeviceId: original.deviceId, rootInode: original.inode
-    } })
-    await db!.mediaContentDirectoryState.create({ data: {
-      logicalRoot: 'source-media:v1', relativeDirectory: '', rootIdentity: original.rootIdentity
-    } })
+    const original = (
+      await resolveMediaContentRoots({ sourceRoot: a.root, archiveRoot: a.root, expectedPixivRootIdentity: uuid })
+    ).source
+    await db!.pixivMetadataInventoryState.create({
+      data: {
+        id: 'pixiv',
+        rootIdentity: uuid,
+        rootPathHash: hashScanRootIdentity(a.root),
+        rootDeviceId: original.deviceId,
+        rootInode: original.inode
+      }
+    })
+    await db!.mediaContentDirectoryState.create({
+      data: {
+        logicalRoot: 'source-media:v1',
+        relativeDirectory: '',
+        rootIdentity: original.rootIdentity
+      }
+    })
     try {
       const network = vi.fn(async () => remote(Readable.from([png])))
       await execute(await claim('ARCHIVE_DOWNLOAD'), dependencies(a.root, network))
@@ -106,16 +119,29 @@ suite('archive download lane real database and filesystem', () => {
       vi.spyOn(fs, 'lstat').mockImplementation(async (file, options) => {
         const state = await lstat(file, options as never)
         return file === a.root
-          ? Object.assign(Object.create(Object.getPrototypeOf(state)), state, { dev: typeof state.dev === 'bigint' ? state.dev + 1n : state.dev + 1 })
+          ? Object.assign(Object.create(Object.getPrototypeOf(state)), state, {
+              dev: typeof state.dev === 'bigint' ? state.dev + 1n : state.dev + 1
+            })
           : state
       })
       await execute(await claim('ARCHIVE_PUBLISH'), dependencies(a.root, network))
-      const completed = await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id }, include: { systemJob: true, items: true } })
-      expect(completed).toMatchObject({ status: 'COMPLETED', generationToken: sealed.generationToken, systemJob: { status: 'COMPLETED' } })
+      const completed = await db!.archiveImport.findUniqueOrThrow({
+        where: { id: a.id },
+        include: { systemJob: true, items: true }
+      })
+      expect(completed).toMatchObject({
+        status: 'COMPLETED',
+        generationToken: sealed.generationToken,
+        systemJob: { status: 'COMPLETED' }
+      })
       expect(network).not.toHaveBeenCalled()
       const image = await db!.image.findFirstOrThrow({ where: { artworkId: completed.publishedArtworkId! } })
       expect(await readFile(path.join(a.root, image.path))).toEqual(png)
-      expect(await db!.mediaContentDirectoryState.findUniqueOrThrow({ where: { logicalRoot_relativeDirectory: { logicalRoot: 'source-media:v1', relativeDirectory: '' } } })).toMatchObject({ rootIdentity: original.rootIdentity })
+      expect(
+        await db!.mediaContentDirectoryState.findUniqueOrThrow({
+          where: { logicalRoot_relativeDirectory: { logicalRoot: 'source-media:v1', relativeDirectory: '' } }
+        })
+      ).toMatchObject({ rootIdentity: original.rootIdentity })
     } finally {
       vi.restoreAllMocks()
       await db!.pixivMetadataInventoryState.delete({ where: { id: 'pixiv' } })
@@ -154,15 +180,13 @@ suite('archive download lane real database and filesystem', () => {
       })
       expect(images).toHaveLength(20)
       await db!.userBA.create({ data: { id: prefix } })
-      await db!.artworkReadMedia.createMany({
-        data: images.map((image) => ({ userId: prefix, artworkId: base.artworkId, mediaId: image.id }))
-      })
-      await db!.artworkReadingSummary.create({
+      await db!.artworkReadingProgress.create({
         data: {
           userId: prefix,
           artworkId: base.artworkId,
-          totalCount: 20,
-          seenCount: 20,
+          completed: true,
+          furthestMediaId: images[19]!.id,
+          furthestMediaIndex: 19,
           viewCount: 4,
           lastMediaId: images[19]!.id,
           lastMediaIndex: 19
@@ -260,15 +284,14 @@ suite('archive download lane real database and filesystem', () => {
       const all = await db!.image.findMany({ where: { artworkId: base.artworkId }, orderBy: { sortOrder: 'asc' } })
       expect(all).toHaveLength(30)
       expect(all.slice(0, 20).map((image) => image.id)).toEqual(images.map((image) => image.id))
-      expect(await db!.artworkReadMedia.count({ where: { artworkId: base.artworkId } })).toBe(20)
       expect(await db!.mediaMark.findFirst({ where: { artworkId: base.artworkId } })).toMatchObject({
         mediaId: images[0]!.id
       })
       expect(await db!.artworkLike.findFirst({ where: { artworkId: base.artworkId } })).toMatchObject({ level: 4 })
-      expect(await db!.artworkReadingSummary.findFirst({ where: { artworkId: base.artworkId } })).toMatchObject({
+      expect(await db!.artworkReadingProgress.findFirst({ where: { artworkId: base.artworkId } })).toMatchObject({
         viewCount: 4,
-        totalCount: 30,
-        seenCount: 20,
+        completed: true,
+        furthestMediaIndex: 19,
         lastMediaId: images[19]!.id
       })
       expect((await db!.artwork.findUniqueOrThrow({ where: { id: base.artworkId } })).mediaRevision).toBe(

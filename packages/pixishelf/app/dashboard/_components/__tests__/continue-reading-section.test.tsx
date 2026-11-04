@@ -26,8 +26,8 @@ function item(id: number, title = `作品 ${id}`): ReadingHistoryItem {
   return {
     artwork: { id, title, imageCount: 3, images: [], artist: { name: '艺术家' }, tags: [] },
     reading: {
-      artworkId: id, mediaRevision: 1, stateVersion: 1, viewCount: 1, seenCount: 1, totalCount: 3,
-      status: 'IN_PROGRESS', lastViewedAt: '2026-10-22T00:00:00.000Z', lastActiveAt: null,
+      artworkId: id, readingLayoutVersion: 1, stateVersion: 1, viewCount: 1, progressCount: 1, totalCount: 3,
+      status: 'IN_PROGRESS', completed: false, furthestMediaId: null, furthestMediaIndex: null, lastViewedAt: '2026-10-22T00:00:00.000Z', lastActiveAt: null,
       lastMediaId: id * 10, lastMediaIndex: 1
     }
   }

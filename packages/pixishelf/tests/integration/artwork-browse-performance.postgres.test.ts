@@ -78,16 +78,16 @@ async function grow(target: number) {
     firstId + target - 1
   )
   await db!.$executeRawUnsafe(
-    `INSERT INTO artwork_reading_summaries ("userId", "artworkId", "seenCount", "totalCount", "updatedAt")
-    SELECT $1, id, CASE WHEN id % 4 = 0 THEN 4 ELSE 1 END, 4, NOW() FROM "Artwork"
+    `INSERT INTO artwork_reading_progress ("userId", "artworkId", "completed", "viewCount", "updatedAt")
+    SELECT $1, id, id % 4 = 0, 1, NOW() FROM "Artwork"
     WHERE id BETWEEN $2 AND $3 AND id % 2 = 0`,
     user,
     firstId + size,
     firstId + target - 1
   )
   await db!.$executeRawUnsafe(
-    `INSERT INTO artwork_reading_summaries ("userId", "artworkId", "seenCount", "totalCount", "updatedAt")
-    SELECT $1, id, 1, 4, NOW() FROM "Artwork"
+    `INSERT INTO artwork_reading_progress ("userId", "artworkId", "completed", "viewCount", "updatedAt")
+    SELECT $1, id, false, 1, NOW() FROM "Artwork"
     WHERE id BETWEEN $2 AND $3 AND id % 100 <> 0`,
     other,
     firstId + size,
@@ -108,7 +108,7 @@ async function grow(target: number) {
     'Artwork',
     'Image',
     'ArtworkTag',
-    'artwork_reading_summaries',
+    'artwork_reading_progress',
     'artwork_artists',
     'artwork_artist_evidence'
   ]) {
@@ -177,14 +177,14 @@ suite('artwork browse correctness and performance', () => {
     const first = await queryRandomArtworkIdsPage(params, user)
     const expectedNext = await queryRandomArtworkIdsPage({ ...params, randomCursor: first.nextRandomCursor }, user)
     const boundary = first.ids.at(-1)!
-    await db!.artworkReadingSummary.create({ data: { userId: user, artworkId: boundary, seenCount: 1, totalCount: 4 } })
+    await db!.artworkReadingProgress.create({ data: { userId: user, artworkId: boundary, viewCount: 1 } })
     expect((await queryRandomArtworkIdsPage({ ...params, randomCursor: first.nextRandomCursor }, user)).ids).toEqual(
       expectedNext.ids
     )
     await grow(125)
     const next = await queryRandomArtworkIdsPage({ ...params, randomCursor: first.nextRandomCursor }, user)
     expect(next.ids.every((id) => !first.ids.includes(id))).toBe(true)
-    await db!.artworkReadingSummary.delete({ where: { userId_artworkId: { userId: user, artworkId: boundary } } })
+    await db!.artworkReadingProgress.delete({ where: { userId_artworkId: { userId: user, artworkId: boundary } } })
   })
 
   it('bounds covers even for a work with thousands of media and preserves video metadata', async () => {
@@ -248,7 +248,7 @@ suite('artwork browse correctness and performance', () => {
       }
       const params = input()
       const legacy = `SELECT a.id FROM "Artwork" a WHERE a."deletedAt" IS NULL AND a."archiveLifecycleState"='ACTIVE'
-        AND NOT EXISTS (SELECT 1 FROM artwork_reading_summaries rs WHERE rs."artworkId"=a.id AND rs."userId"=$1 AND rs."seenCount">0)
+        AND NOT EXISTS (SELECT 1 FROM artwork_reading_progress rs WHERE rs."artworkId"=a.id AND rs."userId"=$1 AND (rs.completed OR rs."furthestMediaIndex" IS NOT NULL OR rs."viewCount">0))
         ORDER BY md5(a.id::text || '73476'), a.id LIMIT 25`
       const samples: Array<{ oldMs: number; selectionMs: number; serviceMs: number }> = []
       let firstObservation: unknown

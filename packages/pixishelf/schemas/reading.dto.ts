@@ -13,20 +13,34 @@ export const ReadingContextInputSchema = z.object({
 })
 
 export const ReadingReportInputSchema = ReadingContextInputSchema.extend({
-  mediaRevision: positiveId,
+  readingLayoutVersion: positiveId,
   events: z
     .array(
       z.discriminatedUnion('type', [
-        z.object({ type: z.literal('VIEW'), mediaId: positiveId, observedAt, playback: playback.optional(),
-          summary: z.object({ generationId: z.string().uuid(), groupId: z.string().min(1).max(100) }).optional(),
-          stack: z.object({ ruleVersion: z.literal(1), fingerprint: z.string().regex(/^[a-f0-9]{64}$/), groupId: z.string().min(1).max(100) }).strict().optional() }),
-        z.object({ type: z.literal('HEARTBEAT'), mediaId: positiveId, observedAt, playback: playback.optional() })
+        z
+          .object({
+            type: z.literal('VIEW'),
+            mediaId: positiveId,
+            index: z.number().int().nonnegative(),
+            observedAt,
+            playback: playback.optional(),
+            advanceTo: z.object({ mediaId: positiveId, index: z.number().int().nonnegative() }).strict().optional()
+          })
+          .strict(),
+        z
+          .object({
+            type: z.literal('HEARTBEAT'),
+            mediaId: positiveId,
+            index: z.number().int().nonnegative(),
+            observedAt,
+            playback: playback.optional()
+          })
+          .strict()
       ])
     )
     .min(1)
     .max(100)
-    .refine((events) => events.every((event) => event.type !== 'VIEW' || !(event.summary && event.stack)), 'summary and stack are mutually exclusive')
-})
+}).strict()
 
 export const ReadingSummariesInputSchema = z.object({
   expectedUserId: z.string().min(1),
@@ -36,9 +50,7 @@ export const ReadingSummariesInputSchema = z.object({
 export const ReadingHistoryInputSchema = z.object({
   expectedUserId: z.string().min(1),
   pageSize: z.number().int().min(1).max(100).default(24),
-  cursor: z
-    .object({ lastViewedAt: observedAt, artworkId: positiveId })
-    .optional()
+  cursor: z.object({ lastViewedAt: observedAt, artworkId: positiveId }).optional()
 })
 
 export const ReadingContinueInputSchema = z.object({
@@ -50,9 +62,5 @@ export type ReadingReportInputValidated = z.infer<typeof ReadingReportInputSchem
 export type ReadingHistoryInput = z.infer<typeof ReadingHistoryInputSchema>
 
 export const ReadingMarkReadInputSchema = ReadingContextInputSchema.extend({
-  mediaRevision: positiveId,
-  target: z.discriminatedUnion('kind', [
-    z.object({ kind: z.literal('ALL') }),
-    z.object({ kind: z.literal('MEDIA'), mediaId: positiveId })
-  ])
-})
+  readingLayoutVersion: positiveId
+}).strict()

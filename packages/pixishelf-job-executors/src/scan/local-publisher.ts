@@ -1,4 +1,4 @@
-import { assertArtworkDedupWritable } from '@pixishelf/db'
+import { assertArtworkDedupWritable, refreshArtworkReadingLayout } from '@pixishelf/db'
 import { assertLocalScanSources } from './dedup-source-snapshot.ts'
 import { createHash } from 'node:crypto'
 import type { Prisma } from '@pixishelf/db'
@@ -83,6 +83,7 @@ export async function publishLocalMediaWork(
       chaptersHash: item.chaptersHash
     }))
   })
+  await refreshArtworkReadingLayout(input.transaction, artwork.id, [], false)
   const derivedTagIds = selectMediaDerivedTagIds(
     input.mediaDerivedTagIds,
     input.media.map((item) => item.relativePath)

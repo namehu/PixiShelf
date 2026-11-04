@@ -45,7 +45,7 @@ function useReaderSession(artworkId: number, initial?: ReaderInitialPage) {
   useEffect(() => { store?.activate(); return () => store?.dispose() }, [store])
   const revision = useSyncExternalStore(store?.subscribe ?? noopSubscribe, store?.snapshot ?? zero, zero)
   const mismatch = Boolean(initial && initialization && initial.fingerprint !== initialization.index.fingerprint)
-  const mediaConflict = Boolean(store?.invalidated || mismatch || (initialization && initialization.reading.mediaRevision !== initialization.index.mediaRevision))
+  const mediaConflict = Boolean(store?.invalidated || mismatch)
   const readingContext = useMemo(() => initialization ? { ...initialization.reading,
     media: initialization.index.items.map(({ mediaId, memberMediaIds, index, mediaType }) => ({ mediaId, memberMediaIds, index, isVideo: mediaType === 'video' }))
   } : undefined, [initialization])

@@ -2,11 +2,12 @@
 
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react'
 
-export type ReadingMenuAction = 'filter' | 'liked-filter' | 'refresh' | 'mark-all'
+export type ReadingMenuAction = 'continue' | 'liked-filter' | 'mark-all'
 export interface ReadingMenuState {
-  unreadOnly: boolean
   likedOnly: boolean
-  remaining: number
+  completed: boolean
+  totalCount: number
+  canContinue: boolean
   disabled: boolean
 }
 

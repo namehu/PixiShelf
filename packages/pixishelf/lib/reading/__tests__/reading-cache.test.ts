@@ -4,26 +4,26 @@ import type { ReadingSummaryDto } from '@pixishelf/db/reading-contract'
 import { patchReadingSummaryInCache, reconcileReadingCache } from '../reading-cache'
 
 const unread: ReadingSummaryDto = {
-  artworkId: 7, mediaRevision: 1, stateVersion: 0, viewCount: 0, seenCount: 0, totalCount: 3, status: 'UNREAD',
+  artworkId: 7, readingLayoutVersion: 1, stateVersion: 0, viewCount: 0, progressCount: 0, totalCount: 3, status: 'UNREAD', completed: false, furthestMediaId: null, furthestMediaIndex: null,
   lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null
 }
 const viewed: ReadingSummaryDto = {
-  ...unread, stateVersion: 1, viewCount: 1, seenCount: 1, status: 'IN_PROGRESS',
+  ...unread, stateVersion: 1, viewCount: 1, progressCount: 1, status: 'IN_PROGRESS', completed: false, furthestMediaId: null, furthestMediaIndex: null,
   lastViewedAt: '2026-09-24T00:00:00.000Z', lastActiveAt: '2026-09-24T00:00:00.000Z',
   lastMediaId: 10, lastMediaIndex: 0
 }
 
 describe('reading cache patch', () => {
-  it.each(['custom', 'trpc'])('removes threshold-complete works from %s continuation while preserving factual progress in cards', (kind) => {
+  it.each(['custom', 'trpc'])('removes completed works from %s continuation while preserving progress in cards', (kind) => {
     const client = new QueryClient()
     const key = kind === 'custom' ? ['reading', 'continueReading', 'alice']
       : [['reading', 'continueReading'], { input: { expectedUserId: 'alice' }, type: 'query' }]
     const cardKey = ['artwork', 'cardList', 'alice']
-    const initial = { ...viewed, totalCount: 100, seenCount: 89 }
+    const initial = { ...viewed, totalCount: 100, progressCount: 89 }
     const page = { items: [{ artworkId: 7, reading: initial }] }
     client.setQueryData(key, page)
     client.setQueryData(cardKey, page)
-    const completed = { ...initial, stateVersion: 2, seenCount: 90, status: 'COMPLETED' as const }
+    const completed = { ...initial, stateVersion: 2, progressCount: 90, status: 'COMPLETED' as const, completed: true, furthestMediaId: null, furthestMediaIndex: null }
     patchReadingSummaryInCache(client, completed, 'alice')
     expect(client.getQueryData(key)).toEqual({ items: [] })
     expect(client.getQueryData(cardKey)).toEqual({ items: [{ artworkId: 7, reading: completed }] })
@@ -43,7 +43,7 @@ describe('reading cache patch', () => {
     const page = { items: [{ artwork: { id: 7 }, reading: viewed }] }
     client.setQueryData(ownerKey, page)
     client.setQueryData(otherKey, page)
-    const completed: ReadingSummaryDto = { ...viewed, stateVersion: 2, seenCount: 3, status: 'COMPLETED' }
+    const completed: ReadingSummaryDto = { ...viewed, stateVersion: 2, progressCount: 3, status: 'COMPLETED', completed: true, furthestMediaId: null, furthestMediaIndex: null }
 
     patchReadingSummaryInCache(client, completed, 'user-1')
 
@@ -59,13 +59,13 @@ describe('reading cache patch', () => {
   it('keeps an unfinished video with zero seen media and drops a rebuilt empty summary', () => {
     const client = new QueryClient()
     const key = ['reading', 'continueReading', 'alice']
-    const video = { ...viewed, seenCount: 0, totalCount: 1 }
+    const video = { ...viewed, progressCount: 0, totalCount: 1 }
     const page = { items: [{ artwork: { id: 7 }, reading: video }] }
     client.setQueryData(key, page)
     reconcileReadingCache(client, 'alice')
     expect(client.getQueryData(key)).toEqual(page)
 
-    patchReadingSummaryInCache(client, { ...unread, mediaRevision: 2 }, 'alice')
+    patchReadingSummaryInCache(client, { ...unread, readingLayoutVersion: 2 }, 'alice')
     expect(client.getQueryData(key)).toEqual({ items: [] })
   })
 
@@ -91,7 +91,7 @@ describe('reading cache patch', () => {
     })
     const unsubscribe = observer.subscribe(() => {})
 
-    patchReadingSummaryInCache(client, { ...viewed, stateVersion: 2, seenCount: 3, status: 'COMPLETED' }, 'alice')
+    patchReadingSummaryInCache(client, { ...viewed, stateVersion: 2, progressCount: 3, status: 'COMPLETED', completed: true, furthestMediaId: null, furthestMediaIndex: null }, 'alice')
 
     expect(fetchWithCurrentSession).not.toHaveBeenCalled()
     expect(client.getQueryState(key)?.isInvalidated).toBe(true)
@@ -102,9 +102,9 @@ describe('reading cache patch', () => {
   it('patches compact initialization atomically without adding duplicate media mappings', () => {
     const client = new QueryClient()
     const key = [['artwork', 'reader'], { input: { artworkId: 7, expectedUserId: 'alice' }, type: 'query' }]
-    client.setQueryData(key, { index: { items: [{ mediaId: 10 }] }, reading: { summary: unread, mediaRevision: 1, seenMediaIds: [] } })
-    patchReadingSummaryInCache(client, viewed, 'alice', { summary: viewed, mediaRevision: 1, seenMediaIds: [10] })
-    expect(client.getQueryData(key)).toEqual({ index: { items: [{ mediaId: 10 }] }, reading: { summary: viewed, mediaRevision: 1, seenMediaIds: [10] } })
+    client.setQueryData(key, { index: { items: [{ mediaId: 10 }] }, reading: { summary: unread, readingLayoutVersion: 1, } })
+    patchReadingSummaryInCache(client, viewed, 'alice', { summary: viewed, readingLayoutVersion: 1, })
+    expect(client.getQueryData(key)).toEqual({ index: { items: [{ mediaId: 10 }] }, reading: { summary: viewed, readingLayoutVersion: 1, } })
   })
 
   it('inserts the first view only into matching account batches and accepts later server replacement', () => {
@@ -118,7 +118,7 @@ describe('reading cache patch', () => {
     expect(client.getQueryData(key)).toEqual([viewed])
     expect(client.getQueryData(otherAccount)).toEqual([])
     expect(client.getQueryData(otherArtworks)).toEqual([])
-    const completed = { ...viewed, seenCount: 3, viewCount: 2, status: 'COMPLETED' }
+    const completed = { ...viewed, progressCount: 3, viewCount: 2, status: 'COMPLETED', completed: true, furthestMediaId: null, furthestMediaIndex: null }
     client.setQueryData(key, [completed])
     expect(client.getQueryData(key)).toEqual([completed])
     client.setQueryData(key, [])
@@ -176,16 +176,16 @@ describe('reading cache patch', () => {
   it('rejects late report and query snapshots but accepts a rebuild resetting progress', () => {
     const client = new QueryClient()
     const key = [['reading', 'context'], { input: { artworkId: 7, expectedUserId: 'alice' }, type: 'query' }]
-    const initial = { artworkId: 7, mediaRevision: 1, media: [{ mediaId: 10, memberMediaIds: [10], index: 0 }],
-      resume: null, seenMediaIds: [] as number[], summary: unread }
+    const initial = { artworkId: 7, readingLayoutVersion: 1, media: [{ mediaId: 10, memberMediaIds: [10], index: 0 }],
+      resume: null, summary: unread }
     client.setQueryData(key, initial)
-    const completed = { ...viewed, stateVersion: 2, seenCount: 3, status: 'COMPLETED' as const }
-    patchReadingSummaryInCache(client, completed, 'alice', { mediaRevision: 1, summary: completed, seenMediaIds: [10, 11, 12] })
-    patchReadingSummaryInCache(client, viewed, 'alice', { mediaRevision: 1, summary: viewed, seenMediaIds: [10] })
+    const completed = { ...viewed, stateVersion: 2, progressCount: 3, status: 'COMPLETED' as const, completed: true, furthestMediaId: null, furthestMediaIndex: null }
+    patchReadingSummaryInCache(client, completed, 'alice', { readingLayoutVersion: 1, summary: completed, })
+    patchReadingSummaryInCache(client, viewed, 'alice', { readingLayoutVersion: 1, summary: viewed, })
     client.setQueryData(key, initial)
     reconcileReadingCache(client, 'alice')
-    expect(client.getQueryData(key)).toMatchObject({ summary: completed, seenMediaIds: [10, 11, 12] })
-    const rebuilt = { ...initial, mediaRevision: 2, summary: { ...unread, mediaRevision: 2 } }
+    expect(client.getQueryData(key)).toMatchObject({ summary: completed, })
+    const rebuilt = { ...initial, readingLayoutVersion: 2, summary: { ...unread, readingLayoutVersion: 2 } }
     client.setQueryData(key, rebuilt)
     reconcileReadingCache(client, 'alice')
     expect(client.getQueryData(key)).toEqual(rebuilt)

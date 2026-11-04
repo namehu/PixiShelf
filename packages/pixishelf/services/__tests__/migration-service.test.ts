@@ -58,6 +58,8 @@ vi.mock('@pixishelf/job-executors', () => ({
 }))
 
 vi.mock('@pixishelf/db', () => ({
+  readArtworkReadingLayout: vi.fn(async () => []),
+  refreshArtworkReadingLayout: vi.fn(async () => undefined),
   lockCreatorCatalog: mocks.lockCreatorCatalog,
   lockArtworkForReading: mocks.lockArtworkForReading
 }))
@@ -84,7 +86,9 @@ describe('migration precheck canonical selection', () => {
   })
 
   afterEach(async () => {
-    await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
+    await Promise.all(
+      temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))
+    )
   })
 
   it('uses the active merge target for a local artwork and persists its canonical path', async () => {

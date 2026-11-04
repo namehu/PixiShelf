@@ -10,6 +10,9 @@ import {
   consumeDiscoveryCreators,
   assertArtworkDedupWritable,
   invalidateAnimationDurationSource,
+  readArtworkReadingLayout,
+  refreshArtworkReadingLayout,
+  lockArtworkForReading,
   invalidateArtworkReadingForRebuild
 } from '@pixishelf/db'
 import { ArchiveExecutorError } from './errors.ts'
@@ -104,6 +107,9 @@ export async function publishArchiveImportInTransaction(
     })
   )
     throw new ArchiveExecutorError('MEDIA_INVALID', '来源的已有页面内容已变化，补全已停止；请通过完整更新重新确认。')
+  if (existingRef) await lockArtworkForReading(transaction, existingRef.artworkId)
+  const previousLayout =
+    existingRef && completion ? await readArtworkReadingLayout(transaction, existingRef.artworkId) : []
   if (existingRef && !completion) await invalidateArtworkReadingForRebuild(transaction, existingRef.artworkId)
   const artwork = existingRef
     ? await transaction.artwork.update({
@@ -215,11 +221,7 @@ export async function publishArchiveImportInTransaction(
       }))
   })
 
-  if (completion)
-    await transaction.artworkReadingSummary.updateMany({
-      where: { artworkId: artwork.id },
-      data: { totalCount: archiveImport.items.length, stateVersion: { increment: 1 } }
-    })
+  await refreshArtworkReadingLayout(transaction, artwork.id, previousLayout, !!completion)
   const publishedImages = await transaction.image.findMany({
     where: { artworkId: artwork.id },
     select: { id: true, sortOrder: true }

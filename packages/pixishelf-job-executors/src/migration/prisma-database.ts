@@ -11,6 +11,8 @@ import {
   Prisma,
   invalidateAnimationDurationSource,
   lockArtworkForReading,
+  readArtworkReadingLayout,
+  refreshArtworkReadingLayout,
   lockCreatorCatalog,
   assertArtworkDedupWritable,
   type PrismaClient
@@ -139,11 +141,12 @@ export function createPrismaMigrationDatabase(
         sessionId: `migration:${input.plan.id}`,
         artworkIds: [input.plan.artworkId]
       }).catch((error) => {
-        if (error instanceof ScanExecutorError && error.code === 'STATE_CONFLICT')
-          {throw new MigrationActionRequiredError(
+        if (error instanceof ScanExecutorError && error.code === 'STATE_CONFLICT') {
+          throw new MigrationActionRequiredError(
             'CONTENT_WRITE_RECOVERY_REQUIRED',
             'Media write requires an offline recovery grant'
-          )}
+          )
+        }
         throw error
       })
     },
@@ -192,11 +195,12 @@ export function createPrismaMigrationDatabase(
               )
             }) ||
             (artwork.metaSource !== null && !expectedPaths.has(normalizeStoredRelativePath(artwork.metaSource)))
-          )
-            {throw new MigrationActionRequiredError(
+          ) {
+            throw new MigrationActionRequiredError(
               'DATABASE_PATH_CONFLICT',
               'Migration cancellation checkpoint changed'
-            )}
+            )
+          }
         }
       )
     },
@@ -472,6 +476,7 @@ export function createPrismaMigrationDatabase(
       assertPublicationFileCollection(persistedFiles, input.files)
       const publication = assertPublicationSnapshot(currentArtwork, input)
 
+      const previousLayout = await readArtworkReadingLayout(client, input.artworkId)
       for (const image of publication.images) {
         const updated = await client.image.updateMany({
           where: {
@@ -489,6 +494,7 @@ export function createPrismaMigrationDatabase(
           await invalidateAnimationDurationSource(client, { imageId: image.id, sourcePath: image.targetPath })
         }
       }
+      await refreshArtworkReadingLayout(client, input.artworkId, previousLayout)
       const artworkUpdated = await client.artwork.updateMany({
         where: {
           id: input.artworkId,

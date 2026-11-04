@@ -1,73 +1,60 @@
-import type { ArtworkReadingSummary } from '@prisma/client'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-const { queryRaw, getCards } = vi.hoisted(() => ({
-  queryRaw: vi.fn(),
-  getCards: vi.fn()
-}))
-
+const { findMany, cards } = vi.hoisted(() => ({ findMany: vi.fn(), cards: vi.fn() }))
 vi.mock('server-only', () => ({}))
-vi.mock('@/lib/prisma', () => ({ prisma: {
-  $queryRaw: queryRaw
-} }))
-vi.mock('@/services/artwork-service', () => ({ getArtworkCardsByIds: getCards }))
-
+vi.mock('@/lib/prisma', () => ({ prisma: { artworkReadingProgress: { findMany } } }))
+vi.mock('@/services/artwork-service', () => ({ getArtworkCardsByIds: cards }))
 import { getContinueReading } from '../reading-service'
-
-const at = new Date('2026-10-22T10:00:00.000Z')
-function row(artworkId: number, overrides: Partial<ArtworkReadingSummary> = {}) {
-  return {
-    userId: 'alice', artworkId, viewCount: 1, seenCount: 2, totalCount: 8, stateVersion: 3,
-    lastViewedAt: at, lastActiveAt: at, lastMediaId: artworkId * 10, lastMediaIndex: 1,
-    createdAt: at, updatedAt: at, ...overrides, mediaRevision: 2
-  }
-}
-
+const at = new Date('2026-11-04T10:00:00Z')
+const row = (artworkId: number) => ({
+  userId: 'u',
+  artworkId,
+  viewCount: 1,
+  completed: false,
+  furthestMediaId: null,
+  furthestMediaIndex: null,
+  lastViewedAt: at,
+  lastActiveAt: at,
+  lastMediaId: artworkId * 10,
+  lastMediaIndex: 0,
+  stateVersion: 3,
+  artwork: { id: artworkId, logicalMediaCount: 1, readingLayoutVersion: 2 }
+})
 describe('home continuation service', () => {
   beforeEach(() => {
-    queryRaw.mockReset().mockResolvedValue([])
-    getCards.mockReset().mockResolvedValue([])
+    findMany.mockReset().mockResolvedValue([])
+    cards.mockReset().mockResolvedValue([])
   })
-
-  it('filters actual visits and unfinished active works in the database before the six-item limit', async () => {
-    await getContinueReading('alice')
-
-    expect(queryRaw).toHaveBeenCalledOnce()
-    const query = queryRaw.mock.calls[0]![0]
-    expect(query.values).toEqual(['alice', 90])
-    expect(query.text).toContain('rs."userId" = $1')
-    expect(query.text).toContain('rs."viewCount" > 0')
-    expect(query.text).toContain('rs."lastViewedAt" IS NOT NULL')
-    expect(query.text).toContain('rs."totalCount" > 0')
-    expect(query.text).toContain('rs."seenCount"::bigint * 100 < rs."totalCount"::bigint * $2')
-    expect(query.text).toContain('a."deletedAt" IS NULL')
-    expect(query.text).toContain('a."archiveLifecycleState" = \'ACTIVE\'')
-    expect(query.text).toMatch(/WHERE[\s\S]+ORDER BY rs\."lastViewedAt" DESC, rs\."artworkId" DESC\s+LIMIT 6/)
-    // Manual/default read rows have no real visit; completion and empty works are SQL exclusions.
-    expect(getCards).toHaveBeenCalledExactlyOnceWith([])
+  it('filters completed, empty and nonvisited records before the six-item limit', async () => {
+    await getContinueReading('u')
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          userId: 'u',
+          completed: false,
+          viewCount: { gt: 0 },
+          lastViewedAt: { not: null },
+          artwork: { logicalMediaCount: { gt: 0 }, deletedAt: null, archiveLifecycleState: 'ACTIVE' }
+        },
+        orderBy: [{ lastViewedAt: 'desc' }, { artworkId: 'desc' }],
+        take: 6
+      })
+    )
   })
-
-  it('preserves stable recent order while hydrating cards and includes a started video with zero seen items', async () => {
-    const ids = [12, 11, 10, 9, 8, 7]
-    queryRaw.mockResolvedValue(ids.map((id) => row(id, id === 12 ? { seenCount: 0, totalCount: 1 } : {})))
-    getCards.mockResolvedValue(ids.toReversed().map((id) => ({ id, title: `Artwork ${id}` })))
-
-    const result = await getContinueReading('alice')
-
-    expect(getCards).toHaveBeenCalledExactlyOnceWith(ids)
-    expect(result.items.map((item) => item.artwork.id)).toEqual(ids)
-    expect(result.items[0]).toMatchObject({
-      artwork: { id: 12 },
-      reading: {
-        artworkId: 12, status: 'IN_PROGRESS', viewCount: 1, seenCount: 0, totalCount: 1,
-        mediaRevision: 2, stateVersion: 3, lastViewedAt: at.toISOString(), lastMediaId: 120
-      }
+  it('preserves query ordering during card hydration and includes started videos with no prefix', async () => {
+    findMany.mockResolvedValue([row(12), row(11)])
+    cards.mockResolvedValue([{ id: 11 }, { id: 12 }])
+    const result = await getContinueReading('u')
+    expect(result.items.map((item) => item.artwork.id)).toEqual([12, 11])
+    expect(result.items[0]!.reading).toMatchObject({
+      progressCount: 0,
+      viewCount: 1,
+      status: 'IN_PROGRESS',
+      readingLayoutVersion: 2
     })
   })
-
-  it('omits a work that disappeared between selection and active card hydration', async () => {
-    queryRaw.mockResolvedValue([row(9), row(8)])
-    getCards.mockResolvedValue([{ id: 8, title: 'Still active' }])
-    expect((await getContinueReading('alice')).items.map((item) => item.artwork.id)).toEqual([8])
+  it('omits works that disappeared during card hydration', async () => {
+    findMany.mockResolvedValue([row(12), row(11)])
+    cards.mockResolvedValue([{ id: 11 }])
+    expect((await getContinueReading('u')).items.map((item) => item.artwork.id)).toEqual([11])
   })
 })

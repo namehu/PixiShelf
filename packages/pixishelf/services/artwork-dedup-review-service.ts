@@ -86,9 +86,10 @@ export async function artworkDedupMembers(
       source: true,
       createdAt: true,
       likes: { where: { userId }, select: { level: true } },
-      readingSummaries: {
+      logicalMediaCount: true,
+      readingProgress: {
         where: { userId },
-        select: { lastViewedAt: true, seenCount: true, totalCount: true, stateVersion: true }
+        select: { lastViewedAt: true, furthestMediaIndex: true, completed: true, stateVersion: true }
       }
     }
   })
@@ -112,7 +113,7 @@ export async function artworkDedupMembers(
   const byId = new Map(counts.map((row) => [row.artworkId, row]))
   return rows.map((row) => {
     const n = byId.get(row.id)!
-    const reading = row.readingSummaries[0]
+    const reading = row.readingProgress[0]
     return contract.artworkDedupMemberDtoSchema.parse({
       artworkId: row.id,
       title: row.title,
@@ -124,7 +125,15 @@ export async function artworkDedupMembers(
         bookmarks: { available: n.bookmarksAvailable, unavailable: n.bookmarksUnavailable },
         likes: { available: n.likesAvailable, unavailable: n.likesUnavailable }
       },
-      ownReading: reading ? { ...reading, lastViewedAt: reading.lastViewedAt?.toISOString() ?? null } : null,
+      ownReading: reading
+        ? {
+            lastViewedAt: reading.lastViewedAt?.toISOString() ?? null,
+            stateVersion: reading.stateVersion,
+            completed: reading.completed,
+            progressCount: reading.completed ? row.logicalMediaCount : (reading.furthestMediaIndex ?? -1) + 1,
+            totalCount: row.logicalMediaCount
+          }
+        : null,
       otherAccountHasOrganization: n.other
     })
   })

@@ -1,11 +1,10 @@
 import {
   compareReadingVersion,
   getReadingStatus,
-  isArtworkReadingComplete,
   isVideoReadingComplete,
   type ReadingPlayback,
   READING_HEARTBEAT_INTERVAL_MS,
-  READING_MEDIA_REVISION_CONFLICT_CODE,
+  READING_LAYOUT_VERSION_CONFLICT_CODE,
   READING_REPORT_INTERVAL_MS,
   READING_REPORT_MAX_AGE_MS,
   type ReadingContextDto,
@@ -16,8 +15,7 @@ import {
 } from '@pixishelf/db/reading-contract'
 
 export interface ReadingObservation {
-  stack?: { ruleVersion: 1; fingerprint: string; groupId: string; mediaIds: number[] }
-  summary?: { generationId: string; groupId: string; mediaIds: number[] }
+  advanceTo?: { mediaId: number; index: number }
   artworkId: number
   mediaId: number
   ready: boolean
@@ -44,7 +42,6 @@ interface ActiveSurface {
 }
 
 interface QueuedEvent {
-  predictedMediaIds?: number[]
   event: ReadingReportEvent
   createdAt: number
   sendAt: number
@@ -74,11 +71,10 @@ export function isRevisionConflict(error: unknown) {
   if (!error || typeof error !== 'object') return false
   const value = error as { message?: unknown; data?: { code?: unknown }; code?: unknown }
   return (
-    (typeof value.message === 'string' && (value.message.includes('ARTWORK_SUMMARY_CONFLICT') || value.message.includes('ARTWORK_STACK_CONFLICT'))) ||
-    value.message === READING_MEDIA_REVISION_CONFLICT_CODE ||
-    (typeof value.message === 'string' && value.message.includes(READING_MEDIA_REVISION_CONFLICT_CODE)) ||
-    value.data?.code === READING_MEDIA_REVISION_CONFLICT_CODE ||
-    value.code === READING_MEDIA_REVISION_CONFLICT_CODE
+    value.message === READING_LAYOUT_VERSION_CONFLICT_CODE ||
+    (typeof value.message === 'string' && value.message.includes(READING_LAYOUT_VERSION_CONFLICT_CODE)) ||
+    value.data?.code === READING_LAYOUT_VERSION_CONFLICT_CODE ||
+    value.code === READING_LAYOUT_VERSION_CONFLICT_CODE
   )
 }
 
@@ -125,7 +121,7 @@ export class ReadingCollector {
   setContext(context: ReadingContextDto, expectedUserId: string) {
     if (!this.ownerUserId || this.ownerUserId !== expectedUserId || this.invalidated.has(context.artworkId)) return
     const prior = this.contexts.get(context.artworkId)
-    if (prior && prior.mediaRevision !== context.mediaRevision) {
+    if (prior && prior.readingLayoutVersion !== context.readingLayoutVersion) {
       this.invalidateArtwork(context.artworkId)
       return
     }
@@ -137,23 +133,27 @@ export class ReadingCollector {
   /** Project pending observations without assigning a server stateVersion. */
   projectContext(context: ReadingContextDto): ReadingContextDto {
     const queue = this.queues.get(context.artworkId)
-    if (!queue || queue.revision !== context.mediaRevision) return context
+    if (!queue || queue.revision !== context.readingLayoutVersion) return context
     const events = [...queue.inFlight, ...queue.events].filter((item) => this.now() - item.createdAt < READING_REPORT_MAX_AGE_MS)
     if (!events.length) return context
-    const seen = new Set(context.seenMediaIds)
-    const byMember = new Map(context.media.flatMap((item) => item.memberMediaIds.map((id) => [id, item] as const)))
-    let viewed = false
-    for (const { event, predictedMediaIds } of events) {
+    let summary = { ...context.summary }
+    for (const { event } of events) {
       if (event.type !== 'VIEW') continue
-      const item = byMember.get(event.mediaId)
-      if (!item || (item.isVideo && !event.playback)) continue
-      viewed = true
-      if (!(item.isVideo || event.playback) || (event.playback && isVideoReadingComplete(event.playback))) seen.add(item.mediaId)
-      if (event.summary || event.stack) for (const id of predictedMediaIds ?? []) if (byMember.has(id)) seen.add(byMember.get(id)!.mediaId)
+      const item = context.media[event.index]
+      if (!item || item.mediaId !== event.mediaId || (item.isVideo && !event.playback)) continue
+      const advances = !item.isVideo || Boolean(event.playback && isVideoReadingComplete(event.playback))
+      const target = event.advanceTo ?? { mediaId: event.mediaId, index: event.index }
+      const furthest = advances && target.index > (summary.furthestMediaIndex ?? -1)
+      const completed = summary.completed || (advances && target.index === summary.totalCount - 1)
+      summary = { ...summary, viewCount: Math.max(1, summary.viewCount), completed,
+        progressCount: completed ? summary.totalCount : Math.max(summary.progressCount, advances ? target.index + 1 : 0),
+        ...(furthest ? { furthestMediaId: target.mediaId, furthestMediaIndex: target.index } : {}),
+        lastMediaId: item.mediaId, lastMediaIndex: item.index,
+        lastViewedAt: event.observedAt, lastActiveAt: event.observedAt }
     }
-    const seenCount = seen.size
-    return { ...context, seenMediaIds: [...seen], summary: { ...context.summary, seenCount,
-      status: getReadingStatus({ ...context.summary, seenCount, viewCount: viewed ? Math.max(1, context.summary.viewCount) : context.summary.viewCount }) } }
+    summary.status = getReadingStatus(summary)
+    return { ...context, summary, resume: summary.lastMediaId === null || summary.lastMediaIndex === null ? context.resume :
+      { mediaId: summary.lastMediaId, index: summary.lastMediaIndex } }
   }
 
   /** Only a fresh context fetch following explicit reopen may leave a revision conflict. */
@@ -173,11 +173,8 @@ export class ReadingCollector {
     const same = prior &&
       prior.artworkId === observation.artworkId &&
       prior.mediaId === observation.mediaId &&
-      prior.summary?.generationId === observation.summary?.generationId &&
-      prior.summary?.groupId === observation.summary?.groupId &&
-      prior.stack?.ruleVersion === observation.stack?.ruleVersion &&
-      prior.stack?.fingerprint === observation.stack?.fingerprint &&
-      prior.stack?.groupId === observation.stack?.groupId &&
+      prior.advanceTo?.mediaId === observation.advanceTo?.mediaId &&
+      prior.advanceTo?.index === observation.advanceTo?.index &&
       prior.ready === observation.ready &&
       prior.visible === observation.visible &&
       prior.automatic === observation.automatic &&
@@ -186,8 +183,9 @@ export class ReadingCollector {
     if (same) {
       const completed = observation.playback && isVideoReadingComplete(observation.playback)
       const newlyCompleted = completed && (!prior.playback || !isVideoReadingComplete(prior.playback))
+      const newlyStarted = observation.playback && !prior.playback
       prior.playback = observation.playback
-      if (newlyCompleted) {
+      if (newlyCompleted || newlyStarted) {
         this.presented.delete(prior)
         this.reconcileActive()
       }
@@ -294,26 +292,26 @@ export class ReadingCollector {
     try {
       const result = await this.options.report({
         artworkId,
-        mediaRevision: queue.revision,
+        readingLayoutVersion: queue.revision,
         expectedUserId: owner,
         events: events.map(({ event }) => event)
       }, controller.signal)
       if (epoch !== this.epoch || owner !== this.ownerUserId || this.queues.get(artworkId) !== queue) return
-      if (result.mediaRevision !== queue.revision) {
+      if (result.readingLayoutVersion !== queue.revision) {
         this.invalidateArtwork(artworkId)
         return
       }
       succeeded = true
       const context = this.contexts.get(artworkId)
       const current = !context || compareReadingVersion(result.summary, context.summary) >= 0
-      if (context && current) this.contexts.set(artworkId, { ...context, summary: result.summary, seenMediaIds: result.seenMediaIds })
+      if (context && current) this.contexts.set(artworkId, { ...context, summary: result.summary })
       if (current) this.options.onSummary?.(result.summary, owner, result)
       for (const surface of this.surfaces.values()) {
         if (surface.artworkId === artworkId && events.some(({ event }) =>
-          event.type === 'VIEW' && event.mediaId === surface.mediaId)) this.accepted.add(surface)
+          event.type === 'VIEW' && Boolean(context?.media[event.index]?.memberMediaIds.includes(surface.mediaId)))) this.accepted.add(surface)
       }
       if (this.active?.artworkId === artworkId && events.some(({ event }) =>
-        event.type === 'VIEW' && event.mediaId === this.active?.mediaId
+        event.type === 'VIEW' && Boolean(context?.media[event.index]?.memberMediaIds.includes(this.active!.mediaId))
       )) {
         this.active.viewAccepted = true
         this.scheduleHeartbeat(this.active.generation)
@@ -385,13 +383,15 @@ export class ReadingCollector {
       if (!eligible) {
         this.presented.delete(candidate)
       } else if (!this.presented.has(candidate)) {
+        const context = this.contexts.get(candidate.artworkId)!
+        const item = context.media.find((entry) => entry.memberMediaIds.includes(candidate.mediaId))
+        if (!item || (item.isVideo && !candidate.playback)) continue
         this.presented.add(candidate)
         this.enqueue(candidate.artworkId, {
-          type: 'VIEW', mediaId: candidate.mediaId, observedAt: new Date(this.now()).toISOString(),
-          ...(candidate.stack ? { stack: { ruleVersion: candidate.stack.ruleVersion, fingerprint: candidate.stack.fingerprint, groupId: candidate.stack.groupId } } : {}),
-          ...(candidate.summary ? { summary: { generationId: candidate.summary.generationId, groupId: candidate.summary.groupId } } : {}),
+          type: 'VIEW', mediaId: item.mediaId, index: item.index, observedAt: new Date(this.now()).toISOString(),
+          ...(candidate.advanceTo && !item.isVideo ? { advanceTo: candidate.advanceTo } : {}),
           ...(candidate.playback ? { playback: this.playbackEvidence(candidate.playback) } : {})
-        }, candidate.stack?.mediaIds ?? candidate.summary?.mediaIds)
+        })
       }
     }
     const active = this.active
@@ -421,33 +421,36 @@ export class ReadingCollector {
       if (!this.active || this.active.generation !== generation || !this.active.viewAccepted) return
       const playback = this.surfaces.get(this.active.surfaceId)?.playback
       if (!playback || playback.playing) {
-        this.enqueue(this.active.artworkId, {
-          type: 'HEARTBEAT', mediaId: this.active.mediaId, observedAt: new Date(this.now()).toISOString(),
-          ...(playback ? { playback: this.playbackEvidence(playback) } : {})
-        })
+        const item = this.contexts.get(this.active.artworkId)?.media.find((entry) => entry.memberMediaIds.includes(this.active!.mediaId))
+        if (item) {
+          this.enqueue(this.active.artworkId, {
+            type: 'HEARTBEAT', mediaId: item.mediaId, index: item.index, observedAt: new Date(this.now()).toISOString(),
+            ...(playback ? { playback: this.playbackEvidence(playback) } : {})
+          })
+        }
       }
       this.active.nextHeartbeatAt = this.now() + READING_HEARTBEAT_INTERVAL_MS
       this.scheduleHeartbeat(generation)
     }, delay)
   }
 
-  private enqueue(artworkId: number, event: ReadingReportEvent, predictedMediaIds?: number[]) {
+  private enqueue(artworkId: number, event: ReadingReportEvent) {
     const context = this.contexts.get(artworkId)
     if (!context || !this.ownerUserId || this.invalidated.has(artworkId)) return
     let queue = this.queues.get(artworkId)
     if (!queue) {
-      queue = { revision: context.mediaRevision, events: [], inFlight: [], sending: false, controller: null, retryAt: 0 }
+      queue = { revision: context.readingLayoutVersion, events: [], inFlight: [], sending: false, controller: null, retryAt: 0 }
       this.queues.set(artworkId, queue)
     }
-    if (queue.revision !== context.mediaRevision) {
+    if (queue.revision !== context.readingLayoutVersion) {
       this.invalidateArtwork(artworkId)
       return
     }
     const now = this.now()
     const pendingWindow = queue.events.at(-1)?.sendAt
-    queue.events.push({ event, predictedMediaIds, createdAt: now,
+    queue.events.push({ event, createdAt: now,
       sendAt: pendingWindow !== undefined && pendingWindow > now ? pendingWindow : now + READING_REPORT_INTERVAL_MS })
-    if (event.type === 'VIEW') this.notifyLocalCompletion(context, queue)
+    if (event.type === 'VIEW') this.notifyLocalCompletion(context)
     this.options.onPendingChange?.()
     this.scheduleReport()
   }
@@ -456,13 +459,10 @@ export class ReadingCollector {
     return { currentTime: playback.currentTime, duration: playback.duration }
   }
 
-  private notifyLocalCompletion(context: ReadingContextDto, queue: ArtworkQueue) {
-    const key = `${context.artworkId}:${context.mediaRevision}`
+  private notifyLocalCompletion(context: ReadingContextDto) {
+    const key = `${context.artworkId}:${context.readingLayoutVersion}`
     if (!this.ownerUserId || context.summary.status === 'COMPLETED' || context.summary.totalCount === 0 ||
       this.completedNotifications.has(key)) return
-    // Avoid rebuilding the logical ID map until pending events could finish the work.
-    if (!isArtworkReadingComplete(context.seenMediaIds.length + [...queue.inFlight, ...queue.events].reduce((sum, event) =>
-      sum + (event.predictedMediaIds?.length ?? 1), 0), context.summary.totalCount)) return
     const summary = this.projectContext(context).summary
     if (summary.status !== 'COMPLETED') return
     // Keep this marker through rollback/retry and navigation; a server acknowledgement never toasts.

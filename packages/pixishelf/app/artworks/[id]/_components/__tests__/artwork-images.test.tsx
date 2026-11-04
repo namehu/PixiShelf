@@ -405,7 +405,7 @@ describe('ArtworkImages', () => {
     const allImages = filtered ? full.filter((image) => image.id >= 5) : full
     const projected = [full[4]!, full[8]!]
     const reading = {
-      context: { media: full.map((image, index) => ({ mediaId: image.id, memberMediaIds: [image.id], index })), seenMediaIds: [] },
+      context: { media: full.map((image, index) => ({ mediaId: image.id, memberMediaIds: [image.id], index })), },
       observe: vi.fn(), clearSurface: vi.fn(), flush: vi.fn()
     } as unknown as ArtworkReadingHandle
     render(<ArtworkImages images={projected} allImages={allImages} artworkId={1} reading={reading} summaryMode />)
@@ -420,7 +420,7 @@ describe('ArtworkImages', () => {
     const images = generateImages(2)
     const markRead = vi.fn()
     const reading = {
-      context: { media: images.map((image, index) => ({ mediaId: image.id, memberMediaIds: [image.id], index })), seenMediaIds: [] },
+      context: { media: images.map((image, index) => ({ mediaId: image.id, memberMediaIds: [image.id], index })), },
       markRead, observe: vi.fn(), clearSurface: vi.fn(), flush: vi.fn()
     } as unknown as ArtworkReadingHandle
     render(<ArtworkImages images={images} artworkId={1} reading={reading} />)
@@ -435,12 +435,7 @@ describe('ArtworkImages', () => {
     expect(screen.getByText('第 1 张')).toBeTruthy()
     expect(screen.queryByText('已读')).toBeNull()
     expect(screen.queryByText('未读')).toBeNull()
-    if (status === 'error') {
-      fireEvent.click(screen.getByRole('button', { name: '标记第 1 张已读' }))
-      expect(markRead).toHaveBeenCalledWith({ kind: 'MEDIA', mediaId: images[0]!.id })
-    } else {
-      expect(screen.queryByRole('button', { name: '标记第 1 张已读' })).toBeNull()
-    }
+    expect(screen.queryByRole('button', { name: /标记.*已读/ })).toBeNull()
   })
 
   it('does not open the adaptive preview menu on video long press', () => {

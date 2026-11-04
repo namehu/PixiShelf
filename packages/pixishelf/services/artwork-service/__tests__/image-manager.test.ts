@@ -29,6 +29,8 @@ const {
 
 vi.mock('@pixishelf/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pixishelf/db')>()),
+  readArtworkReadingLayout: vi.fn(async () => []),
+  refreshArtworkReadingLayout: vi.fn(async () => undefined),
   lockCreatorCatalog: vi.fn().mockResolvedValue(undefined),
   lockArtworkForReading: lockArtworkMock
 }))

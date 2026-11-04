@@ -55,10 +55,10 @@ const images = index.items.map((item) => ({ id: item.mediaId })) as ArtworkImage
 const initialization: ReaderInitialization = {
   title: '续读作品', index,
   reading: {
-    artworkId: 7, mediaRevision: 1, seenMediaIds: [13], resume: { mediaId: 13, index: 2 },
+    artworkId: 7, readingLayoutVersion: 1, resume: { mediaId: 13, index: 2 },
     summary: {
-      artworkId: 7, mediaRevision: 1, stateVersion: 1, viewCount: 1, seenCount: 1, totalCount: 4,
-      status: 'IN_PROGRESS', lastViewedAt: '2026-10-22T00:00:00.000Z', lastActiveAt: null,
+      artworkId: 7, readingLayoutVersion: 1, stateVersion: 1, viewCount: 1, progressCount: 1, totalCount: 4,
+      status: 'IN_PROGRESS', completed: false, furthestMediaId: null, furthestMediaIndex: null, lastViewedAt: '2026-10-22T00:00:00.000Z', lastActiveAt: null,
       lastMediaId: 13, lastMediaIndex: 2
     }
   }

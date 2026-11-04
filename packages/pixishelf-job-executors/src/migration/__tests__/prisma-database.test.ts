@@ -1,6 +1,8 @@
 // Claim refusal is exercised with real rows in the App/DB maintenance suites.
 vi.mock('@pixishelf/db', async (original) => ({
   ...(await original<typeof import('@pixishelf/db')>()),
+  readArtworkReadingLayout: vi.fn(async () => []),
+  refreshArtworkReadingLayout: vi.fn(async () => undefined),
   assertArtworkDedupWritable: vi.fn()
 }))
 import type { ExecutorMediaWrite } from '../../scan/media-content-write.ts'

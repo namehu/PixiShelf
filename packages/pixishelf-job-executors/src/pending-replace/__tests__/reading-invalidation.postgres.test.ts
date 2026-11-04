@@ -195,25 +195,25 @@ function media(name: string, order: number): PendingReplaceMediaSnapshot {
 
 async function markRead(userId: string, artworkId: number, mediaId: number) {
   const now = new Date('2026-09-24T08:00:00.000Z')
-  await db().artworkReadingSummary.create({
+  await db().artworkReadingProgress.create({
     data: {
       userId,
       artworkId,
       viewCount: 1,
-      seenCount: 1,
-      totalCount: 1,
+      completed: true,
+      furthestMediaId: mediaId,
+      furthestMediaIndex: 0,
       lastViewedAt: now,
       lastActiveAt: now,
-      lastMediaId: mediaId
+      lastMediaId: mediaId,
+      lastMediaIndex: 0
     }
   })
-  await db().artworkReadMedia.create({ data: { userId, artworkId, mediaId } })
 }
 
 async function expectRevisionAndReading(artworkId: number, revision: number, records: number) {
   expect(await db().artwork.findUniqueOrThrow({ where: { id: artworkId }, select: { mediaRevision: true } })).toEqual({
     mediaRevision: revision
   })
-  expect(await db().artworkReadingSummary.count({ where: { artworkId } })).toBe(records)
-  expect(await db().artworkReadMedia.count({ where: { artworkId } })).toBe(records)
+  expect(await db().artworkReadingProgress.count({ where: { artworkId } })).toBe(records)
 }

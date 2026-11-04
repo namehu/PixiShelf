@@ -1,7 +1,6 @@
 import 'server-only'
 import { createHash } from 'crypto'
 import { TRPCError } from '@trpc/server'
-import { READING_COMPLETION_PERCENT } from '@pixishelf/db/reading-contract'
 import type { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
 
 type SortValue = string | number | null
@@ -17,25 +16,39 @@ const artistSort = `(SELECT ca.name FROM effective_artwork_creators c JOIN "Arti
 
 function sortSpec(sortBy: string, randomSeed: number | undefined, seedPlaceholder: string) {
   switch (sortBy) {
-    case 'title_asc': return { value: 'a.title', direction: 'ASC', type: 'text', nullable: false }
-    case 'title_desc': return { value: 'a.title', direction: 'DESC', type: 'text', nullable: false }
-    case 'artist_asc': return { value: artistSort, direction: 'ASC', type: 'text', nullable: true }
-    case 'artist_desc': return { value: artistSort, direction: 'DESC', type: 'text', nullable: true }
-    case 'images_asc': return { value: 'a."imageCount"', direction: 'ASC', type: 'integer', nullable: false }
-    case 'images_desc': return { value: 'a."imageCount"', direction: 'DESC', type: 'integer', nullable: false }
-    case 'source_date_asc': return { value: 'COALESCE(a."sourceDate", a."createdAt")', direction: 'ASC', type: 'timestamp', nullable: false }
-    case 'created_at_asc': return { value: 'a."createdAt"', direction: 'ASC', type: 'timestamp', nullable: false }
-    case 'created_at_desc': return { value: 'a."createdAt"', direction: 'DESC', type: 'timestamp', nullable: false }
+    case 'title_asc':
+      return { value: 'a.title', direction: 'ASC', type: 'text', nullable: false }
+    case 'title_desc':
+      return { value: 'a.title', direction: 'DESC', type: 'text', nullable: false }
+    case 'artist_asc':
+      return { value: artistSort, direction: 'ASC', type: 'text', nullable: true }
+    case 'artist_desc':
+      return { value: artistSort, direction: 'DESC', type: 'text', nullable: true }
+    case 'images_asc':
+      return { value: 'a."imageCount"', direction: 'ASC', type: 'integer', nullable: false }
+    case 'images_desc':
+      return { value: 'a."imageCount"', direction: 'DESC', type: 'integer', nullable: false }
+    case 'source_date_asc':
+      return { value: 'COALESCE(a."sourceDate", a."createdAt")', direction: 'ASC', type: 'timestamp', nullable: false }
+    case 'created_at_asc':
+      return { value: 'a."createdAt"', direction: 'ASC', type: 'timestamp', nullable: false }
+    case 'created_at_desc':
+      return { value: 'a."createdAt"', direction: 'DESC', type: 'timestamp', nullable: false }
     case 'random':
-      if (randomSeed === undefined) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Reading random pagination requires randomSeed' })
+      if (randomSeed === undefined) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Reading random pagination requires randomSeed' })
+      }
       return { value: `md5(a.id::text || ${seedPlaceholder})`, direction: 'ASC', type: 'text', nullable: false }
     case 'source_date_desc':
-    default: return { value: 'COALESCE(a."sourceDate", a."createdAt")', direction: 'DESC', type: 'timestamp', nullable: false }
+    default:
+      return { value: 'COALESCE(a."sourceDate", a."createdAt")', direction: 'DESC', type: 'timestamp', nullable: false }
   }
 }
 
 function hashFilters(params: ArtworksInfiniteQuerySchema, userId: string) {
-  const filters = Object.fromEntries(Object.entries(params).filter(([key]) => !['cursor', 'readingCursor', 'pageSize'].includes(key)))
+  const filters = Object.fromEntries(
+    Object.entries(params).filter(([key]) => !['cursor', 'readingCursor', 'pageSize'].includes(key))
+  )
   return createHash('sha256').update(JSON.stringify({ userId, filters })).digest('hex')
 }
 
@@ -43,19 +56,30 @@ function decodeCursor(encoded: string, params: ArtworksInfiniteQuerySchema, user
   try {
     const data = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as CursorPayload
     if (
-      !Number.isSafeInteger(data.id) || data.id < 1 ||
-      !(data.value === null || typeof data.value === 'string' || (typeof data.value === 'number' && Number.isFinite(data.value))) ||
+      !Number.isSafeInteger(data.id) ||
+      data.id < 1 ||
+      !(
+        data.value === null ||
+        typeof data.value === 'string' ||
+        (typeof data.value === 'number' && Number.isFinite(data.value))
+      ) ||
       data.sortBy !== (params.sortBy ?? 'source_date_desc') ||
       data.randomSeed !== (params.randomSeed ?? null) ||
       data.filterHash !== hashFilters(params, userId)
-    ) throw new Error('Cursor context changed')
+    ) {
+      throw new Error('Cursor context changed')
+    }
     return data
   } catch {
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid reading cursor' })
   }
 }
 
-export function encodeReadingCursor(params: ArtworksInfiniteQuerySchema, userId: string, row: { id: number; reading_sort_value: string | number | Date | null }) {
+export function encodeReadingCursor(
+  params: ArtworksInfiniteQuerySchema,
+  userId: string,
+  row: { id: number; reading_sort_value: string | number | Date | null }
+) {
   const value = row.reading_sort_value instanceof Date ? row.reading_sort_value.toISOString() : row.reading_sort_value
   const payload: CursorPayload = {
     id: row.id,
@@ -116,15 +140,16 @@ export function appendReadingFilterAndCursor(
 
 /** Shared account predicate; deliberately independent of pagination and sorting. */
 export function appendReadingPredicate(
-  statuses: ArtworksInfiniteQuerySchema['readingStatuses'], userId: string,
+  statuses: ArtworksInfiniteQuerySchema['readingStatuses'],
+  userId: string,
   base: { whereSQL: string; sqlParams: unknown[]; paramIndex: number }
 ) {
   let { whereSQL, sqlParams, paramIndex } = base
-  const summary = `SELECT 1 FROM artwork_reading_summaries rs WHERE rs."artworkId" = a.id AND rs."userId" = $${paramIndex} AND (rs."seenCount" > 0 OR rs."viewCount" > 0)`
+  const summary = `SELECT 1 FROM artwork_reading_progress rs WHERE rs."artworkId" = a.id AND rs."userId" = $${paramIndex} AND (rs.completed OR rs."furthestMediaIndex" IS NOT NULL OR rs."viewCount" > 0)`
   const predicates = statuses.map((status) => {
     if (status === 'UNREAD') return `NOT EXISTS (${summary})`
-    if (status === 'IN_PROGRESS') return `EXISTS (${summary} AND (rs."totalCount" = 0 OR rs."seenCount"::bigint * 100 < rs."totalCount"::bigint * ${READING_COMPLETION_PERCENT}))`
-    return `EXISTS (${summary} AND rs."totalCount" > 0 AND rs."seenCount"::bigint * 100 >= rs."totalCount"::bigint * ${READING_COMPLETION_PERCENT})`
+    if (status === 'IN_PROGRESS') return `EXISTS (${summary} AND NOT rs.completed)`
+    return `EXISTS (${summary} AND rs.completed)`
   })
   whereSQL += ` AND (${predicates.join(' OR ')})`
   sqlParams = [...sqlParams, userId]

@@ -14,7 +14,12 @@ import {
   type MigrationSelection
 } from '@pixishelf/job-contracts'
 import { buildMigrationArtworkWhere, createPrismaMigrationSelectionPort } from '@pixishelf/job-executors'
-import { lockArtworkForReading, lockCreatorCatalog } from '@pixishelf/db'
+import {
+  lockArtworkForReading,
+  lockCreatorCatalog,
+  readArtworkReadingLayout,
+  refreshArtworkReadingLayout
+} from '@pixishelf/db'
 import { generateLocalStorageKey } from './artwork-service/utils'
 import { resolveCreatablePathWithinRoot, resolveExistingPathWithinRoot } from '@/lib/safe-path'
 
@@ -316,7 +321,10 @@ export async function migrateArtwork(
     ...artwork.images.flatMap((image) => [image.path, ...(image.chaptersPath ? [image.chaptersPath] : [])]),
     ...(artwork.metaSource ? [artwork.metaSource] : [])
   ]
-  const transitions = new Map<string, { sourceStoredPath: string; sourceRelativePath: string; targetStoredPath: string }>()
+  const transitions = new Map<
+    string,
+    { sourceStoredPath: string; sourceRelativePath: string; targetStoredPath: string }
+  >()
   const targetOwners = new Map<string, string>()
   for (const sourceStoredPath of persistedPaths) {
     let sourceRelativePath: string
@@ -401,10 +409,8 @@ export async function migrateArtwork(
       const currentTarget = resolveCanonicalArtworkStoragePath({
         createdVia: current.createdVia,
         artistId: activeArtist.id,
-        artistPixivExternalId:
-          activeArtist.externalRefs.length === 1 ? activeArtist.externalRefs[0]!.externalId : null,
-        artworkPixivExternalId:
-          current.externalRefs.length === 1 ? current.externalRefs[0]!.externalId : null,
+        artistPixivExternalId: activeArtist.externalRefs.length === 1 ? activeArtist.externalRefs[0]!.externalId : null,
+        artworkPixivExternalId: current.externalRefs.length === 1 ? current.externalRefs[0]!.externalId : null,
         storageKey: current.storageKey
       })
       if (currentTarget !== targetRelDir) throw new Error('作品来源身份在迁移期间发生变化')
@@ -427,6 +433,7 @@ export async function migrateArtwork(
       ) {
         throw new Error('作品媒体引用在迁移期间发生变化')
       }
+      const previousLayout = await readArtworkReadingLayout(transaction, artworkId)
       for (const image of artwork.images) {
         const updated = await tx.image.updateMany({
           where: {
@@ -442,6 +449,7 @@ export async function migrateArtwork(
         })
         if (updated.count !== 1) throw new Error('作品媒体引用在迁移发布时发生变化')
       }
+      await refreshArtworkReadingLayout(transaction, artworkId, previousLayout)
       const updated = await tx.artwork.updateMany({
         where: {
           id: artworkId,

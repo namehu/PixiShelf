@@ -54,21 +54,41 @@ export const artworkDedupMaintenanceV2PayloadSchema = z.discriminatedUnion('mode
   z.object({ ...maintenanceIdentity, mode: z.literal('DIRECT_DELETE') }).strict()
 ])
 export const artworkDedupMaintenanceV3PayloadSchema = z.discriminatedUnion('mode', [
-  z.object({ ...maintenanceIdentity, mode: z.literal('PREPARE'), purpose: z.literal('DIRECT_DELETE'),
-    protocolVersion: z.union([z.literal(1), z.literal(2)]) }).strict(),
+  z
+    .object({
+      ...maintenanceIdentity,
+      mode: z.literal('PREPARE'),
+      purpose: z.literal('DIRECT_DELETE'),
+      protocolVersion: z.union([z.literal(1), z.literal(2)])
+    })
+    .strict(),
   z.object({ ...maintenanceIdentity, mode: z.literal('DIRECT_DELETE') }).strict()
 ])
 export const artworkDedupMaintenanceV4PayloadSchema = z.discriminatedUnion('mode', [
-  z.object({ ...maintenanceIdentity, mode: z.literal('PREPARE'), purpose: z.literal('DIRECT_DELETE'),
-    protocolVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]) }).strict(),
+  z
+    .object({
+      ...maintenanceIdentity,
+      mode: z.literal('PREPARE'),
+      purpose: z.literal('DIRECT_DELETE'),
+      protocolVersion: z.union([z.literal(1), z.literal(2), z.literal(3)])
+    })
+    .strict(),
   z.object({ ...maintenanceIdentity, mode: z.literal('DIRECT_DELETE') }).strict()
 ])
 export const artworkDedupMaintenanceV5PayloadSchema = z.discriminatedUnion('mode', [
-  z.object({ ...maintenanceIdentity, mode: z.literal('PREPARE'), purpose: z.literal('DIRECT_DELETE'),
-    protocolVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]) }).strict(),
+  z
+    .object({
+      ...maintenanceIdentity,
+      mode: z.literal('PREPARE'),
+      purpose: z.literal('DIRECT_DELETE'),
+      protocolVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
+    })
+    .strict(),
   z.object({ ...maintenanceIdentity, mode: z.literal('DIRECT_DELETE') }).strict()
 ])
-export const artworkDedupMaintenanceV6PayloadSchema = z.object({ ...maintenanceIdentity, mode: z.literal('DIRECT_DELETE') }).strict()
+export const artworkDedupMaintenanceV6PayloadSchema = z
+  .object({ ...maintenanceIdentity, mode: z.literal('DIRECT_DELETE') })
+  .strict()
 export const artworkDedupMaintenancePayloadSchema = z.union([
   artworkDedupMaintenanceV1PayloadSchema,
   artworkDedupMaintenanceV2PayloadSchema,
@@ -124,24 +144,61 @@ export const artworkDedupMemberDtoSchema = z.object({
     bookmarks: z.object({ available: count, unavailable: count }),
     likes: z.object({ available: count, unavailable: count })
   }),
-  ownReading: z.object({ lastViewedAt: date, seenCount: count, totalCount: count, stateVersion: count }).nullable(),
+  ownReading: z
+    .object({
+      lastViewedAt: date,
+      progressCount: count,
+      totalCount: count,
+      completed: z.boolean(),
+      stateVersion: count
+    })
+    .nullable(),
   otherAccountHasOrganization: z.boolean()
 })
 export type ArtworkDedupMemberDto = z.infer<typeof artworkDedupMemberDtoSchema>
 export const artworkDedupVisualSummarySchema = z.object({
-  evidenceVersion: id, leftArtworkId: positive, rightArtworkId: positive,
-  leftFileCount: bytes, rightFileCount: bytes, pairedCount: bytes, exactCount: bytes, similarCount: bytes,
-  leftUnmatchedCount: bytes, rightUnmatchedCount: bytes, leftUncheckedCount: bytes, rightUncheckedCount: bytes
+  evidenceVersion: id,
+  leftArtworkId: positive,
+  rightArtworkId: positive,
+  leftFileCount: bytes,
+  rightFileCount: bytes,
+  pairedCount: bytes,
+  exactCount: bytes,
+  similarCount: bytes,
+  leftUnmatchedCount: bytes,
+  rightUnmatchedCount: bytes,
+  leftUncheckedCount: bytes,
+  rightUncheckedCount: bytes
 })
 export type ArtworkDedupVisualSummary = z.infer<typeof artworkDedupVisualSummarySchema>
-export const artworkDedupListComparisonsInputSchema = z.object({
-  ...identity, runId: id, groupId: id, filter: z.enum(['ALL', 'DIFFERENT', 'PAIRED', 'UNMATCHED', 'UNCHECKED']).default('DIFFERENT'),
-  cursor: cursor.optional(), limit: z.number().int().min(1).max(50).default(20)
-}).strict()
-const comparisonMedia = z.object({ artworkId: positive, imageId: positive, index: count, thumbnailUrl: z.string().nullable() })
+export const artworkDedupListComparisonsInputSchema = z
+  .object({
+    ...identity,
+    runId: id,
+    groupId: id,
+    filter: z.enum(['ALL', 'DIFFERENT', 'PAIRED', 'UNMATCHED', 'UNCHECKED']).default('DIFFERENT'),
+    cursor: cursor.optional(),
+    limit: z.number().int().min(1).max(50).default(20)
+  })
+  .strict()
+const comparisonMedia = z.object({
+  artworkId: positive,
+  imageId: positive,
+  index: count,
+  thumbnailUrl: z.string().nullable()
+})
 export const artworkDedupListComparisonsDtoSchema = z.object({
-  runId: id, groupId: id, visual: artworkDedupVisualSummarySchema,
-  items: z.array(z.object({ id: positive, kind: z.enum(['EXACT', 'SIMILAR', 'UNMATCHED', 'UNCHECKED']), left: comparisonMedia.nullable(), right: comparisonMedia.nullable() })),
+  runId: id,
+  groupId: id,
+  visual: artworkDedupVisualSummarySchema,
+  items: z.array(
+    z.object({
+      id: positive,
+      kind: z.enum(['EXACT', 'SIMILAR', 'UNMATCHED', 'UNCHECKED']),
+      left: comparisonMedia.nullable(),
+      right: comparisonMedia.nullable()
+    })
+  ),
   nextCursor: z.string().nullable()
 })
 export type ArtworkDedupListComparisonsDto = z.infer<typeof artworkDedupListComparisonsDtoSchema>
@@ -269,7 +326,10 @@ export const artworkDedupDirectDeleteInputSchema = z
     organizationImpactConfirmed: z.literal(true)
   })
   .strict()
-  .refine(value => ![3, 4].includes(value.protocolVersion) || value.differentContentLossConfirmed === true, 'Different content loss confirmation required')
+  .refine(
+    (value) => ![3, 4].includes(value.protocolVersion) || value.differentContentLossConfirmed === true,
+    'Different content loss confirmation required'
+  )
 export type ArtworkDedupDirectDeleteInput = z.infer<typeof artworkDedupDirectDeleteInputSchema>
 export const artworkDedupDirectDeleteRetryInputSchema = z.object(command).strict()
 export const artworkDedupIsolateInputSchema = z
@@ -335,7 +395,10 @@ export const artworkDedupOperationDtoSchema = z.object({
   mode: artworkDedupMaintenanceModeSchema,
   originalAction: artworkDedupMaintenanceModeSchema,
   preparePurpose: z.enum(['ISOLATION', 'PURGE', 'DIRECT_DELETE']),
-  protocolVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).nullable().default(null),
+  protocolVersion: z
+    .union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
+    .nullable()
+    .default(null),
   scopeDigest: z
     .string()
     .regex(/^[a-f0-9]{64}$/)
@@ -378,8 +441,15 @@ export const artworkDedupOperationDtoSchema = z.object({
 })
 export type ArtworkDedupOperationDto = z.infer<typeof artworkDedupOperationDtoSchema>
 export const artworkDedupArtworkPreviewDtoSchema = artworkDedupMemberDtoSchema.extend({
-  ...artworkDedupGroupDtoSchema.pick({ visual: true, relationKind: true, containedArtworkId: true, containerArtworkId: true,
-    containedFileCount: true, containerFileCount: true, extraFileCount: true }).shape,
+  ...artworkDedupGroupDtoSchema.pick({
+    visual: true,
+    relationKind: true,
+    containedArtworkId: true,
+    containerArtworkId: true,
+    containedFileCount: true,
+    containerFileCount: true,
+    extraFileCount: true
+  }).shape,
   itemId: positive,
   groupId: id,
   role: z.enum(['KEEPER', 'COPY']),

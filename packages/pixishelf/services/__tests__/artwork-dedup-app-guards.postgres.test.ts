@@ -9,27 +9,31 @@ import { freezeArtworkDedupOperation, saveArtworkDedupReview } from '../../../pi
 import { getReadingContext, getReaderInitialization, reportReading, markReadingRead } from '../reading-service'
 import { setArtworkRating } from '../artwork-rating-service'
 import { setMediaMark, removeMediaMark } from '../media-mark-service'
+import { refreshArtworkReadingLayout } from '@pixishelf/db'
 import { randomUUID } from 'node:crypto'
 const opIds: string[] = []
 async function fixture() {
   const f = await db!.$transaction((tx) => seed(tx))
   const ids = f.members.flat()
+  await db!.$transaction(async (tx) => {
+    for (const artworkId of ids) await refreshArtworkReadingLayout(tx, artworkId, [], false)
+  })
   const images = await db!.image.findMany({ where: { artworkId: { in: ids } }, orderBy: { artworkId: 'asc' } })
   const arts = await db!.artwork.findMany({ where: { id: { in: ids } }, orderBy: { id: 'asc' } })
   return { ...f, ids, images, arts }
 }
 function reading(f: Awaited<ReturnType<typeof fixture>>, index: number) {
   const artworkId = f.arts[index]!.id
-  const input = { artworkId, expectedUserId: f.actor.id, mediaRevision: f.arts[index]!.mediaRevision }
+  const input = { artworkId, expectedUserId: f.actor.id, readingLayoutVersion: f.arts[index]!.readingLayoutVersion }
   return [
     () => getReadingContext(f.actor.id, artworkId),
     () => getReaderInitialization(f.actor.id, artworkId),
     () =>
       reportReading(f.actor.id, {
         ...input,
-        events: [{ type: 'VIEW', mediaId: f.images[index]!.id, observedAt: new Date().toISOString() }]
+        events: [{ type: 'VIEW', mediaId: f.images[index]!.id, index: 0, observedAt: new Date().toISOString() }]
       }),
-    () => markReadingRead(f.actor.id, { ...input, target: { kind: 'ALL' } })
+    () => markReadingRead(f.actor.id, { ...input })
   ]
 }
 describe.skipIf(!db)('App reading and personal organization maintenance guards', () => {
@@ -90,12 +94,12 @@ describe.skipIf(!db)('App reading and personal organization maintenance guards',
         () => setMediaMark(f.actor.id, artworkId, f.images[index]!.id, 'like', true),
         () => setMediaMark(f.actor.id, artworkId, f.images[index]!.id, 'bookmark', false),
         () => removeMediaMark(f.actor.id, marks[index]!.markId!, 'bookmark')
-      ])
-        {await expect(action()).rejects.toMatchObject({ code: 'CONFLICT', message: '作品正在维护，请稍后重试。' })}
+      ]) {
+        await expect(action()).rejects.toMatchObject({ code: 'CONFLICT', message: '作品正在维护，请稍后重试。' })
+      }
     }
     for (const action of reading(f, 1)) await expect(action()).rejects.toMatchObject({ code: 'CONFLICT' })
-    expect(await db!.artworkReadingSummary.count({ where: { artworkId: f.ids[1] } })).toBe(0)
-    expect(await db!.artworkReadMedia.count({ where: { artworkId: f.ids[1] } })).toBe(0)
+    expect(await db!.artworkReadingProgress.count({ where: { artworkId: f.ids[1] } })).toBe(0)
     expect(
       await db!.artworkLike.findMany({ where: { artworkId: { in: f.ids } }, orderBy: { artworkId: 'asc' } })
     ).toEqual(beforeRatings)
@@ -104,10 +108,10 @@ describe.skipIf(!db)('App reading and personal organization maintenance guards',
     ).toEqual(beforeMarks)
     for (const action of reading(f, 0)) await expect(action()).resolves.toBeDefined()
     expect(
-      await db!.artworkReadingSummary.findUnique({
+      await db!.artworkReadingProgress.findUnique({
         where: { userId_artworkId: { userId: f.actor.id, artworkId: f.ids[0]! } }
       })
-    ).toMatchObject({ viewCount: 1, seenCount: 1 })
+    ).toMatchObject({ viewCount: 1, completed: true })
   })
   it('keeps unclaimed writes and account scoping unchanged', async () => {
     const f = await fixture(),

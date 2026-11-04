@@ -176,7 +176,7 @@ describe('retired deduplication operation display facts', () => {
                 source: string
                 createdAt: Date
                 likes: { level: number }[]
-                readingSummaries: never[]
+                readingProgress: never[]
               }[]
             >
           >(async () => [
@@ -186,7 +186,7 @@ describe('retired deduplication operation display facts', () => {
               source: 'LOCAL_IMPORT',
               createdAt: new Date('2026-01-01'),
               likes: [{ level: 3 }],
-              readingSummaries: []
+              readingProgress: []
             }
           ])
         },
@@ -274,7 +274,7 @@ describe('retired deduplication operation display facts', () => {
       })
       expect(JSON.stringify(response)).not.toContain('/private/media')
       expect(tx.artwork.findMany.mock.calls[0]![0]).toMatchObject({
-        select: { likes: { where: { userId: 'user-a' } }, readingSummaries: { where: { userId: 'user-a' } } }
+        select: { likes: { where: { userId: 'user-a' } }, readingProgress: { where: { userId: 'user-a' } } }
       })
     }
   )

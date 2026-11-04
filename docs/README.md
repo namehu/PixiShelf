@@ -48,11 +48,12 @@
 
 ## 开发与维护入口
 
-- [Android 验证版](./features/android-app.md)与[Flutter 包用法](../packages/pixishelf-app/README.md)。
+- [Android 验证版（按用户要求暂停）](./features/android-app.md)与[Flutter 包用法](../packages/pixishelf-app/README.md)。
 
 - [文档维护规则](./development/documentation.md)：内容归属、模板、状态与图示检查。
 - [当前待办](../TODO.md)：未完成的实施或验证行动。
 - [构建资产](../build/README.md)、[CI 与镜像发布](../.github/README.md)、[辅助工具](../scripts/README.md)。
+- [阅读位置迁移与封存清理](./operations/runbooks/reading-position-migration.md)：停写、正式迁移、即时核验与上线验收后至少 7 天的独立清理；证据见[本次记录](./records/features/artwork-reading-position-2026-11-04.md)。
 - [数据库设计补充](../packages/pixishelf-db/prisma/database-design.md)：Schema 之外的数据库语义与约束。
 - [扫描 Webhook](../packages/pixishelf/docs/webhook-features.md)、[ProTable](../packages/pixishelf/components/shared/pro-table/readme.md)、[Pixiv 提取脚本](../packages/pixishelf/scripts/extract-pixiv-info.md)。
 - [本次重整与文档去向](./records/documentation-reorganization-2026-10-22.md)。

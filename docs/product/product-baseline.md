@@ -11,6 +11,8 @@ sources:
 
 # PixiShelf 产品基线
 
+2026-11-04 局部核验：阅读边界改为最远位置前缀与粘性完成；普通媒体变化维护锚点，完整重建清空阅读。
+
 PixiShelf 是面向个人重度媒体收藏者的本地优先、自托管归档、整理、检索与浏览系统。外部站点提供输入和来源证据；本地数据及用户整理结果应在来源失效、刷新或系统升级后仍可理解、可维护、可恢复。
 
 本文只维护长期能力和约束。具体交互与验收条件见[领域功能目录](../features/README.md)，实现机制见[当前架构](../architecture/current-architecture.md)，发布日期和验证结果见各功能链接的记录。`current` 表示反映当前代码，不等于生产已部署。
@@ -36,12 +38,12 @@ PixiShelf 是面向个人重度媒体收藏者的本地优先、自托管归档�
 | 作品与创作者 | 一个作品包含有序媒体；系列组织多个作品；多艺术家／社团归属与来源证据并存，同名不自动合并。                                                                               | [创作者关系](../features/creator-relations.md)、[系列管理](../features/series-management.md)                                                     |
 | 导入与来源   | 支持 Pixiv 目录扫描、本地导入、持久 URL 收件、Webhook 和人工管理。来源 Provider、创建方式、本地身份及存储位置分离；未知历史来源保持未知。                                | [收件箱](../features/archive-intake.md)、[来源发现](../features/archive-discovery.md)、[来源同步](../features/pixiv-artwork-online-sync.md)      |
 | 浏览与阅读   | 支持图片、动画、视频、检索筛选、详情及沉浸浏览、主动自动浏览与堆叠浏览。站内只读本地媒体，原站通过受保护外链访问。                                                       | [阅读记录](../features/artwork-reading.md)、[堆叠浏览](../features/artwork-summary.md)、[沉浸浏览](../features/immersive-viewer-interactions.md) |
-| 阅读整理     | 按账户保存真实访问、逻辑媒体已读进度和最后位置；手动完成只修正进度，不伪造访问。可显式启用 Pixiv 新作品默认已读，历史补齐须独立预检。                                    | [阅读记录](../features/artwork-reading.md)、[Pixiv 导入默认已读](../features/pixiv-import-reading.md)                                            |
+| 阅读整理     | 按账户保存真实访问、最远位置形成的阅读前缀、最后观察位置和完成状态；手动完成只修正进度，不伪造访问。可显式启用 Pixiv 新作品默认已读，历史补齐须独立预检。                | [阅读记录](../features/artwork-reading.md)、[Pixiv 导入默认已读](../features/pixiv-import-reading.md)                                            |
 | 后台维护     | 扫描、归档、替换、迁移、来源补全和派生媒体处理具有持久状态、审计和恢复入口。计划只产生任务，执行由通用 Worker 承担。                                                     | [后台任务业务链路](../architecture/background-job-business-flows.md)、[失败诊断](../features/background-job-diagnostics.md)                      |
 | 删除与恢复   | 显式预览删除范围；普通归档删除使用回收和持久删除意图，恢复同时尊重数据库与文件状态。去重复用普通删除的范围与验收边界见[作品去重](../features/artwork-deduplication.md)。 | [作品删除](../features/artwork-deletion.md)、[归档回收站](../features/archive-trash.md)                                                          |
 | 隐私显示     | 浏览器级偏好统一遮蔽媒体及敏感只读文字；仅提供屏幕视觉保护，不改变真实值、加载、复制、导出或权限。                                                                       | [浏览器隐私偏好](../features/browser-privacy.md)                                                                                                 |
 
-浏览体验的性能改进不能改变阅读事实：预加载不算阅读，手工完成不增加真实访问，来源外链不计入本地阅读。完整替换或重建媒体使旧阅读状态失效，普通增删和排序保留仍存在的媒体记录。
+浏览体验的性能改进不能改变阅读事实：预加载不算阅读，手工完成不增加真实访问，来源外链不计入本地阅读。完整替换或重建媒体使旧阅读状态失效；普通增删和排序同事务重定位阅读锚点，保留完成状态，普通新增不会把已完成作品变回阅读中。
 
 [作品评分](../features/artwork-rating.md)是个人整理数据，与爱心和“我的喜欢”共用一个状态；来源刷新、同作品内媒体替换及回收不清除个人评分，不提供公开平均分。
 

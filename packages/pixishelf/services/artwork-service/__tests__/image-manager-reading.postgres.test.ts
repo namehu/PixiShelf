@@ -26,11 +26,12 @@ describePostgres('complete media replacement reading invalidation', () => {
       ])
     })
 
-    expect(await db().artwork.findUniqueOrThrow({ where: { id: artworkId }, select: { mediaRevision: true } })).toEqual({
-      mediaRevision: 2
-    })
-    expect(await db().artworkReadingSummary.count({ where: { artworkId } })).toBe(0)
-    expect(await db().artworkReadMedia.count({ where: { artworkId } })).toBe(0)
+    expect(await db().artwork.findUniqueOrThrow({ where: { id: artworkId }, select: { mediaRevision: true } })).toEqual(
+      {
+        mediaRevision: 2
+      }
+    )
+    expect(await db().artworkReadingProgress.count({ where: { artworkId } })).toBe(0)
     expect(await db().image.findMany({ where: { artworkId }, select: { path: true } })).toEqual([
       { path: `${prefix}/new.jpg` }
     ])
@@ -43,17 +44,25 @@ describePostgres('complete media replacement reading invalidation', () => {
     await expect(
       db().$transaction(async (tx) => {
         await updateArtworkImagesWithTransactionClient(tx, artworkId, [
-          { fileName: 'replacement.jpg', order: 0, width: 100, height: 100, size: 512, path: `${prefix}/rollback-new.jpg` }
+          {
+            fileName: 'replacement.jpg',
+            order: 0,
+            width: 100,
+            height: 100,
+            size: 512,
+            path: `${prefix}/rollback-new.jpg`
+          }
         ])
         throw new Error('publication failed')
       })
     ).rejects.toThrow('publication failed')
 
-    expect(await db().artwork.findUniqueOrThrow({ where: { id: artworkId }, select: { mediaRevision: true } })).toEqual({
-      mediaRevision: 1
-    })
-    expect(await db().artworkReadingSummary.count({ where: { artworkId } })).toBe(2)
-    expect(await db().artworkReadMedia.count({ where: { artworkId } })).toBe(2)
+    expect(await db().artwork.findUniqueOrThrow({ where: { id: artworkId }, select: { mediaRevision: true } })).toEqual(
+      {
+        mediaRevision: 1
+      }
+    )
+    expect(await db().artworkReadingProgress.count({ where: { artworkId } })).toBe(2)
     expect(await db().image.findUnique({ where: { id: oldMediaId }, select: { id: true } })).toEqual({ id: oldMediaId })
   })
 
@@ -67,15 +76,20 @@ describePostgres('complete media replacement reading invalidation', () => {
       size: 512,
       path: `${prefix}/incremental-added.jpg`
     })
-    await reorderArtworkImages({ artworkId, expectedImageIds: [oldMediaId, added.id], imageIds: [added.id, oldMediaId] })
+    await reorderArtworkImages({
+      artworkId,
+      expectedImageIds: [oldMediaId, added.id],
+      imageIds: [added.id, oldMediaId]
+    })
     await deleteImage(oldMediaId, false)
 
-    expect(await db().artwork.findUniqueOrThrow({ where: { id: artworkId }, select: { mediaRevision: true } })).toEqual({
-      mediaRevision: 1
-    })
-    const summaries = await db().artworkReadingSummary.findMany({ where: { artworkId }, select: { viewCount: true } })
+    expect(await db().artwork.findUniqueOrThrow({ where: { id: artworkId }, select: { mediaRevision: true } })).toEqual(
+      {
+        mediaRevision: 1
+      }
+    )
+    const summaries = await db().artworkReadingProgress.findMany({ where: { artworkId }, select: { viewCount: true } })
     expect(summaries).toEqual([{ viewCount: 3 }, { viewCount: 3 }])
-    expect(await db().artworkReadMedia.count({ where: { artworkId } })).toBe(0)
   })
 })
 
@@ -85,26 +99,26 @@ function db() {
 }
 
 async function seedReadingState(label: string) {
-  const artwork = await db().artwork.create({ data: { title: `${prefix}-${label}` } })
+  const artwork = await db().artwork.create({ data: { title: `${prefix}-${label}`, logicalMediaCount: 1 } })
   const oldMedia = await db().image.create({ data: { artworkId: artwork.id, path: `${prefix}/${label}-old.jpg` } })
   const now = new Date('2026-09-24T08:00:00.000Z')
   for (const account of ['a', 'b']) {
     const userId = `${prefix}-${label}-${account}`
     await db().userBA.create({ data: { id: userId, name: userId } })
-    await db().artworkReadingSummary.create({
+    await db().artworkReadingProgress.create({
       data: {
         userId,
         artworkId: artwork.id,
         viewCount: 3,
-        seenCount: 1,
-        totalCount: 1,
+        completed: true,
+        furthestMediaId: oldMedia.id,
+        furthestMediaIndex: 0,
         lastViewedAt: now,
         lastActiveAt: now,
         lastMediaId: oldMedia.id,
         lastMediaIndex: 0
       }
     })
-    await db().artworkReadMedia.create({ data: { userId, artworkId: artwork.id, mediaId: oldMedia.id } })
   }
   return { artworkId: artwork.id, oldMediaId: oldMedia.id }
 }

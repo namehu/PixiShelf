@@ -41,7 +41,7 @@ describe('reading router session ownership', () => {
   it('rejects all unauthenticated reads and writes before reaching the service', async () => {
     const caller = readingRouter.createCaller(unauthorized as never)
     await expect(
-      caller.markRead({ artworkId: 10, expectedUserId: 'user-1', mediaRevision: 1, target: { kind: 'ALL' } })
+      caller.markRead({ artworkId: 10, expectedUserId: 'user-1', readingLayoutVersion: 1 })
     ).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
     await expect(caller.context({ artworkId: 10, expectedUserId: 'user-1' })).rejects.toMatchObject({
       code: 'UNAUTHORIZED'
@@ -50,8 +50,8 @@ describe('reading router session ownership', () => {
       caller.report({
         artworkId: 10,
         expectedUserId: 'user-1',
-        mediaRevision: 1,
-        events: [{ type: 'VIEW', mediaId: 1, observedAt: '2026-09-24T12:00:00.000Z' }]
+        readingLayoutVersion: 1,
+        events: [{ type: 'VIEW', mediaId: 1, index: 0, observedAt: '2026-09-24T12:00:00.000Z' }]
       })
     ).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
     await expect(caller.summaries({ artworkIds: [10], expectedUserId: 'user-1' })).rejects.toMatchObject({
@@ -65,7 +65,7 @@ describe('reading router session ownership', () => {
   it('rejects a switched account for all procedures before reading or writing', async () => {
     const caller = readingRouter.createCaller(authorized as never)
     await expect(
-      caller.markRead({ artworkId: 10, expectedUserId: 'user-2', mediaRevision: 1, target: { kind: 'ALL' } })
+      caller.markRead({ artworkId: 10, expectedUserId: 'user-2', readingLayoutVersion: 1 })
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
     await expect(caller.context({ artworkId: 10, expectedUserId: 'user-2' })).rejects.toMatchObject({
       code: 'FORBIDDEN'
@@ -74,8 +74,8 @@ describe('reading router session ownership', () => {
       caller.report({
         artworkId: 10,
         expectedUserId: 'user-2',
-        mediaRevision: 1,
-        events: [{ type: 'VIEW', mediaId: 1, observedAt: '2026-09-24T12:00:00.000Z' }]
+        readingLayoutVersion: 1,
+        events: [{ type: 'VIEW', mediaId: 1, index: 0, observedAt: '2026-09-24T12:00:00.000Z' }]
       })
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
     await expect(caller.summaries({ artworkIds: [10], expectedUserId: 'user-2' })).rejects.toMatchObject({
@@ -142,15 +142,23 @@ describe('reading router session ownership', () => {
   it('requires Session ownership for multi-select reading requests before services run', async () => {
     const caller = artworkRouter.createCaller(authorized as never)
     for (const method of ['list', 'cardList', 'viewerFeed'] as const) {
-      for (const readingStatuses of [['UNREAD', 'COMPLETED'], ['UNREAD', 'IN_PROGRESS', 'COMPLETED']] satisfies ReadingStatus[][]) {
+      for (const readingStatuses of [
+        ['UNREAD', 'COMPLETED'],
+        ['UNREAD', 'IN_PROGRESS', 'COMPLETED']
+      ] satisfies ReadingStatus[][]) {
         await expect(caller[method]({ readingStatuses })).rejects.toMatchObject({ code: 'FORBIDDEN' })
-        await expect(caller[method]({ readingStatuses, expectedUserId: 'user-2' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+        await expect(caller[method]({ readingStatuses, expectedUserId: 'user-2' })).rejects.toMatchObject({
+          code: 'FORBIDDEN'
+        })
       }
     }
     expect(Object.values(listService).every((mock) => mock.mock.calls.length === 0)).toBe(true)
     listService.getArtworkCardsPage.mockResolvedValue({ items: [], hasNextPage: false, pageSize: 24 })
     await caller.cardList({ readingStatuses: ['COMPLETED', 'UNREAD'], expectedUserId: 'user-1' })
-    expect(listService.getArtworkCardsPage).toHaveBeenCalledWith(expect.objectContaining({ readingStatuses: ['UNREAD', 'COMPLETED'] }), 'user-1')
+    expect(listService.getArtworkCardsPage).toHaveBeenCalledWith(
+      expect.objectContaining({ readingStatuses: ['UNREAD', 'COMPLETED'] }),
+      'user-1'
+    )
   })
   it('protects favorites with the session account and returns keyset continuation', async () => {
     const caller = artworkRouter.createCaller(authorized as never)

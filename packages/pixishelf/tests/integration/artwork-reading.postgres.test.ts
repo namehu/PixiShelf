@@ -1,341 +1,272 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { PrismaClient, invalidateArtworkReadingForRebuild } from '@pixishelf/db'
-import { buildArtworkStacks } from '@/lib/reading/artwork-stacks'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import {
+  PrismaClient,
+  invalidateArtworkReadingForRebuild,
+  lockArtworkForReading,
+  readArtworkReadingLayout,
+  refreshArtworkReadingLayout
+} from '@pixishelf/db'
+import { groupLogicalMedia } from '@pixishelf/job-contracts'
 import { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
-import type { ReadingReportEvent } from '@pixishelf/db/reading-contract'
-
 const databaseUrl = process.env.READING_VALIDATION_DATABASE_URL
-function isDedicatedDatabase(value: string | undefined) {
-  if (!value) return false
-  const url = new URL(value)
-  return url.protocol === 'postgresql:' && url.hostname === '127.0.0.1' && url.port === '55432' && url.pathname === '/reading_perf'
+if (databaseUrl) {
+  const url = new URL(databaseUrl)
+  if (
+    url.hostname !== '127.0.0.1' ||
+    url.port !== '55433' ||
+    url.pathname !== '/pixishelf_reading_position_20261104_runtime'
+  ) {
+    throw new Error('Requires isolated reading-position runtime database')
+  }
 }
-if (databaseUrl && !isDedicatedDatabase(databaseUrl)) throw new Error('Reading integration test requires the dedicated reading_perf database')
-
-const db = databaseUrl ? new PrismaClient({ datasourceUrl: databaseUrl, log: [{ emit: 'event', level: 'query' }] }) : null
-let queryCount = 0
-db?.$on('query', () => { queryCount++ })
+const db = databaseUrl ? new PrismaClient({ datasourceUrl: databaseUrl }) : null
 const context = vi.hoisted(() => ({ prisma: null as unknown }))
 vi.mock('@/lib/prisma', () => ({
-  get prisma() { return context.prisma }
+  get prisma() {
+    return context.prisma
+  }
 }))
-
-let readingService: typeof import('@/services/reading-service')
-beforeAll(async () => {
-  context.prisma = db
-  readingService = await import('@/services/reading-service')
-})
-
-const created = { userIds: [] as string[], artworkIds: [] as number[], imageIds: [] as number[] }
-const fixture = { userId: '', otherUserId: '', artworkId: 0, apngId: 0, videoId: 0, otherId: 0 }
-const event = (mediaId: number, type: 'VIEW' | 'HEARTBEAT' = 'VIEW'): ReadingReportEvent => ({
-  type, mediaId, observedAt: new Date().toISOString(),
-  ...([fixture.videoId, fixture.apngId].includes(mediaId) ? { playback: { currentTime: 90, duration: 100 } } : {})
-})
-const report = (userId: string, events: ReturnType<typeof event>[], mediaRevision = 1) =>
-  readingService.reportReading(userId, { artworkId: fixture.artworkId, expectedUserId: userId, mediaRevision, events })
-
-async function createPictureWork(label: string, totalCount: number) {
-  const token = randomUUID()
-  const artwork = await db!.artwork.create({ data: {
-    title: `reading ${label} ${token}`, storageKey: `reading-test-${token}`, imageCount: totalCount,
-    images: { create: Array.from({ length: totalCount }, (_, index) => ({
-      path: `/reading-test/${token}/${index}.jpg`, sortOrder: index, mediaType: 'IMAGE' as const
-    })) }
-  }, include: { images: { orderBy: { sortOrder: 'asc' } } } })
-  created.artworkIds.push(artwork.id)
-  created.imageIds.push(...artwork.images.map((image) => image.id))
-  return artwork
+import {
+  getReadingContext,
+  getReadingSummaries,
+  getContinueReading,
+  getReadingHistory,
+  reportReading,
+  markReadingRead
+} from '@/services/reading-service'
+import { queryReadingArtworkIdsPage } from '@/services/artwork-service/reading-page-query'
+const token = `reading-position-${randomUUID()}`
+const users = [`${token}-a`, `${token}-b`]
+async function work(label: string, count: number) {
+  return db!.artwork.create({
+    data: {
+      title: `${token}-${label}`,
+      storageKey: `${token}-${label}`,
+      logicalMediaCount: count,
+      images: {
+        create: Array.from({ length: count }, (_, index) => ({
+          path: `${token}/${label}/${index}.jpg`,
+          sortOrder: index,
+          mediaType: 'IMAGE' as const
+        }))
+      }
+    },
+    include: { images: { orderBy: { sortOrder: 'asc' } } }
+  })
 }
-
-beforeEach(async () => {
-  if (!db) return
-  const token = randomUUID()
-  const user = await db.userBA.create({ data: { id: `reading-${token}-a` } })
-  const other = await db.userBA.create({ data: { id: `reading-${token}-b` } })
-  const artwork = await db.artwork.create({ data: { title: `reading test ${token}`, storageKey: `reading-test-${token}`, imageCount: 3 } })
-  const [apng, video, otherMedia] = await Promise.all([
-    db.image.create({ data: { artworkId: artwork.id, path: `/reading-test/${token}/a.apng`, sortOrder: 0, mediaType: 'ANIMATION' } }),
-    db.image.create({ data: { artworkId: artwork.id, path: `/reading-test/${token}/a.webm`, sortOrder: 1, mediaType: 'VIDEO' } }),
-    db.image.create({ data: { artworkId: artwork.id, path: `/reading-test/${token}/b.jpg`, sortOrder: 2, mediaType: 'IMAGE' } })
-  ])
-  created.userIds.push(user.id, other.id)
-  created.artworkIds.push(artwork.id)
-  created.imageIds.push(apng.id, video.id, otherMedia.id)
-  Object.assign(fixture, { userId: user.id, otherUserId: other.id, artworkId: artwork.id, apngId: apng.id, videoId: video.id, otherId: otherMedia.id })
-})
-
-afterEach(async () => {
-  if (!db) return
-  await db.artworkReadMedia.deleteMany({ where: { artworkId: { in: created.artworkIds } } })
-  await db.artworkReadingSummary.deleteMany({ where: { artworkId: { in: created.artworkIds } } })
-  await db.image.deleteMany({ where: { id: { in: created.imageIds } } })
-  await db.artwork.deleteMany({ where: { id: { in: created.artworkIds } } })
-  await db.userBA.deleteMany({ where: { id: { in: created.userIds } } })
-  created.userIds.length = created.artworkIds.length = created.imageIds.length = 0
-})
-
-afterAll(async () => { await db?.$disconnect() })
-
-describe.skipIf(!databaseUrl)('artwork reading on PostgreSQL', () => {
+function input(artworkId: number, mediaId: number, index: number, extra = {}) {
+  return {
+    artworkId,
+    expectedUserId: users[0]!,
+    readingLayoutVersion: 1,
+    events: [{ type: 'VIEW' as const, mediaId, index, observedAt: new Date().toISOString(), ...extra }]
+  }
+}
+describe.skipIf(!databaseUrl).sequential('reading positions with isolated PostgreSQL', () => {
+  beforeAll(async () => {
+    context.prisma = db
+    await db!.userBA.createMany({ data: users.map((id) => ({ id })) })
+  })
+  afterAll(async () => {
+    if (!db) return
+    await db.image.deleteMany({ where: { artwork: { storageKey: { startsWith: token } } } })
+    await db.artwork.deleteMany({ where: { storageKey: { startsWith: token } } })
+    await db.userBA.deleteMany({ where: { id: { in: users } } })
+    await db.$disconnect()
+  })
+  it('persists one prefix row per account and keeps report results independent of media IDs', async () => {
+    const a = await work('prefix', 100)
+    const first = await reportReading(users[0]!, input(a.id, a.images[79]!.id, 79))
+    expect(first.summary).toMatchObject({ progressCount: 80, completed: false, viewCount: 1 })
+    expect(Object.keys(first).sort()).toEqual(['readingLayoutVersion', 'summary'])
+    expect(await db!.artworkReadingProgress.count({ where: { artworkId: a.id } })).toBe(1)
+    const back = await reportReading(users[0]!, input(a.id, a.images[2]!.id, 2))
+    expect(back.summary).toMatchObject({ progressCount: 80, lastMediaIndex: 2, furthestMediaIndex: 79 })
+    expect((await getReadingSummaries(users[1]!, [a.id])).summaries[0]).toMatchObject({
+      progressCount: 0,
+      viewCount: 0
+    })
+    expect((await getReadingContext(users[0]!, a.id)).resume?.index).toBe(2)
+  })
+  it('advances static stacks to the tail while retaining the observed position', async () => {
+    const a = await work('stack', 8)
+    const result = await reportReading(
+      users[0]!,
+      input(a.id, a.images[1]!.id, 1, { advanceTo: { mediaId: a.images[6]!.id, index: 6 } })
+    )
+    expect(result.summary).toMatchObject({ progressCount: 7, lastMediaIndex: 1, furthestMediaIndex: 6 })
+  })
+  it('guards grouped APNG posters, actual video playback, ownership and layout versions', async () => {
+    const a = await work('video', 0)
+    const apng = await db!.image.create({
+      data: { artworkId: a.id, path: `${token}/video/same.apng`, mediaType: 'ANIMATION' }
+    })
+    const video = await db!.image.create({
+      data: { artworkId: a.id, path: `${token}/other/same.mp4`, mediaType: 'VIDEO', sortOrder: 1 }
+    })
+    await db!.artwork.update({ where: { id: a.id }, data: { logicalMediaCount: 1 } })
+    const playback = (currentTime: number) => ({ playback: { currentTime, duration: 100 } })
+    await expect(reportReading(users[0]!, input(a.id, apng.id, 0, playback(100)))).rejects.toMatchObject({
+      code: 'BAD_REQUEST'
+    })
+    expect((await reportReading(users[0]!, input(a.id, video.id, 0, playback(0)))).summary).toMatchObject({
+      progressCount: 0,
+      viewCount: 1,
+      completed: false
+    })
+    expect((await reportReading(users[0]!, input(a.id, video.id, 0, playback(89.99)))).summary.completed).toBe(false)
+    expect((await reportReading(users[0]!, input(a.id, video.id, 0, playback(90)))).summary.completed).toBe(true)
+    await expect(reportReading(users[1]!, input(a.id, video.id, 0, playback(100)))).rejects.toMatchObject({
+      code: 'FORBIDDEN'
+    })
+    await expect(
+      reportReading(users[0]!, { ...input(a.id, video.id, 0, playback(100)), readingLayoutVersion: 2 })
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
   it.each([
-    [0, 0, 'UNREAD'],
-    [8, 9, 'IN_PROGRESS'],
-    [9, 10, 'COMPLETED'],
-    [17, 20, 'IN_PROGRESS'],
-    [18, 20, 'COMPLETED'],
-    [89, 100, 'IN_PROGRESS'],
-    [90, 100, 'COMPLETED'],
-    [899, 1000, 'IN_PROGRESS'],
-    [900, 1000, 'COMPLETED']
-  ] as const)('keeps %i/%i consistently %s in persisted records, summaries, filters and continuation', async (seenCount, totalCount, status) => {
-    const artwork = await createPictureWork('threshold', totalCount)
-    const seenIds = artwork.images.slice(0, seenCount).map((image) => image.id)
-    // Exercise normal bounded batches so each stored ID has an actual observation.
-    for (let offset = 0; offset < seenIds.length; offset += 50) {
-      await readingService.reportReading(fixture.userId, { expectedUserId: fixture.userId,
-        artworkId: artwork.id, mediaRevision: 1, events: seenIds.slice(offset, offset + 50).map((id) => event(id)) })
+    ['hidden', '.apng', '.mp4', false],
+    ['dotted-directories', 'dot.dir/same.apng', 'other.dir/same.mp4', true],
+    ['backslashes', 'one\\same.apng', 'two\\same.mp4', true],
+    ['video-query', 'same.apng', 'same.mp4?download=1', true],
+    ['apng-query', 'same.apng?download=1', 'same.mp4', false],
+    ['case-sensitive-stem', 'SAME.apng', 'same.mp4', false],
+    ['hidden-stem', '.same.apng', '.same.mp4', true],
+    ['video-classified-apng', 'same.apng', 'same.mp4', false, true]
+  ])(
+    'keeps APNG report grouping parity for %s',
+    async (label, apngPath, videoPath, paired, classifiedVideo = false) => {
+      const a = await work(`parity-${label}`, 0)
+      const apng = await db!.image.create({
+        data: { artworkId: a.id, path: apngPath, mediaType: classifiedVideo ? 'VIDEO' : 'ANIMATION' }
+      })
+      const video = await db!.image.create({
+        data: { artworkId: a.id, path: videoPath, mediaType: 'VIDEO', sortOrder: 1 }
+      })
+      const logical = groupLogicalMedia([apng, video])
+      expect(logical.length).toBe(paired ? 1 : 2)
+      await db!.artwork.update({ where: { id: a.id }, data: { logicalMediaCount: logical.length } })
+      const pending = reportReading(
+        users[0]!,
+        input(a.id, apng.id, 0, classifiedVideo ? { playback: { currentTime: 90, duration: 100 } } : {})
+      )
+      if (paired) await expect(pending).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+      else expect((await pending).summary.progressCount).toBe(1)
     }
-    const reading = await readingService.getReadingContext(fixture.userId, artwork.id)
-    expect(reading.summary).toMatchObject({ status, seenCount, totalCount })
-    expect(reading.seenMediaIds).toEqual(seenIds)
-    expect(reading.media.filter((item) => !reading.seenMediaIds.includes(item.mediaId)).map((item) => item.mediaId))
-      .toEqual(artwork.images.slice(seenCount).map((image) => image.id))
-    expect(await db!.artworkReadMedia.count({ where: { artworkId: artwork.id, userId: fixture.userId } })).toBe(seenCount)
-    expect((await readingService.getReadingSummaries(fixture.userId, [artwork.id])).summaries[0])
-      .toMatchObject({ status, seenCount, totalCount })
-    const { getArtworksList } = await import('@/services/artwork-service')
-    for (const readingStatus of ['UNREAD', 'IN_PROGRESS', 'COMPLETED'] as const) {
-      const list = await getArtworksList(ArtworksInfiniteQuerySchema.parse({ search: artwork.title, readingStatus }), fixture.userId)
-      expect(list.total).toBe(readingStatus === status ? 1 : 0)
-      expect(list.items.map((item) => item.id)).toEqual(readingStatus === status ? [artwork.id] : [])
-    }
-    const continuation = await readingService.getContinueReading(fixture.userId)
-    expect(continuation.items.map((item) => item.artwork.id)).toEqual(status === 'IN_PROGRESS' ? [artwork.id] : [])
-    expect((await readingService.getReadingContext(fixture.otherUserId, artwork.id)).summary.status).toBe('UNREAD')
-  })
-
-  it('excludes eight newer threshold-completed works before filling all six continuation slots', async () => {
-    const candidates: number[] = []
-    const completed: number[] = []
-    const observedAt = Date.now()
-    for (let index = 0; index < 8; index++) {
-      const artwork = await createPictureWork('continue-candidate', 2)
-      candidates.push(artwork.id)
-      await readingService.reportReading(fixture.userId, { expectedUserId: fixture.userId,
-        artworkId: artwork.id, mediaRevision: 1, events: [{
-          ...event(artwork.images[0]!.id), observedAt: new Date(observedAt - 20_000 + Math.floor(index / 2) * 1_000).toISOString()
-        }] })
-    }
-    for (let index = 0; index < 8; index++) {
-      const artwork = await createPictureWork('continue-completed', 50)
-      completed.push(artwork.id)
-      const result = await readingService.reportReading(fixture.userId, { expectedUserId: fixture.userId,
-        artworkId: artwork.id, mediaRevision: 1, events: artwork.images.slice(0, 45).map((image) => event(image.id)) })
-      expect(result.summary).toMatchObject({ status: 'COMPLETED', seenCount: 45, totalCount: 50 })
-      expect(result.seenMediaIds).toEqual(artwork.images.slice(0, 45).map((image) => image.id))
-    }
-    const continuation = await readingService.getContinueReading(fixture.userId)
-    expect(continuation.items.map((item) => item.artwork.id)).toEqual(candidates.toReversed().slice(0, 6))
-    expect(continuation.items.every((item) => !completed.includes(item.artwork.id))).toBe(true)
-    expect((await readingService.getContinueReading(fixture.otherUserId)).items).toEqual([])
-  }, 30_000)
-
-  it('grants a deterministic stack atomically, preserves real position, and rejects reordered evidence', async () => {
-    const rows = await Promise.all(Array.from({ length: 8 }, (_, index) => db!.image.create({ data: {
-      artworkId: fixture.artworkId, path: `/stack-test/${fixture.userId}/${index}.jpg`, sortOrder: index + 10,
-      width: 800, height: 1200, mediaType: 'IMAGE'
-    } })))
-    created.imageIds.push(...rows.map((row) => row.id))
-    const reader = await readingService.getReaderInitialization(fixture.userId, fixture.artworkId)
-    const group = buildArtworkStacks(reader.index.items).find((group) => group.mediaIds.length > 1)!
-    const mediaId = group.mediaIds[1]!
-    const stack = { ruleVersion: 1 as const, fingerprint: reader.index.fingerprint, groupId: group.id }
-    const result = await report(fixture.userId, [{ type: 'VIEW', mediaId, observedAt: new Date().toISOString(), stack }])
-    expect(result.seenMediaIds).toEqual(group.mediaIds)
-    expect(result.summary).toMatchObject({ viewCount: 1, seenCount: group.mediaIds.length, lastMediaId: mediaId })
-    expect(await db!.artworkReadMedia.count({ where: { userId: fixture.otherUserId, artworkId: fixture.artworkId } })).toBe(0)
-    await db!.image.update({ where: { id: rows.at(-1)!.id }, data: { sortOrder: 1 } })
-    await expect(report(fixture.userId, [{ type: 'VIEW', mediaId, observedAt: new Date().toISOString(), stack }]))
-      .rejects.toMatchObject({ message: 'ARTWORK_STACK_CONFLICT' })
-    expect(await db!.artworkReadMedia.count({ where: { userId: fixture.userId, artworkId: fixture.artworkId } })).toBe(group.mediaIds.length)
-  })
-
-  it.each([24, 600, 3000])('bounds a %i-item reader payload and preserves progress during initialization', async (count) => {
-    await db!.image.createMany({ data: Array.from({ length: count }, (_, index) => ({
-      artworkId: fixture.artworkId, path: `/reader-paging/${fixture.userId}/${index}.jpg`,
-      sortOrder: index + 10, width: 800, height: 1200, mediaType: 'IMAGE' as const
-    })) })
-    const inserted = await db!.image.findMany({ where: { artworkId: fixture.artworkId }, select: { id: true } })
-    created.imageIds.push(...inserted.map((image) => image.id))
-    const { getArtworkReaderInitial, getReaderMediaPage } = await import('@/services/artwork-service/reader')
-    const { getArtworkById } = await import('@/services/artwork-service')
-    const firstQueries = queryCount
-    const started = performance.now()
-    const initial = await getArtworkReaderInitial(fixture.artworkId)
-    const ssrMs = performance.now() - started
-    const ssrQueries = queryCount - firstQueries
-    const secondQueries = queryCount
-    const initStarted = performance.now()
-    const [reader] = await Promise.all([
-      readingService.getReaderInitialization(fixture.userId, fixture.artworkId),
-      report(fixture.userId, [event(fixture.otherId)])
-    ])
-    const initMs = performance.now() - initStarted
-    expect(initial!.artwork.images).toHaveLength(24)
-    const initializationAndReportQueries = queryCount - secondQueries
-    expect(reader.index.items).toHaveLength(count + 2)
-    const thirdQueries = queryCount
-    const target = Math.min(799, count + 1)
-    const targetPage = Math.floor(target / 24)
-    const pageStarted = performance.now()
-    const page = await getReaderMediaPage(fixture.artworkId, reader.index.fingerprint, targetPage)
-    const pageMs = performance.now() - pageStarted
-    const pageQueries = queryCount - thirdQueries
-    expect(page.images.length).toBeLessThanOrEqual(24)
-    expect(page.images[target % 24]?.id).toBe(reader.index.items[target]?.mediaId)
-    const full = await getArtworkById(fixture.artworkId)
-    const beforeBytes = Buffer.byteLength(JSON.stringify(full))
-    const afterBytes = Buffer.byteLength(JSON.stringify(initial))
-    if (count >= 600) expect(afterBytes).toBeLessThan(beforeBytes / 10)
-    const final = await readingService.getReadingContext(fixture.userId, fixture.artworkId)
-    expect(final.seenMediaIds).toContain(fixture.otherId)
-    // oxlint-disable-next-line no-console -- bounded synthetic benchmark evidence
-    console.info('reader benchmark', { count, ssrQueries, initializationAndReportQueries, pageQueries, beforeBytes, afterBytes, indexBytes: Buffer.byteLength(JSON.stringify(reader)), ssrMs, initMs, pageMs })
-    await db!.image.update({ where: { id: fixture.otherId }, data: { sortOrder: 9999 } })
-    await expect(getReaderMediaPage(fixture.artworkId, reader.index.fingerprint, targetPage)).rejects.toMatchObject({ code: 'CONFLICT' })
-  })
-
-  it('keeps a partially watched video in progress in summaries, history and list filters', async () => {
-    const started = await report(fixture.userId, [{ ...event(fixture.videoId), playback: { currentTime: 1, duration: 100 } }])
-    expect(started.summary).toMatchObject({ viewCount: 1, seenCount: 0, status: 'IN_PROGRESS' })
-    expect((await readingService.getReadingHistory(fixture.userId, 10)).items[0]?.reading.status).toBe('IN_PROGRESS')
-    const { queryReadingArtworkIdsPage } = await import('@/services/artwork-service/reading-page-query')
-    const progressing = await queryReadingArtworkIdsPage(ArtworksInfiniteQuerySchema.parse({ readingStatus: 'IN_PROGRESS' }), fixture.userId)
-    const unread = await queryReadingArtworkIdsPage(ArtworksInfiniteQuerySchema.parse({ readingStatus: 'UNREAD' }), fixture.userId)
-    expect(progressing.ids).toContain(fixture.artworkId)
-    expect(unread.ids).not.toContain(fixture.artworkId)
-    const complete = await report(fixture.userId, [event(fixture.videoId)])
-    expect(complete.seenMediaIds).toEqual([fixture.videoId])
-    expect(complete.summary.seenCount).toBe(1)
-  })
-  it('serializes first visits, repeat batches and an init/report race under the artwork lock', async () => {
-    const initial = await readingService.getReadingContext(fixture.userId, fixture.artworkId)
-    expect(initial.summary.viewCount).toBe(0)
-    expect(initial.media[0]).toMatchObject({ mediaId: fixture.videoId, memberMediaIds: [fixture.videoId, fixture.apngId] })
-    const observed = event(fixture.videoId)
-    const [a, b] = await Promise.all([report(fixture.userId, [observed]), report(fixture.userId, [observed])])
-    expect(a.summary.viewCount).toBe(1)
-    expect(b.summary.viewCount).toBe(1)
-    const [readingContext] = await Promise.all([readingService.getReadingContext(fixture.userId, fixture.artworkId), report(fixture.userId, [event(fixture.apngId)])])
-    expect(readingContext.summary.viewCount).toBe(1)
-    const final = await readingService.getReadingContext(fixture.userId, fixture.artworkId)
-    expect(final.summary).toMatchObject({ viewCount: 1, seenCount: 1, totalCount: 2 })
-    expect(await db!.artworkReadMedia.count({ where: { artworkId: fixture.artworkId, userId: fixture.userId } })).toBe(2)
-  })
-
-  it('merges a late device VIEW into the same visit and persists the last accepted position', async () => {
-    const laterAt = new Date(Date.now() - 1_000)
-    const earlierAt = new Date(laterAt.getTime() - 1_000)
-    await report(fixture.userId, [{ ...event(fixture.videoId), observedAt: laterAt.toISOString() }])
-    const late = await report(fixture.userId, [{ type: 'VIEW', mediaId: fixture.otherId, observedAt: earlierAt.toISOString() }])
-
-    expect(late.summary).toMatchObject({ viewCount: 1, seenCount: 2, totalCount: 2, lastMediaId: fixture.otherId, lastMediaIndex: 1 })
-    expect(late.summary.lastActiveAt).toBe(laterAt.toISOString())
-    expect(late.summary.lastViewedAt).toBe(laterAt.toISOString())
-    expect(await db!.artworkReadMedia.count({ where: { artworkId: fixture.artworkId, userId: fixture.userId } })).toBe(3)
-    const persisted = await db!.artworkReadingSummary.findUniqueOrThrow({
-      where: { userId_artworkId: { userId: fixture.userId, artworkId: fixture.artworkId } }
+  )
+  it('completion is sticky across append and real activity remains separate from manual completion', async () => {
+    const a = await work('sticky', 2)
+    await reportReading(users[0]!, input(a.id, a.images[1]!.id, 1))
+    await db!.$transaction(async (tx) => {
+      await lockArtworkForReading(tx, a.id)
+      const old = await readArtworkReadingLayout(tx, a.id)
+      await tx.image.create({
+        data: { artworkId: a.id, path: `${token}/sticky/2.jpg`, mediaType: 'IMAGE', sortOrder: 2 }
+      })
+      await refreshArtworkReadingLayout(tx, a.id, old)
     })
-    expect(persisted.viewCount).toBe(1)
-    expect(persisted.lastMediaId).toBe(fixture.otherId)
-    expect(persisted.lastActiveAt).toEqual(laterAt)
-  })
-
-  it('enforces 30 minute visits, heartbeat limits and account isolation', async () => {
-    expect((await report(fixture.userId, [event(fixture.videoId, 'HEARTBEAT')])).summary.viewCount).toBe(0)
-    await report(fixture.userId, [event(fixture.videoId)])
-    const earlier = new Date(Date.now() - 30 * 60_000 - 1000)
-    await db!.artworkReadingSummary.update({
-      where: { userId_artworkId: { userId: fixture.userId, artworkId: fixture.artworkId } },
-      data: { lastActiveAt: earlier }
+    expect((await getReadingContext(users[0]!, a.id)).summary).toMatchObject({
+      readingLayoutVersion: 2,
+      progressCount: 3,
+      completed: true,
+      viewCount: 1
     })
-    const heartbeat = await report(fixture.userId, [event(fixture.videoId, 'HEARTBEAT')])
-    expect(heartbeat.summary.viewCount).toBe(1)
-    expect(heartbeat.summary.lastActiveAt).toBe(earlier.toISOString())
-    const nextVisit = await report(fixture.userId, [event(fixture.otherId)])
-    expect(nextVisit.summary).toMatchObject({ viewCount: 2, seenCount: 2, totalCount: 2, status: 'COMPLETED' })
-    expect((await readingService.getReadingContext(fixture.otherUserId, fixture.artworkId)).summary.status).toBe('UNREAD')
-    expect((await readingService.getReadingSummaries(fixture.otherUserId, [fixture.artworkId])).summaries).toMatchObject([{ status: 'UNREAD', viewCount: 0, seenCount: 0 }])
-    expect((await readingService.getReadingHistory(fixture.otherUserId, 10)).items).toEqual([])
-    const history = await readingService.getReadingHistory(fixture.userId, 10)
-    expect(history.items[0]).toMatchObject({ artwork: { id: fixture.artworkId }, reading: { viewCount: 2 } })
-  })
-
-  it('ignores deleted media without losing valid observations from the same batch', async () => {
-    await db!.image.delete({ where: { id: fixture.otherId } })
-    const invalidOnly = await report(fixture.userId, [event(fixture.otherId)])
-    expect(invalidOnly.summary).toMatchObject({ status: 'UNREAD', viewCount: 0, seenCount: 0, totalCount: 1 })
-    expect(await db!.artworkReadingSummary.count({ where: { artworkId: fixture.artworkId, userId: fixture.userId } })).toBe(0)
-
-    const mixed = await report(fixture.userId, [event(fixture.otherId), event(fixture.videoId)])
-    expect(mixed.summary).toMatchObject({ viewCount: 1, seenCount: 1, totalCount: 1, lastMediaId: fixture.videoId })
-    const seenRows = await db!.artworkReadMedia.findMany({
-      where: { artworkId: fixture.artworkId, userId: fixture.userId },
-      select: { mediaId: true },
-      orderBy: { mediaId: 'asc' }
+    const b = await work('manual', 5)
+    const marked = await markReadingRead(users[0]!, {
+      artworkId: b.id,
+      expectedUserId: users[0]!,
+      readingLayoutVersion: 1
     })
-    expect(seenRows.map(({ mediaId }) => mediaId)).toEqual([fixture.apngId, fixture.videoId].sort((a, b) => a - b))
+    expect(marked.summary).toMatchObject({
+      completed: true,
+      viewCount: 0,
+      lastViewedAt: null,
+      lastActiveAt: null,
+      lastMediaId: null,
+      furthestMediaId: null
+    })
+    expect((await getReadingHistory(users[0]!, 100)).items.some((item) => item.artwork.id === b.id)).toBe(false)
+    expect((await getContinueReading(users[0]!)).items.some((item) => item.artwork.id === b.id)).toBe(false)
   })
-
-  it('rejects deleted media and old revisions, and clears all accounts on rebuild', async () => {
-    await report(fixture.userId, [event(fixture.videoId)])
-    await report(fixture.otherUserId, [event(fixture.otherId)])
-    await db!.image.delete({ where: { id: fixture.otherId } })
-    const ignored = await report(fixture.userId, [event(fixture.otherId)])
-    expect(ignored.summary).toMatchObject({ viewCount: 1, seenCount: 1, lastMediaId: fixture.videoId })
-    const beforeRebuild = await readingService.getReadingContext(fixture.userId, fixture.artworkId)
-    expect(beforeRebuild.summary.viewCount).toBe(1)
-    const revision = await db!.$transaction((tx) => invalidateArtworkReadingForRebuild(tx, fixture.artworkId))
-    expect(revision).toBe(2)
-    await expect(report(fixture.userId, [event(fixture.videoId)], 1)).rejects.toMatchObject({ code: 'CONFLICT', message: 'READING_MEDIA_REVISION_CONFLICT' })
-    expect(await db!.artworkReadingSummary.count({ where: { artworkId: fixture.artworkId } })).toBe(0)
-    expect(await db!.artworkReadMedia.count({ where: { artworkId: fixture.artworkId } })).toBe(0)
-    expect((await readingService.getReadingContext(fixture.userId, fixture.artworkId)).mediaRevision).toBe(2)
+  it('filters account status by explicit completion with no 90 percent artwork threshold', async () => {
+    const a = await work('threshold', 10)
+    await reportReading(users[0]!, input(a.id, a.images[8]!.id, 8))
+    const page = await queryReadingArtworkIdsPage(
+      ArtworksInfiniteQuerySchema.parse({
+        searchText: token,
+        readingStatuses: ['IN_PROGRESS'],
+        expectedUserId: users[0]!,
+        pageSize: 100
+      }),
+      users[0]!
+    )
+    expect(page.ids).toContain(a.id)
+    const done = await queryReadingArtworkIdsPage(
+      ArtworksInfiniteQuerySchema.parse({
+        searchText: token,
+        readingStatuses: ['COMPLETED'],
+        expectedUserId: users[0]!,
+        pageSize: 100
+      }),
+      users[0]!
+    )
+    expect(done.ids).not.toContain(a.id)
   })
-  const mark = (mediaId?: number) => readingService.markReadingRead(fixture.userId, {
-    artworkId: fixture.artworkId, expectedUserId: fixture.userId, mediaRevision: 1,
-    target: mediaId === undefined ? { kind: 'ALL' } : { kind: 'MEDIA', mediaId }
+  it('relocates deletion anchors and maps representatives via surviving group members', async () => {
+    const a = await work('relocate', 4)
+    await reportReading(users[0]!, input(a.id, a.images[2]!.id, 2))
+    await db!.$transaction(async (tx) => {
+      await lockArtworkForReading(tx, a.id)
+      const old = await readArtworkReadingLayout(tx, a.id)
+      await tx.image.delete({ where: { id: a.images[2]!.id } })
+      await refreshArtworkReadingLayout(tx, a.id, old)
+    })
+    expect((await getReadingContext(users[0]!, a.id)).summary).toMatchObject({
+      progressCount: 2,
+      furthestMediaId: a.images[1]!.id,
+      lastMediaId: a.images[1]!.id
+    })
   })
-
-  it('persists manual progress without history and later records the first real visit', async () => {
-    const first = await mark(fixture.apngId)
-    expect(first.summary).toMatchObject({ viewCount: 0, seenCount: 1, lastViewedAt: null, lastActiveAt: null, lastMediaId: null })
-    expect(first.seenMediaIds).toEqual([fixture.videoId])
-    const { queryReadingArtworkIdsPage } = await import('@/services/artwork-service/reading-page-query')
-    const progressing = await queryReadingArtworkIdsPage(ArtworksInfiniteQuerySchema.parse({ readingStatus: 'IN_PROGRESS' }), fixture.userId)
-    expect(progressing.ids).toContain(fixture.artworkId)
-    const completed = await mark()
-    expect(completed.summary).toMatchObject({ status: 'COMPLETED', viewCount: 0, seenCount: 2 })
-    expect(await mark()).toEqual(completed)
-    const finished = await queryReadingArtworkIdsPage(ArtworksInfiniteQuerySchema.parse({ readingStatus: 'COMPLETED' }), fixture.userId)
-    expect(finished.ids).toContain(fixture.artworkId)
-    const unread = await queryReadingArtworkIdsPage(ArtworksInfiniteQuerySchema.parse({ readingStatus: 'UNREAD' }), fixture.userId)
-    expect(unread.ids).not.toContain(fixture.artworkId)
-    expect((await readingService.getReadingHistory(fixture.userId, 10)).items).toEqual([])
-    expect((await readingService.getReadingContext(fixture.otherUserId, fixture.artworkId)).summary.seenCount).toBe(0)
-    await report(fixture.userId, [event(fixture.otherId)])
-    expect((await readingService.getReadingHistory(fixture.userId, 10)).items[0]?.reading.viewCount).toBe(1)
+  it.each(['reorder', 'delete-tail'])(
+    'completes an unfinished prefix relocated to the new last item after %s',
+    async (change) => {
+      const a = await work(`complete-layout-${change}`, 3)
+      await reportReading(users[0]!, input(a.id, a.images[1]!.id, 1))
+      await db!.$transaction(async (tx) => {
+        await lockArtworkForReading(tx, a.id)
+        const old = await readArtworkReadingLayout(tx, a.id)
+        if (change === 'reorder') await tx.image.update({ where: { id: a.images[1]!.id }, data: { sortOrder: 3 } })
+        else await tx.image.delete({ where: { id: a.images[2]!.id } })
+        await refreshArtworkReadingLayout(tx, a.id, old)
+      })
+      expect((await getReadingContext(users[0]!, a.id)).summary.completed).toBe(true)
+      expect((await getContinueReading(users[0]!)).items.some((item) => item.artwork.id === a.id)).toBe(false)
+    }
+  )
+  it('full rebuild resets every account and versions atomically; rollback restores all state', async () => {
+    const a = await work('rebuild', 3)
+    for (const user of users) {
+      await markReadingRead(user, { artworkId: a.id, expectedUserId: user, readingLayoutVersion: 1 })
+    }
+    await expect(
+      db!.$transaction(async (tx) => {
+        await invalidateArtworkReadingForRebuild(tx, a.id)
+        throw new Error('abort')
+      })
+    ).rejects.toThrow('abort')
+    expect(await db!.artworkReadingProgress.count({ where: { artworkId: a.id } })).toBe(2)
+    await db!.$transaction(async (tx) => {
+      await invalidateArtworkReadingForRebuild(tx, a.id)
+      await refreshArtworkReadingLayout(tx, a.id, [], false)
+    })
+    expect(await db!.artworkReadingProgress.count({ where: { artworkId: a.id } })).toBe(0)
+    expect((await getReadingContext(users[0]!, a.id)).summary).toMatchObject({
+      readingLayoutVersion: 2,
+      progressCount: 0,
+      completed: false,
+      totalCount: 3,
+      viewCount: 0
+    })
   })
-
-  it('serializes manual completion and automatic views without losing progress or duplicating visits', async () => {
-    const [a, b] = await Promise.all([mark(), report(fixture.userId, [event(fixture.videoId)])])
-    const final = await readingService.getReadingContext(fixture.userId, fixture.artworkId)
-    expect(final.summary).toMatchObject({ viewCount: 1, seenCount: 2, totalCount: 2, status: 'COMPLETED', lastMediaId: fixture.videoId })
-    expect(final.summary.stateVersion).toBe(Math.max(a.summary.stateVersion, b.summary.stateVersion))
-    expect(await db!.artworkReadMedia.count({ where: { userId: fixture.userId, artworkId: fixture.artworkId } })).toBe(3)
-  })
-
 })
