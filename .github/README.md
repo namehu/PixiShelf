@@ -18,22 +18,21 @@ sources:
 | 工作流                  | 触发                              | 结果                                                                |
 | ----------------------- | --------------------------------- | ------------------------------------------------------------------- |
 | `CI`                    | Pull request、`v*.*.*` tag、手动  | web/worker/webp 三路独立检查，汇总 `test` 要求三路全部 success      |
-| `Build and Deploy`      | `v*.*.*` tag、手动                | 验证与双镜像 OCI 构建并行，门禁后发布；tag 创建 Release/安全扫描    |
+| `Build and Deploy`      | `v*.*.*` tag、手动                | 双镜像 OCI 构建成功后发布；tag 创建 Release/安全扫描                |
 | `WebP native artifacts` | 原生/预编译相关路径 push/PR、手动 | 固定工具链复现、sanitizer、产物比较与浏览器校验，不自动修改提交产物 |
 
-三路 CI 的环境与未覆盖项见[测试策略](../docs/development/testing-strategy.md#ci-当前覆盖与缺口)。CI 和镜像发布是独立工作流：发布构建成功不能代替同提交 CI 汇总成功。
+三路 CI 的环境与未覆盖项见[测试策略](../docs/development/testing-strategy.md#ci-当前覆盖与缺口)。CI 和镜像发布各自触发、互不等待。镜像发布只依赖本工作流的两个镜像构建成功，不重复运行 CI 测试，也不读取独立 CI 的结果；CI 失败、取消或尚未完成均不阻止镜像发布。镜像发布成功只表示构建及上传成功，代码检查结果单独查看 CI。
 
 CI 的 `webp` job 固定使用 `ubuntu-24.04`（2026-10-28 局部核验）：当前锁定的 Playwright 1.56.1 支持 Ubuntu 24.04，固定 runner 可避免 `ubuntu-latest` 升级至不兼容系统时阻断 Chromium 依赖安装。更新 runner 前应核对锁定 Playwright 的操作系统支持范围。
 
-去重初始版本回归另在 CI Worker 与镜像发布 validate 中显式设置 `QUEUE_KERNEL_TEST_DATABASE_URL`，运行检测／审核 PostgreSQL 套件，以及从检查、预览、授权到原件删除的初始版本用例。这些用例不依赖 `DATABASE_URL` 的隐式回退；其他仅接受专用连接变量的测试未因此全部启用。
+去重初始版本回归在 CI Worker 中显式设置 `QUEUE_KERNEL_TEST_DATABASE_URL`，运行检测／审核 PostgreSQL 套件，以及从检查、预览、授权到原件删除的初始版本用例。这些用例不依赖 `DATABASE_URL` 的隐式回退；其他仅接受专用连接变量的测试未因此全部启用。
 
 ## 镜像发布链
 
-1. `validate`：Prisma generate/validate、PostgreSQL 全迁移及 status、Worker 依赖链 typecheck/test/build。执行文件操作测试前，单独运行 `node packages/pixishelf-worker/scripts/build-dedup-native.mjs` 准备原生模块；不通过提前构建全部共享包来满足测试。
-2. 两个 build job 分别构建 `pixishelf` 与 `pixishelf-worker` 的 `linux/amd64` OCI archive，同时复用/更新 GHCR `:cache`；此时不发布版本、SHA 或 latest 标签。
-3. validate 与两个 build 全成功后，publish 下载**本次运行** artifact，校验 SHA-256，以 `skopeo --preserve-digests` 原样发布到 GHCR 与 Docker Hub，不重新构建。
-4. 两个发布均成功后，tag 运行创建 Release 并扫描镜像；Release 附带 Compose、环境模板、init.sql 和 DEPLOYMENT 跳转页。
-5. `Release timings` 汇总本 attempt 的各 job/step 耗时，包含失败结果；并行耗时不能相加当墙钟总时长。
+1. 两个 build job 分别构建 `pixishelf` 与 `pixishelf-worker` 的 `linux/amd64` OCI archive，同时复用/更新 GHCR `:cache`；此时不发布版本、SHA 或 latest 标签。
+2. 两个 build 全成功后，publish 下载**本次运行** artifact，校验 SHA-256，以 `skopeo --preserve-digests` 原样发布到 GHCR 与 Docker Hub，不重新构建。
+3. 两个发布均成功后，tag 运行创建 Release 并扫描镜像；Release 附带 Compose、环境模板、init.sql 和 DEPLOYMENT 跳转页。
+4. `Release timings` 汇总本 attempt 的各 job/step 耗时，包含失败结果；并行耗时不能相加当墙钟总时长。
 
 当前镜像为 `ghcr.io/<owner>/pixishelf`、`ghcr.io/<owner>/pixishelf-worker` 及 Docker Hub 同名镜像，没有 API/Web 双镜像。tag 运行发布版本与 latest，另外包含 SHA 标签；手动运行按 metadata 规则产生标签，不保证更新 latest。当前不构建 arm64。
 

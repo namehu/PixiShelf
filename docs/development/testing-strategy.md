@@ -58,7 +58,7 @@ pnpm --filter @pixishelf/worker... test
 pnpm --filter @pixishelf/worker... build
 ```
 
-`worker...` 包含 DB、contracts、runtime、executors 的相应脚本。涉及原生文件操作的测试需要先生成 Worker 的 `artwork-dedup-native.node`；上方脚本只构建该模块，不生成 job 包 dist，CI Worker 和发布 validate 均执行此准备。PostgreSQL 测试必须显式连接隔离库；migration 从空库用完整 `db:deploy` 验证，不使用 `db:push`。Pixiv 代理 fixture 需要 openssl、临时证书及回环监听，但不访问真实原站、不关闭 TLS 校验。
+`worker...` 包含 DB、contracts、runtime、executors 的相应脚本。涉及原生文件操作的测试需要先生成 Worker 的 `artwork-dedup-native.node`；上方脚本只构建该模块，不生成 job 包 dist，CI Worker 执行此准备。PostgreSQL 测试必须显式连接隔离库；migration 从空库用完整 `db:deploy` 验证，不使用 `db:push`。Pixiv 代理 fixture 需要 openssl、临时证书及回环监听，但不访问真实原站、不关闭 TLS 校验。
 
 纯文档与图示：
 
@@ -114,7 +114,7 @@ docker compose --env-file build/.env.example -f build/docker-compose.deploy.yml 
 
 [ci.yml](../../.github/workflows/ci.yml) 用三个独立 runner 并行：Web（独立 PostgreSQL 全链迁移、无 job dist、lint/typecheck/unit/build）、Worker（独立 PostgreSQL 全链、DB/依赖链测试和独立构建）、WebP（预编译校验/负向测试、类型/单元、构建和 Chromium）。汇总 `test` 仅在三路全部 success 时通过，取消/跳过也不放行。
 
-原生相关变更另由 [webp-native.yml](../../.github/workflows/webp-native.yml) 复现原生构建、sanitizer/产物及浏览器校验。发布镜像流程独立验证并构建，不意味着同提交 CI 已通过；交付须核对同提交三路和汇总最终结果。具体发布 artifact、重试与并行边界见[工作流说明](../../.github/README.md)。
+原生相关变更另由 [webp-native.yml](../../.github/workflows/webp-native.yml) 复现原生构建、sanitizer/产物及浏览器校验。镜像构建发布流程不重复执行 CI 测试，也不等待或读取独立 CI 的结果；两个镜像构建成功即可进入发布。镜像发布成功不意味着同提交 CI 已通过，检查结果须单独核对同提交三路和汇总最终结果。具体发布 artifact、重试与并行边界见[工作流说明](../../.github/README.md)。
 
 Android Flutter 包使用独立工具链，未加入上述 pnpm CI lane；本地 analyze、单元／组件、Android 原生媒体与 APK 构建命令见[包说明](../../packages/pixishelf-app/README.md)。模拟器通过不代替真实 HTTPS、实体手机和生产后端联调。
 

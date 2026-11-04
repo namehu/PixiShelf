@@ -12,6 +12,9 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    // PostgreSQL suites share the writer lane and its global advisory lock.
+    // Keep files serial; concurrency tests still run their own competing clients.
+    fileParallelism: false,
     include: ['src/__tests__/**/*.test.ts']
   }
 })

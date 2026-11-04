@@ -13,84 +13,12 @@ env:
   WORKER_IMAGE_NAME: pixishelf-worker
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
-    env:
-      DATABASE_URL: postgresql://pixishelf:pixishelf@127.0.0.1:5432/pixishelf
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: pixishelf
-          POSTGRES_PASSWORD: pixishelf
-          POSTGRES_DB: pixishelf
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U pixishelf -d pixishelf"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 8.15.1
-
-      - name: Use Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Generate and validate Prisma Client
-        run: |
-          pnpm --filter @pixishelf/db db:generate
-          pnpm --filter @pixishelf/db db:validate
-
-      - name: Deploy and verify the complete PostgreSQL migration chain
-        run: |
-          pnpm --filter @pixishelf/db db:deploy
-          pnpm --filter @pixishelf/db exec prisma migrate status --schema prisma/schema.prisma
-
-      - name: Typecheck Worker packages
-        run: pnpm --filter @pixishelf/worker... typecheck
-
-      - name: Build native file maintenance dependency for tests
-        run: node packages/pixishelf-worker/scripts/build-dedup-native.mjs
-
-      - name: Test database and Worker packages
-        run: pnpm --filter @pixishelf/worker... test
-
-      - name: Verify legacy dedup evidence through review and deletion
-        env:
-          QUEUE_KERNEL_TEST_DATABASE_URL: postgresql://pixishelf:pixishelf@127.0.0.1:5432/pixishelf
-        run: |
-          pnpm --filter @pixishelf/db exec vitest run src/__tests__/artwork-dedup.postgres.test.ts src/__tests__/artwork-dedup-review.postgres.test.ts src/__tests__/artwork-dedup-prepare-completeness.postgres.test.ts src/__tests__/artwork-dedup-claims.postgres.test.ts src/__tests__/artwork-dedup-ownership-finalize.postgres.test.ts --no-file-parallelism
-          pnpm --filter @pixishelf/job-executors exec vitest run src/artwork-dedup/__tests__/direct-delete.postgres.test.ts -t "legacy zero-version"
-
-      - name: Build shared packages and standalone Worker
-        run: |
-          pnpm --filter @pixishelf/job-contracts build
-          pnpm --filter @pixishelf/job-runtime build
-          pnpm --filter @pixishelf/job-executors build
-          pnpm --filter @pixishelf/worker build
-
   build:
     name: Build ${{ matrix.image }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # Only the existing build cache is exported before validation succeeds.
+      # Build jobs publish the image cache; release tags are published below.
       packages: write
     strategy:
       fail-fast: false
@@ -171,7 +99,7 @@ jobs:
 
   build-and-push:
     name: Publish ${{ matrix.image }}
-    needs: [validate, build]
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -295,7 +223,7 @@ jobs:
 
   timings:
     name: Release timings
-    needs: [validate, build, build-and-push, create-release, security-scan]
+    needs: [build, build-and-push, create-release, security-scan]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     permissions:
