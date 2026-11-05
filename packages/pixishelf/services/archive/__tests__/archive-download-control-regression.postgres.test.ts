@@ -19,7 +19,7 @@ import {
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { ARCHIVE_PUBLISH_ADVISORY_LOCK_ID } from '../archive-coordination'
 import { controlArchiveDownloads } from '../archive-download-control'
-import { listArchiveTasks } from '../archive-task-service'
+import { actionArchiveTasksMany, listArchiveTasks } from '../archive-task-service'
 
 const url = process.env.PIXISHELF_TEST_DATABASE_URL
 const suite = url ? describe : describe.skip
@@ -158,6 +158,7 @@ suite('download control independent PostgreSQL regression', () => {
   it('continues an unbound paused original as display and reuses its completed original page', async () => {
     const externalId = `${prefix}-switch`
     const task = await seedDownload(externalId, 'PAUSED')
+    await db.systemJob.update({ where: { id: task.jobId }, data: { attempt: 2, maxAttempts: 3 } })
     const dedupSourceSnapshot = await db.$transaction(async (tx) =>
       serializeArtworkDedupSourceSnapshot(
         await captureArtworkDedupSources(tx, { identities: [{ kind: 'PROVIDER', providerKey: 'e-hentai', externalId }] })
@@ -224,6 +225,7 @@ suite('download control independent PostgreSQL regression', () => {
           },
           logger: { debug() {}, info() {}, warn() {}, error() {} }
         })
+        return job.attempt
       }
       const resume = (useDisplayQuality: boolean) =>
         controlArchiveDownloads({
@@ -231,7 +233,10 @@ suite('download control independent PostgreSQL regression', () => {
         }, { database: db })
 
       expect((await resume(false))?.counts.applied).toBe(1)
-      await run()
+      expect(await db.systemJob.findUniqueOrThrow({ where: { id: task.jobId } })).toMatchObject({
+        status: 'PENDING', attempt: 2, maxAttempts: 3
+      })
+      expect(await run()).toBe(3)
       const readTask = () => db.archiveImport.findUniqueOrThrow({
         where: { id: task.importId },
         include: { items: { orderBy: { pageIndex: 'asc' } } }
@@ -247,7 +252,10 @@ suite('download control independent PostgreSQL regression', () => {
       const queued = await readTask()
       expect(queued).toMatchObject({ status: 'PENDING', requestedQuality: 'ORIGINAL', selectedQuality: 'DISPLAY' })
       expect(queued.items[0]).toEqual(paused.items[0])
-      await run()
+      expect(await db.systemJob.findUniqueOrThrow({ where: { id: task.jobId } })).toMatchObject({
+        status: 'PENDING', attempt: 3, maxAttempts: 4
+      })
+      expect(await run()).toBe(4)
       expect(requests).toEqual([
         { index: 0, quality: 'ORIGINAL' },
         { index: 1, quality: 'ORIGINAL' },
@@ -261,6 +269,48 @@ suite('download control independent PostgreSQL regression', () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  it.each(['DOWNLOAD', undefined] as const)(
+    'recovers an exhausted waiting download through explicit pause and resume, scope %s',
+    async (scope) => {
+      const task = await seedDownload('recover-exhausted', 'PAUSED')
+      await db.$transaction([
+        db.systemJob.update({
+          where: { id: task.jobId },
+          data: { status: 'PENDING', attempt: 3, maxAttempts: 3, availableAt: new Date() }
+        }),
+        db.archiveImport.update({
+          where: { id: task.importId },
+          data: { status: 'PENDING', requestedQuality: 'ORIGINAL', selectedQuality: 'DISPLAY' }
+        })
+      ])
+      const queue = new PostgresQueueRepository(db as unknown as QueueDatabase)
+      const claim = () =>
+        queue.claim(`${prefix}-worker`, [
+          { jobType: 'ARCHIVE_DOWNLOAD', executionLane: 'ARCHIVE_DOWNLOAD', definitionVersions: [1] }
+        ])
+      expect(await claim()).toBeNull()
+
+      const targets = { taskIds: [task.importId] }
+      const pause = await actionArchiveTasksMany(
+        { ...targets, action: 'PAUSE', idempotencyKey: randomUUID() },
+        user,
+        { database: db }
+      )
+      expect(pause?.counts.applied).toBe(1)
+      const input = { ...targets, action: 'RESUME' as const, idempotencyKey: randomUUID(), ...(scope ? { scope } : {}) }
+      const operation = await actionArchiveTasksMany(input, user, { database: db })
+      expect(operation?.counts.applied).toBe(1)
+      expect((await actionArchiveTasksMany(input, user, { database: db }))?.id).toBe(operation?.id)
+      expect(await db.systemJob.findUniqueOrThrow({ where: { id: task.jobId } })).toMatchObject({
+        status: 'PENDING', attempt: 3, maxAttempts: 4
+      })
+      expect(await db.archiveImport.findUniqueOrThrow({ where: { id: task.importId } })).toMatchObject({
+        status: 'PENDING', requestedQuality: 'ORIGINAL', selectedQuality: 'DISPLAY'
+      })
+      expect(await claim()).toMatchObject({ id: task.jobId, attempt: 4, maxAttempts: 4 })
+    }
+  )
 
   it.each([
     { completionBaseRevisionId: 'base', completionSnapshot: {} },

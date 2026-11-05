@@ -378,7 +378,17 @@ async function applyTaskAction(
             : '归档导入已恢复',
       ...(action === 'CANCEL' ? { cancelRequestedAt: timestamp } : {}),
       ...(action === 'PAUSE' ? { pauseRequestedAt: timestamp } : {}),
-      ...(action === 'RESUME' ? { pauseRequestedAt: null, availableAt: timestamp, errorCode: null, error: null } : {}),
+      ...(action === 'RESUME'
+        ? {
+            pauseRequestedAt: null,
+            availableAt: timestamp,
+            errorCode: null,
+            error: null,
+            ...(task.phase === 'DOWNLOAD'
+              ? { maxAttempts: Math.max(task.systemJob.maxAttempts, task.systemJob.attempt + 1) }
+              : {})
+          }
+        : {}),
       ...(direct || action === 'RESUME'
         ? { workerId: null, leaseToken: null, leaseExpiresAt: null, heartbeatAt: null }
         : {}),

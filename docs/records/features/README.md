@@ -16,6 +16,7 @@ sources:
 | [旧归档快照画质核验修复](./archive-quality-legacy-snapshot-2026-11-05.md) | 生产未知结果诊断、历史格式兼容与重新核验 |
 | [原图匿名请求修复](./archive-original-anonymous-download-2026-11-05.md) | 移除 Cookie 前置拦截，保留原图验收与凭据边界 |
 | [原图登录跳转与暂停恢复](./archive-original-login-pause-2026-11-05.md) | 源站匿名复现、任务画质切换和已保存检查点恢复 |
+| [下载继续预算修复](./archive-download-resume-budget-2026-11-05.md) | 生产等待下载定位及耗尽次数后的重新领取 |
 | [归档下载控制简化](./archive-download-control-2026-11-02.md)           | 轻量重试、准备意图、原子性与隔离回归         |
 | [Android 核心阅读页面迁移](./android-core-parity-2026-10-28.md)        | 详情／沉浸对齐、原生往返与阅读语义验证       |
 | [三项归档功能集成验证](./archive-features-integration-2026-10-29.md)   | 独立审查关闭、跨功能范围、迁移重放与最终检查 |

@@ -292,21 +292,13 @@ export async function controlArchiveDownloads(
           skipDuplicates: true
         })
       } else {
-        await transaction.systemJob.updateMany({
-          where: { id: { in: winners.map(({ task }) => task.systemJobId) }, status: 'PAUSED' },
-          data: {
-            status: 'PENDING',
-            pauseRequestedAt: null,
-            availableAt: timestamp,
-            errorCode: null,
-            error: null,
-            workerId: null,
-            leaseToken: null,
-            leaseExpiresAt: null,
-            heartbeatAt: null,
-            message: '归档下载继续执行已入队'
-          }
-        })
+        await transaction.$executeRaw(Prisma.sql`
+          UPDATE system_jobs SET status = 'PENDING', "pauseRequestedAt" = NULL, "availableAt" = ${timestamp},
+            "errorCode" = NULL, error = NULL, "workerId" = NULL, "leaseToken" = NULL, "leaseExpiresAt" = NULL,
+            "heartbeatAt" = NULL, message = '归档下载继续执行已入队', "updatedAt" = ${timestamp},
+            "maxAttempts" = GREATEST("maxAttempts", attempt + 1)
+          WHERE id IN (${Prisma.join(winners.map(({ task }) => task.systemJobId))}) AND status = 'PAUSED'
+        `)
         await transaction.$executeRaw(Prisma.sql`
           INSERT INTO archive_import_executions ("jobId", "archiveImportId", phase, "pendingDownloadPreparation")
           VALUES ${Prisma.join(winners.map(({ task }) => Prisma.sql`(${task.systemJobId}, ${task.id}, 'DOWNLOAD'::"ArchiveImportPhase", ${JSON.stringify(preparation)}::jsonb)`))}

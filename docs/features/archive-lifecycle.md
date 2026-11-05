@@ -46,6 +46,8 @@ sources:
 
 DOWNLOAD 阶段的整项重试、单张重试和继续共用轻量控制服务。请求只提交入队状态和执行准备意图，不读取完整来源元数据或来源证明、不重置图片明细、不重算图片汇总。页面显示“已入队”，原图片状态和汇总可暂时保留到 Worker 开始准备；这不表示已经下载完成。画质限制、冻结的默认标签、优先级、重试父任务和旧失败确认继续保留。PUBLISH 与 LEGACY 阶段沿用原恢复路径。
 
+管理员显式继续 DOWNLOAD 任务时，保留同一 job 和已记录的执行次数。如果次数已达上限，入队事务同时补足下一次领取所需的预算。已有剩余预算时沿用原上限，Worker 自动重试继续使用任务的上限。改用展示图并继续也使用这条规则。[下载继续预算修复记录](../records/features/archive-download-resume-budget-2026-11-05.md)
+
 `ArchiveImportExecution.pendingDownloadPreparation` 保存 `{scope:'ALL_INCOMPLETE'}` 或 `{scope:'ITEM',itemId}`，历史记录默认 SQL NULL，不回填；不改变 SystemJob payload 或 definition version。重试为新 job 写意图，继续为当前 job 写 `ALL_INCOMPLETE`。Worker 在原有 fenced start 事务中验证当前绑定、DOWNLOAD 阶段、来源和清理门禁，然后按意图重置未完成图片的状态、尝试次数、错误和起止时间，并在同事务清空意图。COMPLETED 检查点不重置。随后重新加载图片、计算汇总，再冻结未选中旧失败的 INHERITED 诊断。
 
 准备事务回滚时意图和旧图片状态共同保留；提交后重启只恢复当前执行，不会再次抹除本轮产生的新失败。用户再次显式继续会写入新的整项准备意图。NULL 的旧记录沿用原有恢复行为。每次入队事件记录原重试范围，已消费意图无需永久留在执行记录上。
