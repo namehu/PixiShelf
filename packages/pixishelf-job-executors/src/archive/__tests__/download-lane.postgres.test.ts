@@ -45,6 +45,7 @@ import {
 } from '@pixishelf/job-runtime'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createArchiveExecutorRegistrations } from '../executor.js'
+import { ArchiveExecutorError } from '../errors.js'
 import * as storage from '../storage.js'
 import { CentralDispatcher } from '../../../../pixishelf-worker/src/dispatcher.js'
 import { ExecutorRegistry } from '../../../../pixishelf-worker/src/executor-registry.js'
@@ -1167,6 +1168,63 @@ suite('archive download lane real database and filesystem', () => {
       expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(2)
     }
   )
+
+  it('resets saved in-flight pages after an action-required pause and resumes only unfinished pages', async () => {
+    const a = await seed('action-required-saved-pages')
+    await addPages(a.id, 12)
+    const slow = new PassThrough()
+    let failLogin!: () => void
+    const login = new Promise<void>((resolve) => {
+      failLogin = resolve
+    })
+    const deps = dependencies(a.root, async (item) => {
+      if (item.index === 0) return remote(slow)
+      if (item.index === 1) {
+        await login
+        throw new ArchiveExecutorError('ORIGINAL_UNAVAILABLE', 'Fixture login required', { pause: true })
+      }
+      return remote(Readable.from([png]))
+    })
+    deps.config.mediaConcurrency = 3
+    const job = await claim('ARCHIVE_DOWNLOAD')
+    const running = execute(job, deps)
+    void running.catch(() => undefined)
+    try {
+      await vi.waitFor(
+        async () =>
+          expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'DOWNLOADING' } })).toBe(2),
+        { timeout: 5_000 }
+      )
+      expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(10)
+      failLogin()
+      await running
+      const paused = await db!.archiveImport.findUniqueOrThrow({
+        where: { id: a.id },
+        include: { systemJob: true, items: { orderBy: { pageIndex: 'asc' } }, generations: true }
+      })
+      expect(paused).toMatchObject({ status: 'PAUSED', completedItems: 10, failedItems: 0 })
+      expect(paused.systemJob.status).toBe('PAUSED')
+      expect(paused.items.slice(0, 2)).toMatchObject([
+        { pageIndex: 0, status: 'PENDING', startedAt: null, finishedAt: null, attempts: 1 },
+        { pageIndex: 1, status: 'PENDING', attempts: 1, errorCode: 'ORIGINAL_UNAVAILABLE' }
+      ])
+      expect(paused.items.slice(2).every((item) => item.status === 'COMPLETED')).toBe(true)
+      expect(paused.generations[0]?.drainedAt).not.toBeNull()
+      expect(slow.destroyed).toBe(true)
+      expect(await db!.systemJob.count({ where: { parentJobId: job.id } })).toBe(0)
+
+      await db!.systemJob.update({ where: { id: job.id }, data: { status: 'PENDING', availableAt: clock.now() } })
+      await db!.archiveImport.update({ where: { id: a.id }, data: { status: 'PENDING' } })
+      const reopen = vi.fn<ArchiveMediaProvider['openMedia']>(async () => remote(Readable.from([png])))
+      await execute(await claim('ARCHIVE_DOWNLOAD'), dependencies(a.root, reopen))
+      expect(reopen.mock.calls.map(([item]) => item.index).sort()).toEqual([0, 1])
+      expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(12)
+    } finally {
+      failLogin()
+      slow.destroy()
+      await running.catch(() => undefined)
+    }
+  })
 
   it('saves a small batch after five seconds while the next image is still streaming', async () => {
     const a = await seed('batch-timer')

@@ -13,6 +13,7 @@ import {
   type ArchiveBulkTargetResult
 } from './archive-bulk-operation'
 import { archiveImportDefaultTagIdsForRetry } from './archive-job-payload'
+import { canUseArchiveDisplayQuality } from './archive-task-action-policy'
 import { ArchiveError } from './errors'
 
 export interface ArchiveDownloadControlInput {
@@ -37,6 +38,8 @@ const targetSelect = {
   sourceTotalItems: true,
   completionBaseRevisionId: true,
   upgradeBaseRevisionId: true,
+  selectedQuality: true,
+  sealedManifestSha256: true,
   completedItems: true,
   totalItems: true,
   failedItems: true,
@@ -151,6 +154,8 @@ export async function controlArchiveDownloads(
       } else if (task.cleanupRequestedAt) invalid = conflict('CLEANUP_IN_PROGRESS', '归档任务正在清理暂存文件')
       else if (input.useDisplayQuality && (task.completionBaseRevisionId || task.upgradeBaseRevisionId)) {
         invalid = conflict('STATE_CONFLICT', '补全必须沿用原归档画质；需要更换画质时请通过完整更新重新确认。')
+      } else if (input.useDisplayQuality && !canUseArchiveDisplayQuality(task)) {
+        invalid = conflict('STATE_CONFLICT', '当前下载任务不能改用展示图，请刷新后重试')
       } else if (
         input.action === 'RESUME'
           ? !(task.systemJob.status === 'PAUSED' && ['PAUSED', 'RUNNING'].includes(task.status))

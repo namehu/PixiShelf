@@ -16,6 +16,7 @@ import { toast } from 'sonner'
 import { SSheet } from '@/components/shared/s-sheet'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useTRPC } from '@/lib/trpc'
 import type { AppRouter } from '@/server'
@@ -43,6 +44,8 @@ export function ArchiveItemDrawer({
   task,
   onOpenChange,
   onTaskChanged,
+  onUseDisplayQuality,
+  displayQualityPending,
   realtimeConnected = false,
   liveRefreshVersion = 0
 }: {
@@ -50,6 +53,8 @@ export function ArchiveItemDrawer({
   task: ArchiveTask | null
   onOpenChange: (open: boolean) => void
   onTaskChanged: () => void | Promise<unknown>
+  onUseDisplayQuality?: () => void
+  displayQualityPending?: boolean
   realtimeConnected?: boolean
   liveRefreshVersion?: number
 }) {
@@ -154,7 +159,13 @@ export function ArchiveItemDrawer({
       className="w-[min(100vw,46rem)] sm:max-w-[46rem]"
     >
       <div className="flex min-h-full min-w-0 flex-col gap-3">
-        {task && <ArchiveTaskDetails task={task} />}
+        {task && (
+          <ArchiveTaskDetails
+            task={task}
+            onUseDisplayQuality={onUseDisplayQuality}
+            displayQualityPending={displayQualityPending}
+          />
+        )}
         <div className="mb-3 flex shrink-0 items-start gap-2 rounded-md border bg-muted/30 p-3">
           <p className="min-w-0 flex-1 text-xs text-muted-foreground">
             保存的是稳定的原站图片页链接；临时 CDN 直链不会持久化。筛选由服务端执行，向下滚动自动加载。
@@ -269,7 +280,15 @@ export function ArchiveItemDrawer({
   )
 }
 
-export function ArchiveTaskDetails({ task }: { task: ArchiveTask }) {
+export function ArchiveTaskDetails({
+  task,
+  onUseDisplayQuality,
+  displayQualityPending
+}: {
+  task: ArchiveTask
+  onUseDisplayQuality?: () => void
+  displayQualityPending?: boolean
+}) {
   const [showMedia, setShowMedia] = useState(false)
   const artworkHref = archiveTaskArtworkHref(task)
   useEffect(() => setShowMedia(false), [task.id])
@@ -328,6 +347,12 @@ export function ArchiveTaskDetails({ task }: { task: ArchiveTask }) {
         </PrivacySensitiveText>
       )}
       <div className="flex flex-wrap gap-2">
+        {task.canUseDisplayQuality && onUseDisplayQuality && (
+          <Button type="button" variant="outline" size="sm" disabled={displayQualityPending} onClick={onUseDisplayQuality}>
+            {displayQualityPending && <Spinner data-icon="inline-start" />}
+            改用展示图并继续
+          </Button>
+        )}
         <Button asChild variant="outline" size="sm">
           <a
             href={archiveTaskSourceHref(task.id)}

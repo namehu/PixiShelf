@@ -413,21 +413,18 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
           ...(originalRequested
             ? {
                 headersForUrl: (url: URL): Record<string, string> => {
-                  if (
-                    url.origin === 'https://forums.e-hentai.org' &&
-                    url.pathname === '/index.php' &&
-                    url.searchParams.get('act')?.toLowerCase() === 'login'
-                  ) {
-                    throw loginRequired(url)
-                  }
+                  if (isEhLoginEndpoint(url)) throw loginRequired(url)
                   return cookie && isEhOriginalEndpoint(url) ? { cookie } : {}
                 }
               }
             : {})
         })
-        if (originalRequested && opened.status === 401) {
-          opened.stream.resume()
-          throw loginRequired(new URL(opened.url), 401)
+        if (originalRequested) {
+          const target = new URL(opened.url)
+          if (opened.status === 401 || (opened.status >= 200 && opened.status < 300 && isEhLoginEndpoint(target))) {
+            opened.stream.resume()
+            throw loginRequired(target, opened.status)
+          }
         }
         assertSuccessStatus(opened)
         return opened
@@ -1100,6 +1097,15 @@ function findAllLinks(html: string, baseUrl: string): string[] {
     }
   }
   return values
+}
+
+function isEhLoginEndpoint(url: URL): boolean {
+  return (
+    (url.origin === 'https://e-hentai.org' && url.pathname === '/bounce_login.php') ||
+    (url.origin === 'https://forums.e-hentai.org' &&
+      url.pathname === '/index.php' &&
+      url.searchParams.get('act')?.toLowerCase() === 'login')
+  )
 }
 
 function brokenImageReloadUrl(html: string, sourcePageUrl: string): string | null {

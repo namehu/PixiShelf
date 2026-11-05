@@ -68,6 +68,7 @@ function createTask(
     systemJobStatus: 'COMPLETED',
     selectedQuality: 'ORIGINAL',
     decisionCode: null,
+    canUseDisplayQuality: false,
     attempt: 1,
     message: '已发布',
     progress: 100,
@@ -220,28 +221,40 @@ describe('archive management UI', () => {
     expect(screen.queryByRole('progressbar')).toBeNull()
   })
 
-  it('keeps original-quality decisions explicit while paused', () => {
-    render(
-      <ArchiveTaskCard
-        task={
-          {
-            ...activeTask,
-            status: 'PAUSED',
-            errorCode: 'ORIGINAL_UNAVAILABLE',
-            decisionCode: 'USE_DISPLAY_QUALITY'
-          } as any
-        }
-        selected={false}
-        pendingActions={new Set()}
-        onToggle={vi.fn()}
-        onViewItems={vi.fn()}
-        onAction={vi.fn()}
-      />
+  it('offers the same explicit quality choice in the list and details without a decision code', () => {
+    const paused = {
+      ...activeTask,
+      status: 'PAUSED',
+      errorCode: 'ORIGINAL_UNAVAILABLE',
+      canUseDisplayQuality: true
+    }
+    const onUseDisplayQuality = vi.fn()
+    const view = render(
+      <>
+        <ArchiveTaskCard
+          task={paused as any}
+          selected={false}
+          pendingActions={new Set()}
+          onToggle={vi.fn()}
+          onViewItems={vi.fn()}
+          onAction={vi.fn()}
+        />
+        <ArchiveTaskDetails task={paused as any} onUseDisplayQuality={onUseDisplayQuality} />
+      </>
     )
-    expect(screen.getByText('可按原质量继续，或在操作中改用展示质量')).toBeTruthy()
-    expect(screen.getByText('改用展示质量继续')).toBeTruthy()
+    expect(screen.getByText('可按原图继续，或在任务操作中改用展示图')).toBeTruthy()
+    expect(screen.getAllByText('改用展示图并继续')).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: '改用展示图并继续' }))
+    expect(onUseDisplayQuality).toHaveBeenCalledOnce()
     expect(screen.getByText('继续任务')).toBeTruthy()
     expect(screen.queryByRole('progressbar')).toBeNull()
+    view.rerender(
+      <ArchiveTaskDetails
+        task={{ ...paused, decisionCode: 'USE_DISPLAY_QUALITY', canUseDisplayQuality: false } as any}
+        onUseDisplayQuality={onUseDisplayQuality}
+      />
+    )
+    expect(screen.queryByText('改用展示图并继续')).toBeNull()
   })
 
   it('moves full timestamps, quality, attempts and media expansion into task details', () => {

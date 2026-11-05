@@ -29,7 +29,11 @@ import {
 import { ArchiveError } from './errors'
 import { ARCHIVE_PUBLISH_ADVISORY_LOCK_ID } from './archive-coordination'
 import { writeJobEvent } from '@/services/background-task/job-event-service'
-import { archiveTaskActionIneligibility, recoverAppliedArchiveTaskAction } from './archive-task-action-policy'
+import {
+  archiveTaskActionIneligibility,
+  canUseArchiveDisplayQuality,
+  recoverAppliedArchiveTaskAction
+} from './archive-task-action-policy'
 import { archiveWireErrorMessage, redactArchiveText, redactArchiveUrl } from './archive-redaction'
 import { archiveImportDefaultTagIdsForRetry } from './archive-job-payload'
 import { archiveSourceSizeBytes } from './archive-source-metadata'
@@ -545,6 +549,9 @@ function buildArchiveTaskWireSelect(attributionWhere: Prisma.ArchiveIntakeItemWh
     status: true,
     requestedQuality: true,
     selectedQuality: true,
+    completionBaseRevisionId: true,
+    upgradeBaseRevisionId: true,
+    sealedManifestSha256: true,
     decisionCode: true,
     totalItems: true,
     completedItems: true,
@@ -626,6 +633,7 @@ function serializeTask(task: ArchiveTaskWire) {
     status: task.status,
     requestedQuality: task.requestedQuality,
     selectedQuality: task.selectedQuality,
+    canUseDisplayQuality: canUseArchiveDisplayQuality(task),
     decisionCode: task.decisionCode,
     progress,
     message,

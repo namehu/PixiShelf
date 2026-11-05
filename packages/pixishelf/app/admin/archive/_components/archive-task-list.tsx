@@ -286,8 +286,8 @@ function TaskIdentity({ task, onViewItems }: { task: ArchiveTaskOutput; onViewIt
           {task.message}
         </PrivacySensitiveText>
       )}
-      {task.decisionCode === 'USE_DISPLAY_QUALITY' && (
-        <p className="text-xs text-warning">可按原质量继续，或在操作中改用展示质量</p>
+      {task.canUseDisplayQuality && (
+        <p className="text-xs text-warning">可按原图继续，或在任务操作中改用展示图</p>
       )}
       {task.publishedArtwork?.archiveLifecycleState === 'TRASHING' && (
         <p className="text-xs text-warning">正在移入回收站</p>
@@ -378,12 +378,12 @@ function TaskActions({
                 {isPending('RESUME') ? <Spinner /> : <CirclePlay aria-hidden="true" />}继续任务
               </DropdownMenuItem>
             )}
-            {task.decisionCode === 'USE_DISPLAY_QUALITY' && (
+            {task.canUseDisplayQuality && (
               <DropdownMenuItem
                 disabled={isPending('USE_DISPLAY_QUALITY')}
                 onSelect={() => onAction('USE_DISPLAY_QUALITY')}
               >
-                {isPending('USE_DISPLAY_QUALITY') ? <Spinner /> : <CirclePlay aria-hidden="true" />}改用展示质量继续
+                {isPending('USE_DISPLAY_QUALITY') ? <Spinner /> : <CirclePlay aria-hidden="true" />}改用展示图并继续
               </DropdownMenuItem>
             )}
             {['FAILED', 'CANCELLED'].includes(task.status) && (

@@ -394,10 +394,7 @@ export async function startArchiveImport(
       archiveImport.phase === 'DOWNLOAD'
         ? await registerArchiveDownloadGeneration(transaction, context, archiveImport, dependencies.config.scanRoot)
         : null
-    await transaction.archiveImportItem.updateMany({
-      where: { archiveImportId: archiveImport.id, status: 'DOWNLOADING' },
-      data: { status: 'PENDING', startedAt: null, finishedAt: null }
-    })
+    await resetDownloadingItems(transaction, archiveImport.id)
     const completedItems = archiveImport.items.filter((item) => item.status === 'COMPLETED').length
     const failedItems = archiveImport.items.filter((item) => item.status === 'FAILED').length
     const changed = await transaction.archiveImport.updateMany({
@@ -764,8 +761,9 @@ async function handleArchiveExecutionFailure(
         return
       }
     }
-    const counts = await readCounts(scope.transaction, archiveImportId)
     if (classified.pause) {
+      await resetDownloadingItems(scope.transaction, archiveImportId)
+      const counts = await readCounts(scope.transaction, archiveImportId)
       const changed = await scope.transaction.archiveImport.updateMany({
         where: { id: archiveImportId, status: 'RUNNING' },
         data: {
@@ -794,6 +792,7 @@ async function handleArchiveExecutionFailure(
       })
       return
     }
+    const counts = await readCounts(scope.transaction, archiveImportId)
     await finishArchiveImport(scope.transaction, {
       archiveImportId,
       status: 'FAILED',
@@ -971,16 +970,20 @@ async function pauseOrReleaseArchiveImport(
   archiveImportId: string,
   status: 'PAUSED' | 'PENDING'
 ) {
-  await transaction.archiveImportItem.updateMany({
-    where: { archiveImportId, status: 'DOWNLOADING' },
-    data: { status: 'PENDING', startedAt: null, finishedAt: null }
-  })
+  await resetDownloadingItems(transaction, archiveImportId)
   const counts = await readCounts(transaction, archiveImportId)
   const changed = await transaction.archiveImport.updateMany({
     where: { id: archiveImportId, status: { in: ['PENDING', 'RUNNING'] } },
     data: { status, completedItems: counts.completed, failedItems: counts.failed }
   })
   if (changed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', '归档生命周期状态已变化')
+}
+
+async function resetDownloadingItems(transaction: ArchiveTransaction, archiveImportId: string) {
+  await transaction.archiveImportItem.updateMany({
+    where: { archiveImportId, status: 'DOWNLOADING' },
+    data: { status: 'PENDING', startedAt: null, finishedAt: null }
+  })
 }
 
 async function readCounts(transaction: ArchiveTransaction, archiveImportId: string): Promise<ArchiveItemCounts> {

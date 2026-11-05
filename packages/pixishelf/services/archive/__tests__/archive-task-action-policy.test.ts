@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { archiveTaskActionIneligibility, recoverAppliedArchiveTaskAction } from '../archive-task-action-policy'
+import {
+  archiveTaskActionIneligibility,
+  canUseArchiveDisplayQuality,
+  recoverAppliedArchiveTaskAction
+} from '../archive-task-action-policy'
 
 describe('archive task bulk action policy', () => {
   it.each([
@@ -30,5 +34,35 @@ describe('archive task bulk action policy', () => {
       relatedId: 'job-1',
       message: '并发命令已执行 PAUSE'
     })
+  })
+})
+
+describe('display download quality choice', () => {
+  const task = {
+    phase: 'DOWNLOAD',
+    status: 'PAUSED',
+    selectedQuality: 'ORIGINAL',
+    completionBaseRevisionId: null,
+    upgradeBaseRevisionId: null,
+    sealedManifestSha256: null,
+    cleanupRequestedAt: null,
+    systemJob: { status: 'PAUSED' }
+  }
+
+  it.each(['PAUSED', 'FAILED'])('allows a regular %s original download without decision or intake metadata', (status) => {
+    expect(canUseArchiveDisplayQuality({ ...task, status, systemJob: { status } })).toBe(true)
+  })
+
+  it.each([
+    { phase: 'PUBLISH' },
+    { status: 'RUNNING' },
+    { selectedQuality: 'DISPLAY' },
+    { completionBaseRevisionId: 'base' },
+    { upgradeBaseRevisionId: 'base' },
+    { sealedManifestSha256: 'a'.repeat(64) },
+    { cleanupRequestedAt: new Date('2026-11-05') },
+    { systemJob: { status: 'PAUSING' } }
+  ])('requires a changeable download state: %j', (change) => {
+    expect(canUseArchiveDisplayQuality({ ...task, ...change })).toBe(false)
   })
 })

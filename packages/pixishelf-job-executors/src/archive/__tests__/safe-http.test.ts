@@ -118,17 +118,17 @@ describe('archive safe HTTP network policy', () => {
   })
 
   it.each([
-    [null, '配置 EH Cookie'],
-    ['fixture=secret', '更新 EH Cookie']
-  ])('pauses an explicit EH login redirect without requesting the login page', async (cookie, guidance) => {
-    const loginUrl = 'https://forums.e-hentai.org/index.php?act=Login&CODE=00'
+    ['https://forums.e-hentai.org/index.php?act=Login&CODE=00', null, '配置 EH Cookie'],
+    ['https://e-hentai.org/bounce_login.php?b=ds&bt=fixture', null, '配置 EH Cookie'],
+    ['https://e-hentai.org/bounce_login.php?b=ds&bt=fixture', 'fixture=secret', '更新 EH Cookie']
+  ])('pauses an explicit EH login redirect without requesting %s', async (loginUrl, cookie, guidance) => {
     const { sent, provider } = mockOriginalRedirects([originalUrl, loginUrl])
     await expect(provider(cookie).openMedia(originalItem, { quality: 'ORIGINAL' })).rejects.toMatchObject({
       code: 'ORIGINAL_UNAVAILABLE',
       message: expect.stringContaining(guidance),
       pause: true,
       stage: 'MEDIA_REQUEST',
-      remoteHost: 'forums.e-hentai.org:443',
+      remoteHost: `${new URL(loginUrl).hostname}:443`,
       decisionCode: null
     })
     expect(sent).toEqual([{ url: originalUrl, cookie: cookie ?? undefined }])
