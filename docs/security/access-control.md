@@ -152,6 +152,8 @@ WebP Worker/WASM 与输入使用版本化同源地址和 `credentials: same-orig
 
 EH 登录态由实例管理员在系统设置录入，归档下载共享该账户额度。状态查询只返回配置状态，通用设置不包含该密文。服务端使用独立的 32 字节 Base64 密钥 `EH_COOKIE_ENCRYPTION_KEY` 对 Cookie 作 AES-256-GCM 加密。仅原图下载所需的精确 EH HTTPS 原图端点可附带 Cookie；重定向每跳重新检查，其他主机包含 H@H 图片节点不会收到 Cookie。上传的 Cookie、密文和部署密钥均不得出现在日志、错误、任务、诊断或页面回显中。更换密钥后重新录入 Cookie；清除配置后后续需要登录的下载须重新配置。
 
+Cookie 是可选登录凭据，缺少配置不构成原图请求的前置拒绝条件。匿名请求收到 HTTP 401 或明确的 EH 登录重定向时才提示登录；其他失败保留各自原因。匿名响应仍须经过同样的原图交付与文件验证，不能自动降级为阅读版。
+
 - Better Auth Cookie 默认 7 天到期、每日更新、Cookie Cache 5 分钟；实际 `Secure/HttpOnly/SameSite` 必须在生产 HTTPS 下核验，`useSecureCookies` 受 URL、生产模式和 Trusted Origins 组合影响。
 - Trusted Origins 只列真实入口，不使用宽泛来源；`JWT_SECRET/JWT_TTL`、`INIT_ADMIN_*` 是遗留模板变量，不是当前会话/初始化机制。
 - IP 限流是单进程内存状态，重启清空、多实例不共享；不替代鉴权或可信网络身份。

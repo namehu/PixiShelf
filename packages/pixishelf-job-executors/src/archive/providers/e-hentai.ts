@@ -393,15 +393,16 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
       })
     }
 
-    const cookie = context.quality === 'ORIGINAL' && originalUrl ? await this.options.getCookie?.() : null
-    if (context.quality === 'ORIGINAL' && originalUrl && !cookie) {
-      throw new ArchiveError('ORIGINAL_UNAVAILABLE', '原图下载需要有效的共享 EH Cookie；请在系统设置中配置后继续', {
-        recoverable: true,
-        pause: true,
-        stage: 'MEDIA_REQUEST',
-        remoteHost: GALLERY_HOST
-      })
-    }
+    const originalRequested = context.quality === 'ORIGINAL'
+    const cookie = originalRequested && originalUrl ? await this.options.getCookie?.() : null
+    const loginRequired = (target: URL, httpStatus: number | null = null) =>
+      new ArchiveError(
+        'ORIGINAL_UNAVAILABLE',
+        cookie
+          ? 'EH 未接受当前登录态，请在系统设置中更新 EH Cookie 后重试'
+          : 'EH 要求登录才能下载原图，请在系统设置中配置 EH Cookie 后重试',
+        { recoverable: true, pause: true, httpStatus, stage: 'MEDIA_REQUEST', remoteHost: remoteHostForUrl(target) }
+      )
 
     try {
       context.onPhase?.('WAITING_MEDIA_RESPONSE')
@@ -409,19 +410,24 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
         const opened = await this.http.request(selectedUrl, {
           ...(context.signal ? { signal: context.signal } : {}),
           headers: { referer: item.sourcePageUrl },
-          ...(cookie
-            ? { headersForUrl: (url: URL): Record<string, string> => (isEhOriginalEndpoint(url) ? { cookie } : {}) }
+          ...(originalRequested
+            ? {
+                headersForUrl: (url: URL): Record<string, string> => {
+                  if (
+                    url.origin === 'https://forums.e-hentai.org' &&
+                    url.pathname === '/index.php' &&
+                    url.searchParams.get('act')?.toLowerCase() === 'login'
+                  ) {
+                    throw loginRequired(url)
+                  }
+                  return cookie && isEhOriginalEndpoint(url) ? { cookie } : {}
+                }
+              }
             : {})
         })
-        if (context.quality === 'ORIGINAL' && opened.status === 401) {
+        if (originalRequested && opened.status === 401) {
           opened.stream.resume()
-          throw new ArchiveError('ORIGINAL_UNAVAILABLE', 'EH Cookie 已失效或无权访问原图，请更新后继续', {
-            recoverable: true,
-            pause: true,
-            httpStatus: 401,
-            stage: 'MEDIA_REQUEST',
-            remoteHost: GALLERY_HOST
-          })
+          throw loginRequired(new URL(opened.url), 401)
         }
         assertSuccessStatus(opened)
         return opened

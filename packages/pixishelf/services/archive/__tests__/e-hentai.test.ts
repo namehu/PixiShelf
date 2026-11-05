@@ -14,14 +14,29 @@ function createHttpMock() {
 }
 
 describe('E-Hentai archive provider', () => {
-  it('pauses without a shared Cookie before making the original request', async () => {
+  it.each([
+    [null, '配置 EH Cookie'],
+    ['fixture=secret', '更新 EH Cookie']
+  ])('preserves the original request and translates a real 401 to login guidance', async (cookie, guidance) => {
     const http = createHttpMock()
-    http.text.mockResolvedValue('<a href="/fullimg/123/key/1/source">Download original 2 x 3 100 B</a>')
-    await expect(new EHentaiProvider(http as never).openMedia(
-      { index: 0, sourcePageUrl: 'https://e-hentai.org/s/a/123-1', locator: {}, expectedFilename: '0001' },
-      { quality: 'ORIGINAL' }
-    )).rejects.toMatchObject({ code: 'ORIGINAL_UNAVAILABLE', pause: true })
-    expect(http.request).not.toHaveBeenCalled()
+    const originalUrl = 'https://e-hentai.org/fullimg/123/key/1/source'
+    const sourcePageUrl = 'https://e-hentai.org/s/a/123-1'
+    http.text.mockResolvedValue(`<a href="${originalUrl}">Download original 2 x 3 100 B</a>`)
+    const stream = Readable.from([])
+    const resume = vi.spyOn(stream, 'resume')
+    http.request.mockResolvedValue({ status: 401, headers: {}, stream, url: originalUrl })
+    const provider = new EHentaiProvider(http as never, { getCookie: async () => cookie })
+    await expect(
+      provider.openMedia({ index: 0, sourcePageUrl, locator: {}, expectedFilename: '0001' }, { quality: 'ORIGINAL' })
+    ).rejects.toMatchObject({
+      name: 'ArchiveError',
+      code: 'ORIGINAL_UNAVAILABLE',
+      message: expect.stringContaining(guidance),
+      pause: true,
+      decisionCode: null
+    })
+    expect(http.request).toHaveBeenCalledExactlyOnceWith(originalUrl, expect.any(Object))
+    expect(resume).toHaveBeenCalledOnce()
   })
 
   it.each([
