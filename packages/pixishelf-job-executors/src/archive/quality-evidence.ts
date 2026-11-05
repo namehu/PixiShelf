@@ -14,7 +14,12 @@ import type { ArchiveTransaction } from './types.ts'
 
 const mediaSchema = archivePageQualityEvidenceSchema
   .pick({ imageId: true, index: true, path: true, size: true, sha256: true })
-  .extend({ width: z.number().int().nullable(), height: z.number().int().nullable(), mimeType: z.string().nullable() })
+  .extend({
+    imageId: archivePageQualityEvidenceSchema.shape.imageId.optional(),
+    width: z.number().int().nullable(),
+    height: z.number().int().nullable(),
+    mimeType: z.string().nullable()
+  })
 const frozenReuseSchema = z.object({
   media: z.array(z.object({ index: z.number(), sha256: z.string(), size: z.string() }))
 })
@@ -124,25 +129,34 @@ export function buildArchiveQualityEvidence(
   images: readonly ImageIdentity[] | undefined,
   previous: readonly PriorEvidence[] = []
 ): ArchiveQualityEvidence {
+  const currentImages = revision.isCurrent ? images : undefined
   const parsed = z.array(mediaSchema).safeParse(revision.mediaSnapshot)
   if (!parsed.success || parsed.data.length === 0)
     return {
       version: 1,
       pages: [],
       reason: 'INVALID_MEDIA_SNAPSHOT',
-      unresolvedPageCount: images?.length ?? (Array.isArray(revision.mediaSnapshot) ? revision.mediaSnapshot.length : 0)
+      unresolvedPageCount:
+        currentImages?.length ?? (Array.isArray(revision.mediaSnapshot) ? revision.mediaSnapshot.length : 0)
     }
   const media = parsed.data
-  if (images && images.length !== media.length)
-    return { version: 1, pages: [], reason: 'CURRENT_MEDIA_SET_MISMATCH', unresolvedPageCount: images.length }
+  if (currentImages && currentImages.length !== media.length)
+    return { version: 1, pages: [], reason: 'CURRENT_MEDIA_SET_MISMATCH', unresolvedPageCount: currentImages.length }
   const importRecord = revision.archiveImport
   const reuse = frozenReuseSchema.safeParse(importRecord?.completionSnapshot ?? importRecord?.upgradeSnapshot)
-  return {
-    version: 1,
-    pages: media.map((entry): ArchivePageQualityEvidence => {
+  const pages = media
+    .map((entry): ArchivePageQualityEvidence | null => {
+      const fullPath = path.posix.join(revision.archivePath, entry.path)
+      const matchesCurrentImage = (image: ImageIdentity) =>
+        image.path === fullPath && image.sortOrder === entry.index && image.size?.toString() === entry.size
+      // Early publishers did not freeze an Image ID. Only current media can supply that identity.
+      const matches = entry.imageId === undefined ? currentImages?.filter(matchesCurrentImage) : undefined
+      const imageId = entry.imageId ?? (matches?.length === 1 ? matches[0]!.id : undefined)
+      if (imageId === undefined) return null
+
       const item = importRecord?.items.find((item) => item.pageIndex === entry.index)
       const base = {
-        imageId: entry.imageId,
+        imageId,
         index: entry.index,
         path: entry.path,
         size: entry.size,
@@ -150,17 +164,11 @@ export function buildArchiveQualityEvidence(
         sourcePageUrl: item?.sourcePageUrl ?? null
       }
       const unknown = (reason: string): ArchivePageQualityEvidence => ({ ...base, quality: 'UNKNOWN', reason })
-      if (media.filter((other) => other.index === entry.index || other.imageId === entry.imageId).length !== 1)
+      if (media.filter((other) => other.index === entry.index || other.imageId === imageId).length !== 1)
         return unknown('DUPLICATE_MEDIA_IDENTITY')
-      if (images) {
-        const image = images.find((image) => image.id === entry.imageId)
-        if (
-          !image ||
-          image.path !== path.posix.join(revision.archivePath, entry.path) ||
-          image.sortOrder !== entry.index ||
-          image.size?.toString() !== entry.size
-        )
-          return unknown('CURRENT_IMAGE_IDENTITY_MISMATCH')
+      if (entry.imageId !== undefined && currentImages) {
+        const image = currentImages.find((image) => image.id === imageId)
+        if (!image || !matchesCurrentImage(image)) return unknown('CURRENT_IMAGE_IDENTITY_MISMATCH')
       }
       if (
         !item ||
@@ -174,6 +182,8 @@ export function buildArchiveQualityEvidence(
       )
         return unknown('SUCCESSFUL_ITEM_MISMATCH')
 
+      const identityEvidence =
+        entry.imageId === undefined ? { imageIdSource: 'CURRENT_IMAGE_PATH_ORDER_SIZE' as const } : undefined
       const reused =
         reuse.success &&
         reuse.data.media.some(
@@ -194,17 +204,31 @@ export function buildArchiveQualityEvidence(
               ...base,
               quality: page.quality,
               reason: 'FROZEN_PAGE_REUSE',
-              evidence: { inheritedFromRevisionId: older.revisionId }
+              evidence: { ...identityEvidence, inheritedFromRevisionId: older.revisionId }
             }
         }
       }
       const classified = classifyArchiveCompletedDelivery(item)
+      const evidence = classified.evidence
+        ? { ...identityEvidence, archiveImportId: importRecord!.id, ...classified.evidence }
+        : identityEvidence
       return {
         ...base,
         ...classified,
-        ...(classified.evidence ? { evidence: { archiveImportId: importRecord!.id, ...classified.evidence } } : {})
+        ...(evidence ? { evidence } : {})
       }
     })
+    .filter((page) => page !== null)
+  const unresolvedPageCount = media.length - pages.length
+  return {
+    version: 1,
+    pages,
+    ...(unresolvedPageCount > 0
+      ? {
+          reason: currentImages ? 'CURRENT_IMAGE_IDENTITY_MISMATCH' : 'LEGACY_MEDIA_IMAGE_ID_UNAVAILABLE',
+          unresolvedPageCount
+        }
+      : {})
   }
 }
 

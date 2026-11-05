@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 /** Classification rules are versioned independently of the saved evidence format. */
-export const ARCHIVE_QUALITY_DEFINITION_VERSION = 3 as const
+export const ARCHIVE_QUALITY_DEFINITION_VERSION = 4 as const
 export const ARCHIVE_QUALITY_AUDIT_JOB_TYPE = 'ARCHIVE_QUALITY_AUDIT' as const
 export const archivePageQualitySchema = z.enum(['ORIGINAL', 'DISPLAY', 'UNKNOWN'])
 export const archiveQualityStatusSchema = z.enum(['ORIGINAL', 'DISPLAY', 'MIXED', 'UNKNOWN'])
@@ -25,6 +25,7 @@ export const archivePageQualityEvidenceSchema = z.object({
   evidence: z
     .object({
       archiveImportId: z.string().optional(),
+      imageIdSource: z.literal('CURRENT_IMAGE_PATH_ORDER_SIZE').optional(),
       attempt: z.number().int().positive().optional(),
       downloadUrl: z.string().optional(),
       actualSha1: z.string().optional(),

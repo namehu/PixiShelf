@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { getVerifiedOriginalPages, archiveQualityAuditPayloadSchema } from '../archive-quality.ts'
+import {
+  getVerifiedOriginalPages,
+  archiveQualityAuditPayloadSchema,
+  archiveQualityEvidenceSchema
+} from '../archive-quality.ts'
 
 describe('archive quality proof readers', () => {
   const page = {
@@ -27,6 +31,17 @@ describe('archive quality proof readers', () => {
     expect(getVerifiedOriginalPages({ ...revision, qualityEvidence: null }).size).toBe(0)
     expect(getVerifiedOriginalPages({ ...revision, qualityEvidence: { version: 1, pages: [page, page] } }).size).toBe(0)
   })
+
+  it('preserves current-match provenance without treating the ID as frozen for reuse', () => {
+    const { imageId, ...legacyPage } = page
+    const qualityEvidence = archiveQualityEvidenceSchema.parse({
+      version: 1,
+      pages: [{ ...legacyPage, imageId, evidence: { imageIdSource: 'CURRENT_IMAGE_PATH_ORDER_SIZE' } }]
+    })
+    expect(qualityEvidence.pages[0]?.evidence?.imageIdSource).toBe('CURRENT_IMAGE_PATH_ORDER_SIZE')
+    expect(getVerifiedOriginalPages({ qualityEvidence, mediaSnapshot: [legacyPage] }).size).toBe(0)
+  })
+
   it('freezes only a bounded database cursor in the audit payload', () => {
     expect(archiveQualityAuditPayloadSchema.parse({ targetMaxArtworkId: 20, targetArtworkCount: 10 })).toEqual({
       targetMaxArtworkId: 20,

@@ -8,8 +8,7 @@ import {
 const sha256 = 'a'.repeat(64)
 const sha1 = 'b'.repeat(40)
 const originalUrl = `https://node.hath.network/om/1/${sha1}-100-1280-900-jpg/x/file.jpg`
-const media = {
-  imageId: 5,
+const legacyMedia = {
   index: 0,
   path: 'media/1.jpg',
   size: '100',
@@ -18,6 +17,7 @@ const media = {
   height: 900,
   mimeType: 'image/jpeg'
 }
+const media = { imageId: 5, ...legacyMedia }
 const image = { id: 5, path: 'archive/revision/media/1.jpg', sortOrder: 0, size: 100n }
 const item = {
   pageIndex: 0,
@@ -62,6 +62,118 @@ describe('database-only archive quality evidence', () => {
       imageId: 5,
       sha256,
       evidence: { archiveImportId: 'import', attempt: 2, downloadUrl: originalUrl }
+    })
+  })
+
+  it('recovers current Image IDs from exact full paths, page order and bytes in an old snapshot', () => {
+    const second = { ...legacyMedia, index: 1, path: 'media/2.jpg' }
+    const displayUrl = `https://node.hath.network/h/${sha1}-100-1280-900-jpg/key;xres=1280/2.jpg`
+    const legacy = revision({}, { mediaSnapshot: [legacyMedia, second] })
+    legacy.archiveImport!.items.push({
+      ...legacy.archiveImport!.items[0]!,
+      pageIndex: 1,
+      stagedPath: second.path,
+      lastDownloadUrl: displayUrl
+    })
+    const secondImage = { ...image, id: 6, path: 'archive/revision/media/2.jpg', sortOrder: 1 }
+    const evidence = buildArchiveQualityEvidence(legacy, [secondImage, image])
+    expect(evidence.pages).toMatchObject([
+      {
+        imageId: 5,
+        index: 0,
+        quality: 'ORIGINAL',
+        evidence: { imageIdSource: 'CURRENT_IMAGE_PATH_ORDER_SIZE', archiveImportId: 'import', attempt: 2 }
+      },
+      {
+        imageId: 6,
+        index: 1,
+        quality: 'DISPLAY',
+        evidence: { imageIdSource: 'CURRENT_IMAGE_PATH_ORDER_SIZE', archiveImportId: 'import', attempt: 2 }
+      }
+    ])
+    expect(summarizeArchiveQuality(evidence).qualityStatus).toBe('MIXED')
+    expect(legacy.mediaSnapshot).toEqual([legacyMedia, second])
+
+    const unmatched = buildArchiveQualityEvidence(legacy, [{ ...secondImage, size: null }, image])
+    expect(unmatched).toMatchObject({
+      pages: [{ imageId: 5, quality: 'ORIGINAL' }],
+      reason: 'CURRENT_IMAGE_IDENTITY_MISMATCH',
+      unresolvedPageCount: 1
+    })
+    expect(summarizeArchiveQuality(unmatched)).toMatchObject({
+      qualityStatus: 'UNKNOWN',
+      qualityOriginalCount: 1,
+      qualityUnknownCount: 1
+    })
+  })
+
+  it.each([
+    { ...image, path: 'other/revision/media/1.jpg' },
+    { ...image, sortOrder: 1 },
+    { ...image, size: 101n }
+  ])('does not infer a legacy Image ID when full path, order or size differs', (changed) => {
+    expect(buildArchiveQualityEvidence(revision({}, { mediaSnapshot: [legacyMedia] }), [changed])).toEqual({
+      version: 1,
+      pages: [],
+      reason: 'CURRENT_IMAGE_IDENTITY_MISMATCH',
+      unresolvedPageCount: 1
+    })
+  })
+
+  it('does not assign an Image ID when two current rows match the same legacy page', () => {
+    const legacy = revision({}, { mediaSnapshot: [legacyMedia, { ...legacyMedia, index: 1, path: 'media/2.jpg' }] })
+    expect(buildArchiveQualityEvidence(legacy, [image, { ...image, id: 6 }])).toEqual({
+      version: 1,
+      pages: [],
+      reason: 'CURRENT_IMAGE_IDENTITY_MISMATCH',
+      unresolvedPageCount: 2
+    })
+  })
+
+  it('does not classify duplicated legacy snapshot pages even if their Image ID can be derived', () => {
+    const legacy = revision({}, { mediaSnapshot: [legacyMedia, legacyMedia] })
+    const evidence = buildArchiveQualityEvidence(legacy, [
+      image,
+      { ...image, id: 6, path: 'archive/revision/media/2.jpg', sortOrder: 1 }
+    ])
+    expect(evidence.pages).toMatchObject([
+      { quality: 'UNKNOWN', reason: 'DUPLICATE_MEDIA_IDENTITY' },
+      { quality: 'UNKNOWN', reason: 'DUPLICATE_MEDIA_IDENTITY' }
+    ])
+    expect(summarizeArchiveQuality(evidence).qualityUnknownCount).toBe(2)
+  })
+
+  it.each([
+    { stagedPath: 'media/2.jpg' },
+    { sha256: 'c'.repeat(64) },
+    { byteCount: 101n },
+    { width: 1279 },
+    { height: 901 },
+    { mimeType: 'image/png' }
+  ])('requires the original successful item to match a resolved legacy page', (changes) => {
+    const legacy = revision(changes, { mediaSnapshot: [legacyMedia] })
+    expect(buildArchiveQualityEvidence(legacy, [image]).pages[0]).toMatchObject({
+      imageId: 5,
+      quality: 'UNKNOWN',
+      reason: 'SUCCESSFUL_ITEM_MISMATCH'
+    })
+  })
+
+  it('does not borrow current IDs for old revisions or inherit an unverified historical page', () => {
+    const historical = revision({}, { isCurrent: false, mediaSnapshot: [legacyMedia] })
+    const historicalEvidence = buildArchiveQualityEvidence(historical, [image])
+    expect(historicalEvidence).toEqual({
+      version: 1,
+      pages: [],
+      reason: 'LEGACY_MEDIA_IMAGE_ID_UNAVAILABLE',
+      unresolvedPageCount: 1
+    })
+    const reused = revision({ attempts: 0, lastDownloadAttempt: null, lastDownloadUrl: null })
+    reused.archiveImport!.completionSnapshot = { media: [{ index: 0, sha256, size: '100' }] }
+    const previous = [{ revisionId: 'historical', pages: historicalEvidence.pages }]
+    expect(buildArchiveQualityEvidence(reused, [image], previous).pages[0]).toMatchObject({
+      quality: 'UNKNOWN',
+      reason: 'NO_FINAL_SUCCESSFUL_ATTEMPT'
     })
   })
 
@@ -298,7 +410,7 @@ describe('database-only archive quality evidence', () => {
 
   it('counts every current page as unresolved when the frozen snapshot is missing or damaged', () => {
     const images = Array.from({ length: 232 }, (_, index) => ({ ...image, id: index + 1, sortOrder: index }))
-    for (const mediaSnapshot of [null, { broken: true }, []]) {
+    for (const mediaSnapshot of [null, { broken: true }, [], [legacyMedia, { ...legacyMedia, imageId: null }]]) {
       const evidence = buildArchiveQualityEvidence(revision({}, { mediaSnapshot }), images)
       expect(evidence).toMatchObject({ reason: 'INVALID_MEDIA_SNAPSHOT', pages: [], unresolvedPageCount: 232 })
       expect(summarizeArchiveQuality(evidence)).toMatchObject({

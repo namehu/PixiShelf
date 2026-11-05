@@ -324,6 +324,15 @@ describe.skipIf(!db)('maintenance review durable scope and publication locks', (
         await legacyEvidence(tx, f)
         const input = { runId: f.run.id, userId: f.actor.id }
         const before = await tx.artworkDedupItem.findMany({ where: { runId: f.run.id }, orderBy: { artworkId: 'asc' } })
+        // Both historical functions join the reading summary table retired by the current schema.
+        await tx.$executeRaw`
+          CREATE TEMP TABLE artwork_reading_summaries (
+            "userId" TEXT NOT NULL,
+            "artworkId" INTEGER NOT NULL,
+            "lastViewedAt" TIMESTAMP(3),
+            PRIMARY KEY ("userId", "artworkId")
+          ) ON COMMIT DROP
+        `
         await tx.$executeRawUnsafe(oldFunction)
         expect((await readArtworkDedupGroupChoices(tx, input))[0]).toMatchObject({
           eligible: false,
