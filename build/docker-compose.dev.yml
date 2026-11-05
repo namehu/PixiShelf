@@ -50,6 +50,7 @@ services:
     environment:
       # API 环境变量
       NODE_ENV: production
+      EH_COOKIE_ENCRYPTION_KEY: ${EH_COOKIE_ENCRYPTION_KEY:-}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=20&pool_timeout=20
       SCAN_PATH: /app/data
       ARCHIVE_STORAGE_PATH: /app/data
@@ -84,6 +85,7 @@ services:
       - .env
     environment:
       NODE_ENV: production
+      EH_COOKIE_ENCRYPTION_KEY: ${EH_COOKIE_ENCRYPTION_KEY:-}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=5&pool_timeout=20
       WORKER_SERVICE_VERSION: ${IMAGE_TAG:-dev}
       WORKER_HEALTH_HOST: 0.0.0.0

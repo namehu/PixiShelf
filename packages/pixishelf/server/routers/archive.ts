@@ -1,4 +1,10 @@
 import { getArchiveCoverage } from '@/services/archive/archive-coverage-service'
+import { getArchiveQualityDetails } from '@/services/archive/archive-quality-service'
+import {
+  getArchiveOriginalUpgrade,
+  upgradeArchiveOriginal,
+  upgradeArchiveOriginalSchema
+} from '@/services/archive/archive-original-upgrade-service'
 import { completeArchiveArtwork, completeArchiveArtworkSchema } from '@/services/archive/archive-completion-service'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
@@ -44,6 +50,23 @@ const archiveMutationAckSchema = z.object({ taskId: z.string().min(1) })
  * 归档任务路由：变更操作走显式管理员边界，并将归档服务层的领域错误统一转换为 tRPC 错误码。
  */
 export const archiveRouter = router({
+  getQualityDetails: authProcedure
+    .input(
+      z
+        .object({
+          artworkId: z.number().int().positive(),
+          offset: z.number().int().nonnegative().default(0),
+          limit: z.number().int().min(1).max(100).default(50)
+        })
+        .strict()
+    )
+    .query(({ input }) => getArchiveQualityDetails(input)),
+  getOriginalUpgrade: authProcedure
+    .input(z.object({ artworkId: z.number().int().positive() }).strict())
+    .query(({ input }) => getArchiveOriginalUpgrade(input.artworkId)),
+  upgradeOriginal: adminProcedure
+    .input(upgradeArchiveOriginalSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => upgradeArchiveOriginal(input, ctx.userId))),
   getCoverage: authProcedure
     .input(z.object({ artworkId: z.number().int().positive() }).strict())
     .query(({ input }) => getArchiveCoverage(input.artworkId)),

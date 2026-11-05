@@ -1,4 +1,5 @@
 import { TRPCError } from '@trpc/server'
+import { getArchiveQualityAuditStatus, startArchiveQualityAudit } from '@/services/archive/archive-quality-service'
 import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import { getScanPath, getSystemSettings, setScanPath, upsertSystemSettings } from '@/services/setting.service'
 import { systemSettingsResponseDTO, updateSystemSettingsSchema } from '@/schemas/system-setting.dto'
@@ -10,10 +11,9 @@ import {
   startArchiveDefaultTagBackfill
 } from '@/services/archive-default-tag-backfill-service'
 import z from 'zod'
-import {
-  ARCHIVE_MEDIA_CONCURRENCY_MAX,
-  ARCHIVE_MEDIA_CONCURRENCY_MIN
-} from '@pixishelf/job-contracts'
+import { clearEhCookie, EhCookieConfigurationError, getEhCookieStatus, saveEhCookie } from '@pixishelf/job-executors'
+import { prisma } from '@/lib/prisma'
+import { ARCHIVE_MEDIA_CONCURRENCY_MAX, ARCHIVE_MEDIA_CONCURRENCY_MIN } from '@pixishelf/job-contracts'
 import {
   ArchiveDownloadSettingsConflictError,
   getArchiveDownloadSettings,
@@ -21,6 +21,28 @@ import {
 } from '@/services/archive/archive-download-settings-service'
 
 export const settingRouter = router({
+  getArchiveEhCookieStatus: adminProcedure.query(() => getEhCookieStatus(prisma)),
+
+  saveArchiveEhCookie: adminProcedure.input(z.object({ cookie: z.string() }).strict()).mutation(async ({ input }) => {
+    try {
+      return await saveEhCookie(prisma, input.cookie)
+    } catch (error) {
+      if (error instanceof EhCookieConfigurationError) {
+        throw new TRPCError({
+          code: error.kind === 'KEY' ? 'PRECONDITION_FAILED' : 'BAD_REQUEST',
+          message: error.message
+        })
+      }
+      throw error
+    }
+  }),
+
+  clearArchiveEhCookie: adminProcedure.mutation(() => clearEhCookie(prisma)),
+
+  getArchiveQualityAuditStatus: adminProcedure.query(() => getArchiveQualityAuditStatus()),
+  startArchiveQualityAudit: adminProcedure.mutation(({ ctx }) =>
+    startArchiveQualityAudit({ requestedByUserId: ctx.userId })
+  ),
   /**
    * 健康检查
    * 以 SCAN_PATH 是否可读出作为系统级就绪信号，返回 ok/error 供前端环境检测。
@@ -61,11 +83,7 @@ export const settingRouter = router({
     .input(
       z
         .object({
-          mediaConcurrency: z
-            .number()
-            .int()
-            .min(ARCHIVE_MEDIA_CONCURRENCY_MIN)
-            .max(ARCHIVE_MEDIA_CONCURRENCY_MAX)
+          mediaConcurrency: z.number().int().min(ARCHIVE_MEDIA_CONCURRENCY_MIN).max(ARCHIVE_MEDIA_CONCURRENCY_MAX)
         })
         .strict()
     )

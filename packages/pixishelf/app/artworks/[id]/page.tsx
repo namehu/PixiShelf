@@ -21,6 +21,7 @@ import SeriesNav from './_components/series-nav'
 import TagArea from './_components/tag-area'
 import { ArtworkDetailControlsProvider } from './_components/artwork-detail-controls'
 import { ArtworkMediaSummary } from './_components/artwork-media-summary'
+import { ArchiveQualityPanel } from './_components/archive-quality-panel'
 
 export default async function ArtworkDetailPage({ params, searchParams }: PageProps<'/artworks/[id]'>) {
   const { id } = await params
@@ -129,6 +130,7 @@ export default async function ArtworkDetailPage({ params, searchParams }: PagePr
                         totalBytes={data.totalMediaSize}
                         unknownSizeCount={initial!.unknownMediaSizeCount}
                       />
+                      {coverage ? <ArchiveQualityPanel artworkId={data.id} /> : null}
                     </header>
 
                     <div className="mb-6">

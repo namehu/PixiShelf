@@ -1,4 +1,8 @@
 'use client'
+import { formatArchiveSourceSize } from '@/lib/archive-source-size'
+
+import { ArchiveQualityBadge } from '@/components/artwork/archive-quality-badge'
+import { archiveQualityReasonLabel } from '@/lib/archive-quality-reason'
 
 import { ArchiveTaskCreators } from './archive-task-creators'
 import { ArchiveItemAddresses } from './archive-item-addresses'
@@ -281,10 +285,17 @@ export function ArchiveTaskDetails({ task }: { task: ArchiveTask }) {
         <Badge variant="secondary">
           {task.publishedArtworkDeletedAt || task.publishedArtwork?.deletedAt ? '已删除' : archiveTaskPhaseLabel(task)}
         </Badge>
-        <Badge variant="outline">{task.selectedQuality === 'ORIGINAL' ? '原图' : '展示质量'}</Badge>
+        <Badge variant="outline">请求：{task.selectedQuality === 'ORIGINAL' ? '原图' : '缩放展示版'}</Badge>
+        {task.localQuality ? <ArchiveQualityBadge quality={task.localQuality} /> : null}
         {task.kind && <Badge variant="outline">{task.kind === 'UPDATE' ? '更新归档' : '首次归档'}</Badge>}
         <span className="text-xs text-muted-foreground">尝试 {task.attempt}</span>
       </div>
+      {task.localQuality?.verifiedAt ? (
+        <p className="text-xs text-muted-foreground">
+          已保存图片：原图 {task.localQuality.originalCount} 张 · 网页阅读版 {task.localQuality.displayCount} 张 · 无法确认是否为原图{' '}
+          {task.localQuality.unknownCount} 张
+        </p>
+      ) : null}
       <ArchiveTaskCreators task={task} />
       <PrivacySensitiveText as="p" className="break-all text-xs text-muted-foreground">
         提交来源：{task.submittedUrl}
@@ -295,6 +306,8 @@ export function ArchiveTaskDetails({ task }: { task: ArchiveTask }) {
         </div>
       )}
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <dt>原站整部大小</dt>
+        <dd>{task.sourceSizeBytes ? formatArchiveSourceSize(task.sourceSizeBytes) : '未知'}</dd>
         {timestamps
           .filter(([, value]) => value)
           .map(([label, value]) => (
@@ -354,11 +367,12 @@ function ArchiveItemCard({
   const pageNumber = item.pageIndex + 1
   const numberLabel = String(pageNumber).padStart(String(Math.max(totalItems, 1)).length, '0')
   const metadata = [
-    item.quality === 'ORIGINAL' ? '原图' : item.quality === 'DISPLAY' ? '展示质量' : null,
+    item.verifiedQuality === 'ORIGINAL' ? '原图' : item.verifiedQuality === 'DISPLAY' ? '网页阅读版' : '版本无法确认',
     item.mimeType,
     item.width && item.height ? `${item.width}×${item.height}` : null,
     formatBytes(item.byteCount)
   ].filter(Boolean)
+  const qualityReason = archiveQualityReasonLabel(item.qualityReason)
 
   return (
     <div className="flex flex-col gap-2 rounded-lg border p-3">
@@ -378,6 +392,8 @@ function ArchiveItemCard({
           </Button>
         )}
       </div>
+
+      {item.verifiedQuality === 'UNKNOWN' ? <p className="text-xs text-muted-foreground">{qualityReason}。</p> : null}
 
       <ArchiveItemAddresses
         sourcePageUrl={item.sourcePageUrl}

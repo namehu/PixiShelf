@@ -6,8 +6,11 @@ import { toast } from 'sonner'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { PreferenceItem } from '@/app/settings/_components/preference-item'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
+import { archiveQualityAuditSectionId } from '@/lib/archive-quality-audit-navigation'
 import { ArchiveDefaultTagBackfillControl } from './archive-default-tag-backfill-control'
+import { ArchiveQualityAuditControl } from './archive-quality-audit-control'
 import { ArchiveDownloadConcurrencySetting } from './archive-download-concurrency-setting'
+import { ArchiveEhCookieSetting } from './archive-eh-cookie-setting'
 
 export function SystemSettingsPanel() {
   const trpc = useTRPC()
@@ -153,7 +156,14 @@ export function SystemSettingsPanel() {
           <p className="mt-1 text-sm text-muted-foreground">配置对所有用户和后台流程生效的系统级选项。</p>
         </div>
 
+        <div id={archiveQualityAuditSectionId} className="scroll-mt-20">
+          <PreferenceItem title="历史画质核验" description="核对已归档作品的本地画质。">
+            <ArchiveQualityAuditControl />
+          </PreferenceItem>
+        </div>
+
         <ArchiveDownloadConcurrencySetting />
+        <ArchiveEhCookieSetting />
 
         <PreferenceItem
           title="作品全量替换默认标签"

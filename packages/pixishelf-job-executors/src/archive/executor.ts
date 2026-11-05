@@ -1,4 +1,5 @@
 import { assertArchiveCompletionBase } from './completion-proof.ts'
+import { assertArchiveOriginalUpgradeBase } from './original-upgrade-proof.ts'
 import {
   assertArchiveSourceSnapshot,
   assertArchiveDownloadGeneration,
@@ -8,7 +9,8 @@ import {
 import {
   registerArchiveDownloadGeneration,
   prepareDownloadGeneration,
-  markDownloadDrained
+  markDownloadDrained,
+  verifiedOriginalArchiveCheckpointIds
 } from './download-generation.ts'
 import {
   beginExecutorMediaWrite,
@@ -27,6 +29,8 @@ import {
   ARCHIVE_MEDIA_CONCURRENCY_SETTING_KEY,
   ARCHIVE_IMPORT_DEFINITION_VERSION,
   ARCHIVE_COVERAGE_DEFINITION_VERSION,
+  ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION,
+  archiveOriginalUpgradeSnapshotSchema,
   archiveImportPayloadSchema,
   archiveDownloadPreparationSchema,
   archiveMediaConcurrencySchema,
@@ -56,6 +60,7 @@ import {
   prepareArchiveRevisionDirectory,
   storeArchiveRemoteMedia,
   validateArchiveStoredMedia,
+  resolveExistingPathWithinRoot,
   writeArchiveManifest
 } from './storage.ts'
 import type {
@@ -136,6 +141,21 @@ export function createArchiveExecutorRegistrations(
       jobType: 'ARCHIVE_PUBLISH',
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
+      parsePayload: (payload) => archiveImportV2PayloadSchema.parse(payload),
+      execute: (context) => executeArchivePublish(context, dependencies)
+    },
+    {
+      jobType: 'ARCHIVE_DOWNLOAD',
+      executionLane: 'ARCHIVE_DOWNLOAD',
+      definitionVersion: ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION,
+      progressPolicy: 'REALTIME',
+      parsePayload: (payload) => archiveImportV2PayloadSchema.parse(payload),
+      execute: (context) => executeArchiveImport(context, dependencies)
+    },
+    {
+      jobType: 'ARCHIVE_PUBLISH',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION,
       parsePayload: (payload) => archiveImportV2PayloadSchema.parse(payload),
       execute: (context) => executeArchivePublish(context, dependencies)
     }
@@ -579,7 +599,14 @@ async function downloadArchiveItem(input: {
       stagedGenerationPath: input.archiveImport.stagingPath,
       byteCount: stored.byteCount,
       mimeType: stored.mimeType,
-      quality: remote.quality,
+      quality: stored.deliveryEvidence ? stored.quality ?? null : remote.quality,
+      ...(stored.deliveryEvidence ? { deliveryEvidence: {
+        ...stored.deliveryEvidence,
+        sha256: stored.sha256,
+        byteCount: stored.byteCount.toString(),
+        attempt,
+        downloadUrl: remote.downloadUrl ?? ''
+      } } : {}),
       width: stored.width,
       height: stored.height,
       sha256: stored.sha256,
@@ -1172,6 +1199,13 @@ async function executeArchivePublish(
     if (!archiveImport.generationToken || !archiveImport.sealedManifestSha256) {
       throw new ArchiveExecutorError('STATE_CONFLICT', '归档发布缺少封存代')
     }
+    if (archiveImport.providerKey === 'e-hentai' && archiveImport.selectedQuality === 'ORIGINAL' &&
+        (await verifiedOriginalArchiveCheckpointIds(dependencies.database, archiveImport)).size !== archiveImport.items.length) {
+      throw new ArchiveExecutorError('ORIGINAL_UNAVAILABLE', '下载检查点缺少与实际文件一致的原图证明，归档已暂停。', {
+        recoverable: true, pause: true, stage: 'MEDIA_VALIDATION',
+        decisionCode: archiveImport.upgradeBaseRevisionId ? null : 'USE_DISPLAY_QUALITY'
+      })
+    }
     const paths = buildArchiveStoragePaths({
       scanRoot: dependencies.config.scanRoot,
       archiveImportId: archiveImport.id,
@@ -1218,9 +1252,15 @@ async function executeArchivePublish(
           throw new ArchiveExecutorError('STATE_CONFLICT', '归档作品已不再活动')
         }
         await assertArchiveCompletionBase(transaction, current)
+        await assertArchiveOriginalUpgradeBase(transaction, current)
         return source?.artworkId ?? null
       }
     )
+    if (archiveImport.upgradeBaseRevisionId) {
+      const frozen = archiveOriginalUpgradeSnapshotSchema.parse(archiveImport.upgradeSnapshot)
+      const oldDirectory = await resolveExistingPathWithinRoot(dependencies.config.scanRoot, frozen.archivePath)
+      await validateArchiveStoredMedia(oldDirectory, frozen.media.map((media) => ({ stagedPath: media.path, sha256: media.sha256, byteCount: BigInt(media.size) })))
+    }
     await context.progress({ progress: 97, stage: 'PUBLISHING', message: '归档入库中' })
     const finalAlreadyPublished = await pathExists(paths.finalAbsolutePath)
     const sourceDirectory = finalAlreadyPublished ? paths.finalAbsolutePath : paths.stagingAbsolutePath
@@ -1258,6 +1298,7 @@ async function executeArchivePublish(
                 throw new ArchiveExecutorError('STATE_CONFLICT', '归档发布绑定在声明建立前已变化')
               }
               await assertArchiveCompletionBase(transaction, current)
+              await assertArchiveOriginalUpgradeBase(transaction, current)
               return operation(transaction as unknown as TTransaction)
             })
         },

@@ -1,4 +1,6 @@
 import { EventEmitter } from 'node:events'
+import { Readable } from 'node:stream'
+import { isEhOriginalEndpoint } from '../eh-quality.js'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { lookupMock, requestMock } = vi.hoisted(() => ({
@@ -40,6 +42,45 @@ class SyntheticConnection extends EventEmitter {
 }
 
 describe('archive safe HTTP network policy', () => {
+  it('recomputes credential headers on every redirect across origins and paths', async () => {
+    lookupMock.mockResolvedValue([{ address: '1.1.1.1', family: 4 }])
+    const hops = [
+      'https://e-hentai.org/fullimg/1/key/1/source',
+      'https://api.e-hentai.org/fullimg.php?gid=1',
+      'https://node.hath.network/h/image',
+      'https://ehgt.org/thumbnail.jpg',
+      'https://e-hentai.org/g/1/token/',
+      'https://e-hentai.org/fullimg.php?gid=1'
+    ]
+    const sent: Array<string | undefined> = []
+    requestMock.mockImplementation(
+      (target: URL, options: { headers: Record<string, string> }, callback: (response: unknown) => void) => {
+        const index = hops.indexOf(target.toString())
+        sent.push(options.headers.cookie)
+        const request = Object.assign(new EventEmitter(), {
+          setTimeout: vi.fn(),
+          end: () =>
+            queueMicrotask(() =>
+              callback(
+                Object.assign(Readable.from([]), {
+                  statusCode: index === hops.length - 1 ? 200 : 302,
+                  headers: index === hops.length - 1 ? {} : { location: hops[index + 1] }
+                })
+              )
+            )
+        })
+        return request
+      }
+    )
+    const client = new SafeHttpClient(['e-hentai.org', 'hath.network', 'ehgt.org'], { ARCHIVE_HTTPS_PROXY: '' })
+    const response = await client.request(hops[0]!, {
+      headersForUrl: (target) => (isEhOriginalEndpoint(target) ? { cookie: 'fixture=secret' } : {})
+    })
+    expect(response.url).toBe(hops.at(-1))
+    expect(sent).toEqual(['fixture=secret', undefined, undefined, undefined, undefined, 'fixture=secret'])
+    requestMock.mockReset()
+  })
+
   it('retains HTTP status and host for typed diagnostics', () => {
     expect(() =>
       assertSuccessStatus({

@@ -1,4 +1,5 @@
 'use client'
+import { formatArchiveSourceSize } from '@/lib/archive-source-size'
 
 import { Fragment, useState } from 'react'
 import Link from 'next/link'
@@ -267,6 +268,9 @@ function TaskIdentity({ task, onViewItems }: { task: ArchiveTaskOutput; onViewIt
         <span aria-hidden="true">·</span>
         <ArchiveTaskCreators task={task} compact />
       </div>
+      <p className="text-xs text-muted-foreground">
+        {task.sourceSizeBytes ? `原站整部 ${formatArchiveSourceSize(task.sourceSizeBytes)}` : '原站整部大小未知'}
+      </p>
       {archiveTaskDisplayStatus(task) === 'FAILED' && (
         <div className="flex flex-col gap-1 text-xs text-destructive">
           {task.errorMessage && (

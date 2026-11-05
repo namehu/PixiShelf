@@ -28,6 +28,8 @@ export interface SafeHttpResponse {
 export interface SafeHttpRequestOptions {
   method?: 'GET' | 'POST'
   headers?: Record<string, string>
+  /** Recomputed from the validated destination for every redirect hop. */
+  headersForUrl?: (url: URL) => Record<string, string>
   body?: string | Buffer
   signal?: AbortSignal
   timeoutMs?: number
@@ -103,9 +105,13 @@ export class SafeHttpClient {
     } catch (error) {
       throw classifyNetworkError(error, 'MEDIA_REQUEST', remoteHostForUrl(url))
     }
+    const hopOptions = {
+      ...options,
+      headers: { ...options.headers, ...options.headersForUrl?.(url) }
+    }
     const response = proxyUrl
-      ? await sendProxiedRequest(url, proxyUrl, options)
-      : await sendPinnedRequest(url, addresses[0]!, options)
+      ? await sendProxiedRequest(url, proxyUrl, hopOptions)
+      : await sendPinnedRequest(url, addresses[0]!, hopOptions)
 
     if (response.status >= 300 && response.status < 400 && response.headers.location) {
       response.stream.resume()

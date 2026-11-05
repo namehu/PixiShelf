@@ -278,7 +278,7 @@ describe('GovernedArchiveProviderRegistry', () => {
         url: 'https://e-hentai.org/fullimg.php?gid=123'
       }))
     }
-    const provider = new EHentaiProvider(http as never)
+    const provider = new EHentaiProvider(http as never, { getCookie: async () => 'fixture=secret' })
     const governor = createGovernor()
     const governed = new GovernedArchiveProviderRegistry(
       new DefaultArchiveMediaProviderRegistry([provider]),

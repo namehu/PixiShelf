@@ -2,6 +2,7 @@ import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { SystemSettingsPanel } from '@/app/admin/setting/_components/system-settings-panel'
+import settingPage from '@/app/admin/setting/page'
 
 const testState = vi.hoisted(() => ({
   mutationCalls: [] as any[],
@@ -33,6 +34,17 @@ vi.mock('@/components/shared/multiple-selector', () => ({
 vi.mock('@/app/admin/setting/_components/archive-default-tag-backfill-control', () => ({
   ArchiveDefaultTagBackfillControl: () => <div>archive backfill control</div>
 }))
+
+vi.mock('@/app/admin/setting/_components/archive-quality-audit-control', () => ({
+  ArchiveQualityAuditControl: () => <div>archive quality audit control</div>
+}))
+
+vi.mock('@/app/admin/setting/_components/archive-eh-cookie-setting', () => ({
+  ArchiveEhCookieSetting: () => <div>共享 EH Cookie</div>
+}))
+
+vi.mock('@/app/admin/setting/_components/scan-management', () => ({ default: () => null }))
+vi.mock('@/app/admin/setting/_components/local-directory-import-management', () => ({ default: () => null }))
 
 vi.mock('@/lib/trpc', () => ({
   useTRPC: () => ({
@@ -132,6 +144,14 @@ describe('SystemSettingsPanel', () => {
   afterEach(() => {
     cleanup()
     vi.useRealTimers()
+  })
+
+  it('selects the system tab and renders the audit anchor for a direct link', async () => {
+    render(await settingPage({ params: Promise.resolve({}), searchParams: Promise.resolve({ tab: 'system' }) }))
+
+    expect(screen.getByRole('tab', { name: '系统设置', selected: true })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '历史画质核验' }).closest('#archive-quality')).toBeTruthy()
+    expect(screen.getByText('archive quality audit control')).toBeTruthy()
   })
 
   it('renders saved default tags and saves changed tag ids', () => {

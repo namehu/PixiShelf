@@ -22,7 +22,14 @@ const { prismaMock, writeJobEventMock } = vi.hoisted(() => {
     archiveImportItem: { findFirst: vi.fn(), findMany: vi.fn(), groupBy: vi.fn(), updateMany: vi.fn() },
     archiveUploaderCatalogItem: { updateMany: vi.fn() },
     archivePreviewSession: { deleteMany: vi.fn(), create: vi.fn(), findUnique: vi.fn(), delete: vi.fn() },
-    systemJob: { create: vi.fn(), findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    systemJob: {
+      create: vi.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
+      findFirst: vi.fn(),
+      findUnique: vi.fn(),
+      update: vi.fn(),
+      updateMany: vi.fn()
+    },
     jobResourceLease: { deleteMany: vi.fn() },
     $queryRawUnsafe: vi.fn(),
     $queryRaw: vi.fn(),
@@ -784,6 +791,8 @@ describe('archive module', () => {
           lastDownloadAt: '2026-01-01T00:00:00.000Z',
           lastDownloadAttempt: 1,
           byteCount: '1024',
+          verifiedQuality: 'UNKNOWN',
+          qualityReason: 'INCOMPLETE_MEDIA_FACTS',
           errorMessage: 'failed [地址已隐藏] at [路径已隐藏]/item.webp'
         })
       ]
@@ -791,6 +800,66 @@ describe('archive module', () => {
     expect(result.items[0]).not.toHaveProperty('stagedPath')
     expect(result.items[0]?.errorMessage).not.toContain('private-token')
     expect(JSON.stringify(result.items[0])).not.toContain('/private/archive')
+  })
+
+  it('shows a bound page proof rather than a legacy requested quality, and rejects a stale download receipt', async () => {
+    const sha256 = 'a'.repeat(64)
+    const sourcePageUrl = 'https://e-hentai.org/s/page/42-1'
+    const page = {
+      imageId: 7,
+      index: 0,
+      path: 'media/0.jpg',
+      size: '10',
+      sha256,
+      sourcePageUrl,
+      quality: 'DISPLAY',
+      reason: 'HATH_OM_DERIVATIVE'
+    }
+    prismaMock.archiveImport.findUnique.mockResolvedValue({
+      id: 'import-1',
+      totalItems: 2,
+      publishedRevision: { qualityEvidence: { version: 1, pages: [page] } }
+    })
+    const item = {
+      id: 'first',
+      pageIndex: 0,
+      sourcePageUrl,
+      status: 'COMPLETED',
+      attempts: 2,
+      sha256,
+      byteCount: 10n,
+      quality: 'ORIGINAL',
+      lastDownloadUrl: 'https://cdn.example/image.jpg',
+      lastDownloadAttempt: 2
+    }
+    prismaMock.archiveImportItem.findMany.mockResolvedValue([
+      item,
+      {
+        ...item,
+        id: 'second',
+        pageIndex: 1,
+        deliveryEvidence: {
+          version: 1,
+          quality: 'ORIGINAL',
+          reason: 'EH_ORIGINAL_IMAGE_RESPONSE',
+          sha256,
+          byteCount: '10',
+          attempt: 1,
+          downloadUrl: item.lastDownloadUrl
+        }
+      }
+    ])
+    const result = await module.listTaskItems('import-1')
+    expect(result.items[0]).toMatchObject({
+      quality: 'ORIGINAL',
+      verifiedQuality: 'DISPLAY',
+      qualityReason: 'HATH_OM_DERIVATIVE'
+    })
+    expect(result.items[1]).toMatchObject({
+      verifiedQuality: 'UNKNOWN',
+      qualityReason: 'NO_FINAL_SUCCESSFUL_ATTEMPT'
+    })
+    expect(result.items[0]).not.toHaveProperty('deliveryEvidence')
   })
 
   it('filters task item batches in the database before applying the cursor and limit', async () => {

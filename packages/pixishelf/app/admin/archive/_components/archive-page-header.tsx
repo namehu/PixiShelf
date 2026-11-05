@@ -2,12 +2,13 @@
 
 import Link from 'next/link'
 import type { inferRouterOutputs } from '@trpc/server'
-import { Archive, Inbox, RefreshCw } from 'lucide-react'
+import { Archive, Inbox, RefreshCw, ScanLine } from 'lucide-react'
 import type { AppRouter } from '@/server'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
+import { archiveQualityAuditHref } from '@/lib/archive-quality-audit-navigation'
 import { ArchiveAddDialog } from './archive-add-dialog'
 import { archiveLaneStatusLabel } from './archive-task-view-state'
 
@@ -27,6 +28,12 @@ export function ArchivePageActions({
       <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing}>
         {refreshing ? <Spinner data-icon="inline-start" /> : <RefreshCw data-icon="inline-start" aria-hidden="true" />}
         刷新
+      </Button>
+      <Button asChild variant="outline" size="sm">
+        <Link href={archiveQualityAuditHref}>
+          <ScanLine data-icon="inline-start" aria-hidden="true" />
+          历史画质核验
+        </Link>
       </Button>
       <Button asChild variant="outline" size="sm">
         <Link href="/admin/archive/inbox?tab=inbox">

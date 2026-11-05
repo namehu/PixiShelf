@@ -34,6 +34,9 @@ describe('system setting service', () => {
       local_import_default_tag_ids: [],
       archive_default_tag_ids: []
     })
+    expect(settingFindManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: { key: { in: ['replace_default_tag_ids', 'local_import_default_tag_ids', 'archive_default_tag_ids'] } }
+    }))
   })
 
   it('encodes and decodes replace default tag ids as json', async () => {

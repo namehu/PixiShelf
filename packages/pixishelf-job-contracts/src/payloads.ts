@@ -3,6 +3,7 @@ import { artworkDedupMaintenancePayloadSchema } from './artwork-dedup-maintenanc
 import { artworkDedupScanPayloadSchema } from './artwork-dedup.ts'
 import { artworkSummaryPayloadSchema } from './artwork-summary.ts'
 import { discoveryBatchPayloadSchema } from './archive-discovery-batch.ts'
+import { archiveQualityAuditPayloadSchema } from './archive-quality.ts'
 import { z } from 'zod'
 import { JOB_DEFINITION_VERSION, type JobType } from './job-types.ts'
 import { MEDIA_FILE_EXTENSIONS } from './media-types.ts'
@@ -373,7 +374,8 @@ export const archiveRetirePartialPayloadSchema = z
   .strict()
 export const archiveMaintenancePayloadSchema = z.discriminatedUnion('action', [
   ...archiveMaintenanceV1PayloadSchema.options,
-  archiveRetirePartialPayloadSchema
+  archiveRetirePartialPayloadSchema,
+  archiveRetirePartialPayloadSchema.extend({ action: z.literal('RETIRE_ORIGINAL_REVISION') })
 ])
 export type ArchiveMaintenancePayload = z.infer<typeof archiveMaintenancePayloadSchema>
 
@@ -552,6 +554,7 @@ export const JOB_PAYLOAD_SCHEMAS = {
   ARCHIVE_DOWNLOAD: archiveImportV2PayloadSchema,
   ARCHIVE_PUBLISH: archiveImportV2PayloadSchema,
   ARCHIVE_DEFAULT_TAG_BACKFILL: archiveDefaultTagBackfillPayloadSchema,
+  ARCHIVE_QUALITY_AUDIT: archiveQualityAuditPayloadSchema,
   ARCHIVE_MAINTENANCE: archiveMaintenancePayloadSchema,
   ARCHIVE_INTAKE_RETENTION_CLEANUP: emptyJobPayloadSchema,
   SCAN_RUN_RETENTION_CLEANUP: emptyJobPayloadSchema,

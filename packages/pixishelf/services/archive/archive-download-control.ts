@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '@pixishelf/db'
-import { ARCHIVE_COVERAGE_DEFINITION_VERSION, type ArchiveDownloadPreparation } from '@pixishelf/job-contracts'
+import {
+  ARCHIVE_COVERAGE_DEFINITION_VERSION,
+  ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION,
+  type ArchiveDownloadPreparation
+} from '@pixishelf/job-contracts'
 import { prisma } from '@/lib/prisma'
 import { writeJobEvents, type JobEventWriteInput } from '@/services/background-task/job-event-service'
 import {
@@ -32,6 +36,7 @@ const targetSelect = {
   origin: true,
   sourceTotalItems: true,
   completionBaseRevisionId: true,
+  upgradeBaseRevisionId: true,
   completedItems: true,
   totalItems: true,
   failedItems: true,
@@ -144,7 +149,7 @@ export async function controlArchiveDownloads(
       ) {
         invalid = conflict('STATE_CONFLICT', '归档任务绑定或状态已改变，请刷新后重试')
       } else if (task.cleanupRequestedAt) invalid = conflict('CLEANUP_IN_PROGRESS', '归档任务正在清理暂存文件')
-      else if (input.useDisplayQuality && task.completionBaseRevisionId) {
+      else if (input.useDisplayQuality && (task.completionBaseRevisionId || task.upgradeBaseRevisionId)) {
         invalid = conflict('STATE_CONFLICT', '补全必须沿用原归档画质；需要更换画质时请通过完整更新重新确认。')
       } else if (
         input.action === 'RESUME'
@@ -234,7 +239,11 @@ export async function controlArchiveDownloads(
               id: nextJobId,
               type: 'ARCHIVE_DOWNLOAD',
               executionLane: 'ARCHIVE_DOWNLOAD',
-              definitionVersion: task.sourceTotalItems == null ? 1 : ARCHIVE_COVERAGE_DEFINITION_VERSION,
+              definitionVersion: task.upgradeBaseRevisionId
+                ? ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION
+                : task.sourceTotalItems == null
+                  ? 1
+                  : ARCHIVE_COVERAGE_DEFINITION_VERSION,
               status: 'PENDING',
               triggerSource:
                 task.origin === 'AUTO' ? 'SYSTEM' : task.origin === 'MANUAL' ? 'MANUAL' : task.systemJob.triggerSource,

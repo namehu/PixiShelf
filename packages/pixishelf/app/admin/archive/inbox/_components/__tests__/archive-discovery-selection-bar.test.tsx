@@ -122,10 +122,10 @@ it('keeps the intake summary textual in selection presentation and edits the sam
     return <ArchiveIntakeOptionsDialog value={value} onChange={setValue} presentation="selection" />
   }
   render(<Options />)
-  const summary = screen.getByText('自动下载 · 原图 · 全部')
+  const summary = screen.getByText('自动下载 · 展示图 · 全部')
   expect(summary.className).not.toContain('hidden')
-  fireEvent.click(screen.getByRole('button', { name: '自动下载 · 原图 · 全部' }))
+  fireEvent.click(screen.getByRole('button', { name: '自动下载 · 展示图 · 全部' }))
   fireEvent.click(screen.getByRole('radio', { name: '前20张' }))
   fireEvent.click(screen.getByRole('button', { name: '完成' }))
-  expect(screen.getByRole('button', { name: '自动下载 · 原图 · 前20张' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: '自动下载 · 展示图 · 前20张' })).toBeTruthy()
 })

@@ -5,6 +5,7 @@ import {
   archiveMaintenancePayloadSchema,
   archiveMaintenanceV1PayloadSchema,
   ARCHIVE_COVERAGE_DEFINITION_VERSION,
+  ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION,
   JOB_DEFINITION_VERSION,
   type ArchiveMaintenancePayload
 } from '@pixishelf/job-contracts'
@@ -55,7 +56,7 @@ const ARCHIVE_PUBLISH_ADVISORY_LOCK_ID = 7_341_902_117
 
 type ArchiveMaintenanceContext = ExecutionContext<ArchiveMaintenancePayload, EnqueuedChildJob>
 type ArchiveMaintenanceResult =
-  | { action: 'RETIRE_PARTIAL_REVISION'; revisionId: string; replacementRevisionId: string }
+  | { action: 'RETIRE_PARTIAL_REVISION' | 'RETIRE_ORIGINAL_REVISION'; revisionId: string; replacementRevisionId: string }
   | { action: 'CLEAN_STAGING'; archiveImportId: string }
   | { action: 'TRASH_ARCHIVE' | 'RESTORE_ARCHIVE'; artworkId: number }
   | { action: 'PURGE_ARCHIVE'; artworkId: number }
@@ -74,7 +75,7 @@ export function createArchiveMaintenanceExecutorRegistrations(
   dependencies: ArchiveMaintenanceExecutorDependencies
 ): ExecutorDefinition<ArchiveMaintenancePayload, ArchiveMaintenanceResult>[] {
   if (!dependencies.config.scanRoot.trim()) throw new Error('归档维护需要配置扫描根目录')
-  return [JOB_DEFINITION_VERSION, ARCHIVE_COVERAGE_DEFINITION_VERSION].map((definitionVersion) => ({
+  return [JOB_DEFINITION_VERSION, ARCHIVE_COVERAGE_DEFINITION_VERSION, ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION].map((definitionVersion) => ({
     jobType: 'ARCHIVE_MAINTENANCE',
     executionLane: 'BACKGROUND_WRITER',
     definitionVersion,
@@ -95,7 +96,7 @@ export async function executeArchiveMaintenance(
     return executeArchiveReconcile(context, dependencies)
   }
   try {
-    if (context.payload.action === 'RETIRE_PARTIAL_REVISION')
+    if (context.payload.action === 'RETIRE_PARTIAL_REVISION' || context.payload.action === 'RETIRE_ORIGINAL_REVISION')
       return await executePartialRetirement(context, context.payload, dependencies)
     if (context.payload.action === 'CLEAN_STAGING') {
       return await executeStagingCleanup(context, context.payload, dependencies)

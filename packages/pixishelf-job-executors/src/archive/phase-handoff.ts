@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import {
   archiveImportV2PayloadSchema,
   ARCHIVE_COVERAGE_DEFINITION_VERSION,
+  ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION,
   type ArchiveImportV2Payload
 } from '@pixishelf/job-contracts'
 import type { ExecutionContext, FencedExecutionTransaction } from '@pixishelf/job-runtime'
@@ -53,7 +54,11 @@ export async function handoffArchivePhase(
       id,
       type: phase === 'DOWNLOAD' ? 'ARCHIVE_DOWNLOAD' : 'ARCHIVE_PUBLISH',
       executionLane: phase === 'DOWNLOAD' ? 'ARCHIVE_DOWNLOAD' : 'BACKGROUND_WRITER',
-      definitionVersion: current.sourceTotalItems === null ? 1 : ARCHIVE_COVERAGE_DEFINITION_VERSION,
+      definitionVersion: current.upgradeBaseRevisionId
+        ? ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION
+        : current.sourceTotalItems === null
+          ? 1
+          : ARCHIVE_COVERAGE_DEFINITION_VERSION,
       status: 'PENDING',
       triggerSource,
       requestedByUserId: predecessor.requestedByUserId,
@@ -110,21 +115,24 @@ export async function finalizeArchivePublication(
   publication: ArchivePublishResult,
   now: Date
 ) {
-  const { retirementRevisionId, ...result } = publication
+  const { retirementRevisionId, originalUpgrade, ...result } = publication
   if (retirementRevisionId) {
     const retirementJobId = randomUUID()
+    const message = originalUpgrade ? '清理原图升级后的旧归档副本' : '清理补全后的旧部分归档副本'
     await scope.transaction.systemJob.create({
       data: {
         id: retirementJobId,
         type: 'ARCHIVE_MAINTENANCE',
         executionLane: 'BACKGROUND_WRITER',
-        definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
+        definitionVersion: originalUpgrade
+          ? ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION
+          : ARCHIVE_COVERAGE_DEFINITION_VERSION,
         status: 'PENDING',
         triggerSource: 'SYSTEM',
         parentJobId,
         idempotencyKey: `archive-retire:${result.revisionId}`,
         payload: {
-          action: 'RETIRE_PARTIAL_REVISION',
+          action: originalUpgrade ? 'RETIRE_ORIGINAL_REVISION' : 'RETIRE_PARTIAL_REVISION',
           revisionId: retirementRevisionId,
           replacementRevisionId: result.revisionId
         },
@@ -132,11 +140,11 @@ export async function finalizeArchivePublication(
         effectivePriority: 100,
         availableAt: now,
         maxAttempts: 3,
-        message: '清理补全后的旧部分归档副本'
+        message
       }
     })
     await scope.transaction.systemJobEvent.create({
-      data: { jobId: retirementJobId, type: 'job.queued', attempt: 0, message: '清理补全后的旧部分归档副本' }
+      data: { jobId: retirementJobId, type: 'job.queued', attempt: 0, message }
     })
   }
   await scope.complete({ result, message: '归档导入已发布' })

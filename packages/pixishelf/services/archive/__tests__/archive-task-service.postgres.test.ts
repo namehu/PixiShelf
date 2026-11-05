@@ -400,7 +400,7 @@ describePostgres('archive task PostgreSQL contracts', () => {
         definitionVersion: 1,
         payload: { archiveImportId: task.importId, defaultTagIds: [] }
       })
-      expect(current).toMatchObject({ status: 'PENDING', phase: 'DOWNLOAD', origin: null })
+      expect(current).toMatchObject({ status: 'PENDING', phase: 'DOWNLOAD', origin: null, selectedQuality: 'ORIGINAL' })
       expect(await database.systemJob.findUniqueOrThrow({ where: { id: task.jobId } })).toEqual(legacyJobBefore)
       expect(
         await database.archiveImportExecution.findUniqueOrThrow({ where: { jobId: current.systemJobId } })

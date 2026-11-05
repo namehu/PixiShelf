@@ -9,6 +9,14 @@ sources:
 
 # PixiShelf 数据库设计补充文档
 
+## 归档实际画质证据
+
+`20261105010000_archive_quality_evidence` 仅增量增加成功下载项的 `deliveryEvidence` 与修订的 `qualityEvidence`、画质汇总、核验时间和定义版本。旧行保持 NULL/UNKNOWN；迁移不从请求偏好推断画质，也不读取文件或请求原站。新发布在同一数据库事务保存逐页证据和汇总。
+
+逐页证据冻结 Image ID、顺序、相对路径、字节数、SHA-256、来源页及判断理由，下载证据额外绑定最终成功尝试与交付地址。原图复用必须再次对应修订的冻结媒体身份；历史补全只沿同来源页、同序号和同内容的冻结复用链继承。任意未知页使汇总为 UNKNOWN；已核验的原图与展示图并存为 MIXED，各档页数独立保存。完整用户语义见[EH 归档画质](../../../docs/features/archive-quality.md)。
+
+`ARCHIVE_QUALITY_AUDIT` 复用 SystemJob 的持久结果保存最大作品范围和批次游标，每批让出 Writer。暂停继续、Worker 恢复及失败重试保留已提交进度，取消不会清除已核验修订。此任务只改数据库证据，不改原媒体、阅读或整理记录。升级按正式 generate/deploy 流程执行；回退前停止新核验任务并保持这些增量字段，恢复依据使用数据库检查点，媒体沿用同一发布检查点。
+
 ## 归档下载控制
 
 `20261102120000_archive_download_preparation` 为执行记录新增可空 JSON 准备意图，SQL NULL 保留旧恢复行为，不回填历史行。DOWNLOAD 控制只锁旧 SystemJob 并通过归档 CAS 取得赢家；原有活动来源部分唯一索引继续限制同 Provider/外部 ID 的活动归档。重试批量写入准备范围，Worker 在 fenced start 事务内消费；协议和版本回退门禁统一见[归档生命周期](../../../docs/features/archive-lifecycle.md#下载重试与继续)。

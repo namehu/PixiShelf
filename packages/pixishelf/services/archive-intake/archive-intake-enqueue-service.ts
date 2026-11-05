@@ -69,7 +69,7 @@ export async function enqueueArchiveIntakeMany(
     },
     (transaction, itemId) =>
       enqueueArchiveIntakeItemInTransaction(transaction, itemId, {
-        quality: qualityByItemId.get(itemId) ?? 'ORIGINAL',
+        quality: qualityByItemId.get(itemId) ?? 'DISPLAY',
         downloadScope: optionsByItemId.get(itemId)?.downloadScope,
         requestedByUserId,
         timestamp: now(),
@@ -81,6 +81,6 @@ export async function enqueueArchiveIntakeMany(
       }),
     { database, now },
     (transaction, itemId, error) =>
-      recoverArchiveIntakeEnqueueRace(transaction, itemId, qualityByItemId.get(itemId) ?? 'ORIGINAL', error, now())
+      recoverArchiveIntakeEnqueueRace(transaction, itemId, qualityByItemId.get(itemId) ?? 'DISPLAY', error, now())
   )
 }

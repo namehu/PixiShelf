@@ -12,6 +12,7 @@ vi.mock('../_components/archive-coverage-footer', () => ({
     <div data-testid="archive-coverage-footer" data-artwork-id={artworkId} data-revision-id={initial.revisionId} />
   )
 }))
+vi.mock('../_components/archive-quality-panel', () => ({ ArchiveQualityPanel: () => <div data-testid="archive-quality-panel" /> }))
 
 vi.mock('@/services/artwork-service/reader', () => ({
   getArtworkReaderInitial: vi.fn(async () => ({

@@ -19,7 +19,7 @@ describe('artwork media summary', () => {
     expect(screen.queryByText(/预计阅读/)).toBeNull()
     expect(screen.getByText('0 B')).toBeTruthy()
     rerender(<ArtworkMediaSummary count={2} totalBytes={1024} unknownSizeCount={1} />)
-    expect(screen.getByText(/已知原文件/)).toBeTruthy()
+    expect(screen.getByText(/已知本地文件/)).toBeTruthy()
     expect(screen.getByText('另有 1 个文件大小未知')).toBeTruthy()
   })
 })

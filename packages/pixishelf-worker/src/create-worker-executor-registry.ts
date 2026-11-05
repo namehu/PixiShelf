@@ -31,7 +31,8 @@ import {
   createVideoProcessingExecutorRegistrations,
   createVideoKeyframeExecutorRegistrations,
   GovernedArchiveProviderRegistry,
-  getArchiveProviderGovernor
+  getArchiveProviderGovernor,
+  loadEhCookie
 } from '@pixishelf/job-executors'
 import type { WorkerConfig } from './config.js'
 import { ExecutorRegistry } from './executor-registry.js'
@@ -100,7 +101,7 @@ export function createWorkerExecutorRegistry(input: {
     })
   )
   const archiveProviders = new GovernedArchiveProviderRegistry(
-    createDefaultArchiveMediaProviderRegistry(),
+    createDefaultArchiveMediaProviderRegistry({ getEhCookie: () => loadEhCookie(input.database) }),
     getArchiveProviderGovernor(input.database)
   )
   for (const definition of createArchiveResolverExecutorRegistrations({

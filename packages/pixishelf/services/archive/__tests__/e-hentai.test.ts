@@ -14,6 +14,16 @@ function createHttpMock() {
 }
 
 describe('E-Hentai archive provider', () => {
+  it('pauses without a shared Cookie before making the original request', async () => {
+    const http = createHttpMock()
+    http.text.mockResolvedValue('<a href="/fullimg/123/key/1/source">Download original 2 x 3 100 B</a>')
+    await expect(new EHentaiProvider(http as never).openMedia(
+      { index: 0, sourcePageUrl: 'https://e-hentai.org/s/a/123-1', locator: {}, expectedFilename: '0001' },
+      { quality: 'ORIGINAL' }
+    )).rejects.toMatchObject({ code: 'ORIGINAL_UNAVAILABLE', pause: true })
+    expect(http.request).not.toHaveBeenCalled()
+  })
+
   it.each([
     {
       metadata: { parent_gid: '122', parent_key: 'parenttoken' },
@@ -72,7 +82,7 @@ describe('E-Hentai archive provider', () => {
       <div><a href="https://e-hentai.org/s/bbbbbbbbbb/123-2">two</a></div>
       <div><a href="/s/aaaaaaaaaa/123-1">one</a></div>
     `)
-    const provider = new EHentaiProvider(http as unknown as SafeHttpClient)
+    const provider = new EHentaiProvider(http as unknown as SafeHttpClient, { getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture' })
     const result = await provider.resolve('https://e-hentai.org/g/123/abcdef1234/')
 
     expect(result.externalId).toBe('123')
@@ -104,7 +114,7 @@ describe('E-Hentai archive provider', () => {
       ]
     })
     http.text.mockResolvedValue('<a href="https://e-hentai.org/s/page123456/123-1">one</a>')
-    const provider = new EHentaiProvider(http as unknown as SafeHttpClient)
+    const provider = new EHentaiProvider(http as unknown as SafeHttpClient, { getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture' })
 
     const result = await provider.resolve('https://e-hentai.org/s/page123456/123-1')
 
@@ -129,7 +139,7 @@ describe('E-Hentai archive provider', () => {
       stream: Readable.from([Buffer.from('png')]),
       url: 'https://e-hentai.org/fullimg.php?gid=123&page=1&key=abc'
     })
-    const provider = new EHentaiProvider(http as unknown as SafeHttpClient)
+    const provider = new EHentaiProvider(http as unknown as SafeHttpClient, { getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture' })
     const remote = await provider.openMedia(
       { index: 0, sourcePageUrl: 'https://e-hentai.org/s/a/123-1', locator: {}, expectedFilename: '0001' },
       { quality: 'ORIGINAL' }
@@ -153,7 +163,7 @@ describe('E-Hentai archive provider', () => {
       stream: Readable.from([]),
       url: 'https://e-hentai.org/fullimg.php?gid=123&page=1&key=abc'
     })
-    const provider = new EHentaiProvider(http as unknown as SafeHttpClient)
+    const provider = new EHentaiProvider(http as unknown as SafeHttpClient, { getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture' })
 
     await expect(
       provider.openMedia(
@@ -179,7 +189,7 @@ describe('E-Hentai archive provider', () => {
       stream: Readable.from([]),
       url: 'https://e-hentai.org/fullimg.php?gid=123&page=1&key=abc'
     })
-    const provider = new EHentaiProvider(http as unknown as SafeHttpClient)
+    const provider = new EHentaiProvider(http as unknown as SafeHttpClient, { getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture' })
 
     await expect(
       provider.openMedia(

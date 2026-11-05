@@ -1,4 +1,7 @@
-import { ARCHIVE_COVERAGE_DEFINITION_VERSION } from '@pixishelf/job-contracts'
+import {
+  ARCHIVE_COVERAGE_DEFINITION_VERSION,
+  ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION
+} from '@pixishelf/job-contracts'
 import { lockCreatorCatalog } from '@pixishelf/db'
 import { retryUnresolvedArchivePublication } from './archive-publication-retry'
 import {
@@ -29,6 +32,7 @@ import { writeJobEvent } from '@/services/background-task/job-event-service'
 import { archiveTaskActionIneligibility, recoverAppliedArchiveTaskAction } from './archive-task-action-policy'
 import { archiveWireErrorMessage, redactArchiveText, redactArchiveUrl } from './archive-redaction'
 import { archiveImportDefaultTagIdsForRetry } from './archive-job-payload'
+import { archiveSourceSizeBytes } from './archive-source-metadata'
 
 import { archiveTaskCreatorSummaries } from './archive-task-creators'
 import { unboundArchiveTaskIds } from './archive-task-unbound-query'
@@ -260,7 +264,11 @@ async function applyTaskAction(
         id: nextJobId,
         type: phase === 'PUBLISH' ? 'ARCHIVE_PUBLISH' : 'ARCHIVE_DOWNLOAD',
         executionLane: phase === 'PUBLISH' ? 'BACKGROUND_WRITER' : 'ARCHIVE_DOWNLOAD',
-        definitionVersion: task.sourceTotalItems == null ? 1 : ARCHIVE_COVERAGE_DEFINITION_VERSION,
+        definitionVersion: task.upgradeBaseRevisionId
+          ? ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION
+          : task.sourceTotalItems == null
+            ? 1
+            : ARCHIVE_COVERAGE_DEFINITION_VERSION,
         status: 'PENDING',
         triggerSource:
           task.origin === 'AUTO' ? 'SYSTEM' : task.origin === 'MANUAL' ? 'MANUAL' : task.systemJob.triggerSource,
@@ -552,7 +560,16 @@ function buildArchiveTaskWireSelect(attributionWhere: Prisma.ArchiveIntakeItemWh
     publishedArtworkDeletedAt: true,
     publishedArtworkPurgedAt: true,
     publishedArtwork: { select: { id: true, title: true, deletedAt: true, archiveLifecycleState: true } },
-    publishedRevision: { select: { id: true } },
+    publishedRevision: {
+      select: {
+        id: true,
+        qualityStatus: true,
+        qualityOriginalCount: true,
+        qualityDisplayCount: true,
+        qualityUnknownCount: true,
+        qualityVerifiedAt: true
+      }
+    },
     systemJob: {
       select: {
         id: true,
@@ -605,6 +622,7 @@ function serializeTask(task: ArchiveTaskWire) {
     externalId: task.externalId,
     submittedUrl: redactArchiveUrl(task.submittedUrl),
     title: nestedTitle(task.normalizedMetadata),
+    sourceSizeBytes: archiveSourceSizeBytes(task.normalizedMetadata),
     status: task.status,
     requestedQuality: task.requestedQuality,
     selectedQuality: task.selectedQuality,
@@ -629,6 +647,15 @@ function serializeTask(task: ArchiveTaskWire) {
     publishedArtworkDeletedAt: task.publishedArtworkDeletedAt,
     publishedArtworkPurgedAt: task.publishedArtworkPurgedAt,
     revisionId: task.publishedRevision?.id ?? null,
+    localQuality: task.publishedRevision
+      ? {
+          status: task.publishedRevision.qualityStatus,
+          originalCount: task.publishedRevision.qualityOriginalCount,
+          displayCount: task.publishedRevision.qualityDisplayCount,
+          unknownCount: task.publishedRevision.qualityUnknownCount,
+          verifiedAt: task.publishedRevision.qualityVerifiedAt
+        }
+      : null,
     submissionId: task.intakeItems[0]?.submissionId ?? null,
     kind: task.intakeItems[0]?.resolutionKind ?? null
   }

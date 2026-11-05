@@ -1,10 +1,13 @@
 'use client'
 
+import { ArchiveQualityBadge } from '@/components/artwork/archive-quality-badge'
+
 import type { inferRouterOutputs } from '@trpc/server'
 import { ExternalLinkIcon, BookOpenIcon } from 'lucide-react'
 import type { AppRouter } from '@/server'
 import { DISCOVERY_LANGUAGES } from '@/lib/archive-discovery-filters'
 import { cn } from '@/lib/utils'
+import { formatArchiveSourceSize } from '@/lib/archive-source-size'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
@@ -187,6 +190,7 @@ export function ScanResults({
                 </div>
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
                   <CatalogStatusBadge item={item} />
+                  {item.localQuality ? <ArchiveQualityBadge quality={item.localQuality} /> : null}
                   <DiscoveryCreatorStatus
                     effectiveCreators={item.effectiveCreators}
                     pendingCreators={item.pendingCreators}
@@ -210,6 +214,7 @@ export function ScanResults({
                       : '语言未知'}
                   </PrivacySensitiveText>{' '}
                   · {item.fileCount ? `${item.fileCount} 页 · ` : ''}
+                  {item.sourceSizeBytes ? `原站整部 ${formatArchiveSourceSize(item.sourceSizeBytes)} · ` : '原站整部大小未知 · '}
                   <span className="whitespace-nowrap">
                     {item.postedAt ? formatArchiveUploaderTimestamp(item.postedAt) : '发布时间未知'}
                   </span>

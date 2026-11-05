@@ -1,4 +1,5 @@
 import { Prisma, type PrismaClient } from '@pixishelf/db'
+import type { ArchiveQualitySummary } from '@pixishelf/job-contracts'
 import { DISCOVERY_LANGUAGES, DISCOVERY_UNKNOWN, type ArchiveDiscoveryFilters } from '@/lib/archive-discovery-filters'
 
 export const ARCHIVE_UPLOADER_CATALOG_VIEWS = [
@@ -45,6 +46,7 @@ export interface ArchiveUploaderCatalogStateRow {
   title: string
   thumbnailUrl: string | null
   fileCount?: Prisma.JsonValue
+  fileSize?: Prisma.JsonValue
   category?: string | null
   languages?: string[]
   uploaderName: string | null
@@ -62,6 +64,7 @@ export interface ArchiveUploaderCatalogStateRow {
   archiveImportId: string | null
   archiveImportStatus: string | null
   artworkId: number | null
+  localQuality?: ArchiveQualitySummary | null
   errorCode: string | null
   errorMessage: string | null
   deletableFailure: boolean
@@ -125,6 +128,7 @@ export async function listArchiveUploaderCatalogState(
       state."comparisonSnapshot",
       state."thumbnailUrl",
       state."comparisonSnapshot"->'fileCount' AS "fileCount",
+      state."comparisonSnapshot"->'fileSize' AS "fileSize",
       NULLIF(state."comparisonSnapshot"->>'category', '') AS "category",
       ${catalogLanguages('state')} AS "languages",
       state."uploaderName",
@@ -142,6 +146,13 @@ export async function listArchiveUploaderCatalogState(
       state."archiveImportId",
       state."archiveImportStatus",
       state."artworkId",
+      (SELECT jsonb_build_object(
+        'status', revision."qualityStatus", 'originalCount', revision."qualityOriginalCount",
+        'displayCount', revision."qualityDisplayCount", 'unknownCount', revision."qualityUnknownCount",
+        'verifiedAt', revision."qualityVerifiedAt")
+       FROM "archive_revisions" revision
+       WHERE revision."artworkId" = state."artworkId" AND revision."isCurrent" = TRUE
+       LIMIT 1) AS "localQuality",
       state."errorCode",
       state."errorMessage",
       state."recoverable",

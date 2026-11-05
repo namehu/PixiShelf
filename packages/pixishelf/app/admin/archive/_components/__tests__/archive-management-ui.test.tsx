@@ -13,9 +13,14 @@ import { ActiveArchiveDownloadPanel } from '../archive-active-download-panel'
 import { TaskProgress } from '../archive-task-progress'
 import { ArchiveTaskDetails } from '../archive-item-drawer'
 import { archiveTaskArtworkHref } from '../archive-task-navigation'
+import { ArchivePageActions } from '../archive-page-header'
 
 vi.mock('next/link', () => ({
   default: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>
+}))
+
+vi.mock('../archive-add-dialog', () => ({
+  ArchiveAddDialog: ({ trigger }: { trigger: React.ReactNode }) => trigger
 }))
 
 vi.mock('@/components/ui/checkbox', () => ({
@@ -90,6 +95,13 @@ describe('archive management UI', () => {
     cleanup()
     vi.useRealTimers()
     vi.unstubAllGlobals()
+  })
+
+  it('links to historical quality audit from the task page actions', () => {
+    render(<ArchivePageActions refreshing={false} onRefresh={vi.fn()} onCreated={vi.fn()} />)
+    expect(screen.getByRole('link', { name: '历史画质核验' }).getAttribute('href')).toBe(
+      '/admin/setting?tab=system#archive-quality'
+    )
   })
 
   it.each(['TRASHING', 'TRASHED', 'RESTORING', 'PURGING'])('opens task details for %s artworks', (lifecycle) => {
@@ -234,7 +246,7 @@ describe('archive management UI', () => {
 
   it('moves full timestamps, quality, attempts and media expansion into task details', () => {
     render(<ArchiveTaskDetails task={activeTask as any} />)
-    expect(screen.getByText('原图')).toBeTruthy()
+    expect(screen.getByText('请求：原图')).toBeTruthy()
     expect(screen.getByText('尝试 1')).toBeTruthy()
     expect(screen.getByText(/2026/)).toBeTruthy()
     expect(screen.queryByTestId('published-media')).toBeNull()

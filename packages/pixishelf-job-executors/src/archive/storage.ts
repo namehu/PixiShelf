@@ -5,6 +5,7 @@ import path from 'node:path'
 import sharp from 'sharp'
 import { ArchiveExecutorError, toArchiveExecutorError, withArchiveExecutorErrorContext } from './errors.ts'
 import type { ArchiveRemoteMedia } from './types.ts'
+import { classifyEhDelivery } from './eh-quality.ts'
 
 const DEFAULT_MAX_MEDIA_BYTES = 512 * 1024 * 1024
 
@@ -23,6 +24,18 @@ export interface StoredArchiveMedia {
   width: number
   height: number
   sha256: string
+  quality?: 'ORIGINAL' | 'DISPLAY' | null
+  deliveryEvidence?: {
+    version: 1
+    quality: 'ORIGINAL' | 'DISPLAY' | 'UNKNOWN'
+    reason: string
+    actualSha1: string
+    expectedSha1: string | null
+    responseMimeType: string | null
+    originalResponse: boolean
+    originalClaim?: import('./eh-quality.ts').EhOriginalClaim
+    sourceOriginalClaim?: import('./eh-quality.ts').EhOriginalClaim
+  }
 }
 
 export function buildArchiveStoragePaths(input: {
@@ -77,6 +90,7 @@ export async function storeArchiveRemoteMedia(input: {
   onStreamComplete?: () => void
 }): Promise<StoredArchiveMedia> {
   throwIfAborted(input.signal)
+  const originalRequired = input.remote.ehDelivery?.requestedQuality === 'ORIGINAL'
   const maxBytes = input.maxBytes ?? DEFAULT_MAX_MEDIA_BYTES
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new Error('归档媒体字节上限必须为正数')
   const sha1 = createHash('sha1')
@@ -180,22 +194,18 @@ export async function storeArchiveRemoteMedia(input: {
 
   if (expectedSha1 && mediaEvidence().actualSha1 !== expectedSha1) {
     await rm(partial, { force: true })
-    throw new ArchiveExecutorError('MEDIA_INVALID', '归档媒体 SHA-1 与来源声明不一致，下载内容已损坏或与目标文件不符', {
-      recoverable: true,
-      stage: 'MEDIA_VALIDATION',
-      ...mediaContext()
-    })
+    throw new ArchiveExecutorError(
+      originalRequired ? 'ORIGINAL_UNAVAILABLE' : 'MEDIA_INVALID',
+      '归档媒体 SHA-1 与来源声明不一致，下载内容已损坏或与目标文件不符',
+      {
+        recoverable: true,
+        pause: originalRequired,
+        stage: 'MEDIA_VALIDATION',
+        ...mediaContext()
+      }
+    )
   }
 
-  const mimeType = normalizeImageMimeType(input.remote.mimeType, filename)
-  if (!mimeType.startsWith('image/')) {
-    await rm(partial, { force: true })
-    throw new ArchiveExecutorError('MEDIA_INVALID', `不支持的归档媒体类型：${mimeType}`, {
-      recoverable: true,
-      stage: 'MEDIA_VALIDATION',
-      ...mediaContext()
-    })
-  }
   let metadata: sharp.Metadata
   try {
     // Only inspect the first frame's dimensions. Loading every frame stacks their
@@ -205,7 +215,7 @@ export async function storeArchiveRemoteMedia(input: {
   } catch (error) {
     await rm(partial, { force: true })
     throw new ArchiveExecutorError(
-      'MEDIA_INVALID',
+      originalRequired ? 'ORIGINAL_UNAVAILABLE' : 'MEDIA_INVALID',
       head.length > 0 && head.every((byte) => byte === 0)
         ? '归档媒体文件头全部为零，图片内容已损坏'
         : error instanceof Error && /Input image exceeds pixel limit/i.test(error.message)
@@ -214,6 +224,7 @@ export async function storeArchiveRemoteMedia(input: {
       {
         cause: error,
         recoverable: true,
+        pause: originalRequired,
         stage: 'MEDIA_VALIDATION',
         ...mediaContext()
       }
@@ -226,6 +237,54 @@ export async function storeArchiveRemoteMedia(input: {
       stage: 'MEDIA_VALIDATION',
       ...mediaContext()
     })
+  }
+
+  const mimeType = metadata.format
+    ? normalizeImageMimeType(
+        null,
+        `image.${metadata.format === 'heif' && metadata.compression === 'av1' ? 'avif' : metadata.format}`
+      )
+    : 'application/octet-stream'
+  if (!mimeType.startsWith('image/')) {
+    await rm(partial, { force: true })
+    throw new ArchiveExecutorError(
+      originalRequired ? 'ORIGINAL_UNAVAILABLE' : 'MEDIA_INVALID',
+      '不支持的归档图片格式',
+      { recoverable: true, pause: originalRequired, stage: 'MEDIA_VALIDATION', ...mediaContext() }
+    )
+  }
+  const ehDelivery = input.remote.ehDelivery
+  const actualSha1 = sha1.copy().digest('hex')
+  const classified = ehDelivery
+    ? classifyEhDelivery({
+        url: input.remote.downloadUrl ?? '',
+        actual: {
+          byteCount,
+          width: metadata.width,
+          height: metadata.pageHeight ?? metadata.height,
+          mimeType,
+          sha1: actualSha1
+        },
+        originalResponse: ehDelivery.originalResponse,
+        responseMimeType: input.remote.mimeType,
+        ...(ehDelivery.originalClaim ? { originalClaim: ehDelivery.originalClaim } : {}),
+        ...(ehDelivery.sourceOriginalClaim ? { sourceOriginalClaim: ehDelivery.sourceOriginalClaim } : {})
+      })
+    : null
+  if (ehDelivery?.requestedQuality === 'ORIGINAL' && classified?.quality !== 'ORIGINAL') {
+    await rm(partial, { force: true })
+    throw new ArchiveExecutorError(
+      'ORIGINAL_UNAVAILABLE',
+      classified?.quality === 'DISPLAY'
+        ? '原图请求返回了展示图，任务已暂停；请检查 EH Cookie 或原图额度后重试'
+        : '无法确认实收文件为原图，任务已暂停；请检查 EH Cookie 或原图访问权限后重试',
+      {
+        recoverable: true,
+        pause: true,
+        stage: 'MEDIA_VALIDATION',
+        ...mediaContext()
+      }
+    )
   }
 
   throwIfAborted(input.signal)
@@ -242,7 +301,22 @@ export async function storeArchiveRemoteMedia(input: {
     mimeType,
     width: metadata.width,
     height: metadata.pageHeight ?? metadata.height,
-    sha256: hash.digest('hex')
+    sha256: hash.digest('hex'),
+    ...(classified && ehDelivery
+      ? {
+          quality: classified.quality === 'UNKNOWN' ? null : classified.quality,
+          deliveryEvidence: {
+            version: 1 as const,
+            ...classified,
+            actualSha1,
+            expectedSha1,
+            responseMimeType: input.remote.mimeType,
+            originalResponse: ehDelivery.originalResponse,
+            ...(ehDelivery.originalClaim ? { originalClaim: ehDelivery.originalClaim } : {}),
+            ...(ehDelivery.sourceOriginalClaim ? { sourceOriginalClaim: ehDelivery.sourceOriginalClaim } : {})
+          }
+        }
+      : {})
   }
 }
 

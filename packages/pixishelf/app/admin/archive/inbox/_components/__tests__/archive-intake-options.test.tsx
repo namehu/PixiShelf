@@ -18,7 +18,7 @@ it('chooses the first twenty independently of parsing mode and quality', () => {
     )
   }
   render(<Form />)
-  expect(screen.getByRole('status').textContent).toBe('自动下载 · 原图 · 全部')
+  expect(screen.getByRole('status').textContent).toBe('自动下载 · 展示图 · 全部')
   fireEvent.click(screen.getByRole('radio', { name: '前20张' }))
   fireEvent.click(screen.getByRole('radio', { name: '仅解析' }))
   fireEvent.click(screen.getByRole('radio', { name: '展示图' }))

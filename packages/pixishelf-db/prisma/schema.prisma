@@ -1128,6 +1128,8 @@ model DerivedMediaGcEntry {
 }
 
 model ArchiveImport {
+  upgradeBaseRevisionId String?
+  upgradeSnapshot Json?
   downloadScope ArchiveDownloadScope @default(ALL)
   sourceTotalItems Int?
   sourcePlanDigest String? @db.VarChar(64)
@@ -1150,8 +1152,8 @@ model ArchiveImport {
   canonicalUrl       String              @db.Text
   locator            Json
   status             ArchiveImportStatus @default(PENDING)
-  requestedQuality   ArchiveQuality      @default(ORIGINAL)
-  selectedQuality    ArchiveQuality      @default(ORIGINAL)
+  requestedQuality   ArchiveQuality      @default(DISPLAY)
+  selectedQuality    ArchiveQuality      @default(DISPLAY)
   decisionCode       String?             @db.VarChar(80)
   normalizedMetadata Json
   rawMetadata        Json
@@ -1246,6 +1248,8 @@ model ArchiveIntakeSubmission {
 }
 
 model ArchiveIntakeItem {
+  upgradeBaseRevisionId String?
+  upgradeSnapshot Json?
   downloadScope ArchiveDownloadScope @default(ALL)
   completionBaseRevisionId String?
   completionSnapshot Json?
@@ -1273,7 +1277,7 @@ model ArchiveIntakeItem {
   resolutionKind        ArchiveIntakeResolutionKind?
   duplicateOfItemId     String?
   activeArchiveImportId String?
-  selectedQuality       ArchiveQuality               @default(ORIGINAL)
+  selectedQuality       ArchiveQuality               @default(DISPLAY)
   downloadMode          ArchiveIntakeDownloadMode    @default(MANUAL)
   resolvedAt            DateTime?
   expiresAt             DateTime?
@@ -1297,6 +1301,7 @@ model ArchiveIntakeItem {
   uploaderScanItem      ArchiveUploaderScanItem?     @relation("ArchiveUploaderScanIntakeItem")
   uploaderCatalogItems  ArchiveUploaderCatalogItem[] @relation("ArchiveUploaderCatalogIntakeItem")
 
+  @@index([upgradeBaseRevisionId], map: "archive_intake_items_upgrade_base_idx")
   @@index([status, queueOrder])
   @@index([submissionId, createdAt])
   @@index([normalizedUrlHash, status])
@@ -1657,6 +1662,8 @@ model ArchivePreviewSession {
 }
 
 model ArchiveImportItem {
+  /// Verified delivery classification bound to the final successful download attempt.
+  deliveryEvidence Json?
   id               String                  @id @default(cuid())
   archiveImportId  String
   pageIndex        Int
@@ -1707,6 +1714,14 @@ model ArchiveDeletedIdentity {
 }
 
 model ArchiveRevision {
+  /// Evidence concerns the frozen local revision, never the requested download preference.
+  qualityEvidence Json?
+  qualityStatus ArchiveMediaQuality @default(UNKNOWN)
+  qualityOriginalCount Int @default(0)
+  qualityDisplayCount Int @default(0)
+  qualityUnknownCount Int @default(0)
+  qualityVerifiedAt DateTime?
+  qualityDefinitionVersion Int?
   downloadScope ArchiveDownloadScope @default(ALL)
   sourceTotalItems Int?
   sourcePlanDigest String? @db.VarChar(64)
@@ -2535,6 +2550,13 @@ enum ArchiveDownloadScope {
 enum ArchiveQuality {
   ORIGINAL
   DISPLAY
+}
+
+enum ArchiveMediaQuality {
+  ORIGINAL
+  DISPLAY
+  MIXED
+  UNKNOWN
 }
 
 enum ArchiveLifecycleState {

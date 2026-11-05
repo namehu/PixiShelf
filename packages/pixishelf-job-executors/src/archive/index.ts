@@ -8,6 +8,10 @@ export * from './uploader-scan-executor.ts'
 export * from './uploader-catalog-lock.ts'
 export * from './providers/e-hentai.ts'
 export * from './types.ts'
+export * from './eh-quality.ts'
+export * from './quality-evidence.ts'
+export * from './quality-audit-executor.ts'
+export * from './eh-cookie.ts'
 
 export * from './intake-enqueue.ts'
 

@@ -161,7 +161,7 @@ export function reconcileArchiveIntakeSelection(
 
   for (const item of items) {
     if (!isSelectableIntakeItem(item)) continue
-    if (!qualityById.has(item.id)) qualityById.set(item.id, item.selectedQuality ?? 'ORIGINAL')
+    if (!qualityById.has(item.id)) qualityById.set(item.id, item.selectedQuality ?? 'DISPLAY')
     if (isDefaultSelectedIntakeItem(item) && !manuallyDeselectedIds.has(item.id)) selectedIds.add(item.id)
   }
   return { ...state, selectedIds, manuallyDeselectedIds, qualityById }
