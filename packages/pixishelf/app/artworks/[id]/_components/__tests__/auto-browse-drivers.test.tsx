@@ -190,6 +190,20 @@ describe('scroll driver', () => {
     advance(100000)
     expect(getY()).toBeLessThanOrEqual(54)
   })
+  it('covers whole-pixel scroll rounding with a sub-pixel offset so low speeds move every frame', () => {
+    const { advance, getY, container, unmount } = setup()
+    act(() => store.getState().setPreferences({ scrollSpeed: 50 }))
+    const visual = () => getY() - Number(container.style.transform.match(/-?[\d.]+/)?.[0] ?? 0)
+    advance(0)
+    let previous = visual()
+    for (let frame = 1; frame <= 60; frame++) {
+      advance((frame * 1000) / 60)
+      expect(visual() - previous).toBeCloseTo(50 / 60, 1)
+      previous = visual()
+    }
+    unmount()
+    expect(container.style.transform).toBe('')
+  })
   it('keeps 500 px/s continuous across 60 Hz frames without repeated item layout reads', () => {
     const { advance, getY, container } = setup()
     act(() => store.getState().setPreferences({ scrollSpeed: 500 }))

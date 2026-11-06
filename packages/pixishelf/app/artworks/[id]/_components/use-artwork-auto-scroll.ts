@@ -163,6 +163,7 @@ export function useArtworkAutoScroll({
         state.wait()
         atEndSince = null
         position = window.scrollY
+        container.style.transform = ''
         frame = requestAnimationFrame(tick)
         return
       }
@@ -182,6 +183,7 @@ export function useArtworkAutoScroll({
           state.wait()
         }
         position = window.scrollY
+        container.style.transform = ''
         frame = requestAnimationFrame(tick)
         return
       }
@@ -218,6 +220,9 @@ export function useArtworkAutoScroll({
         )
         position = Math.min(end, waitingLine, position + (state.scrollSpeed * delta) / 1000)
         window.scrollTo({ top: position, behavior: 'instant' })
+        // 浏览器把滚动位置取整到 CSS 像素，低速时每几帧会停一帧；小数余量用位移补足，保证逐帧连续。
+        const remainder = Math.round((position - window.scrollY) * 100) / 100
+        container.style.transform = remainder ? `translateY(${-remainder}px)` : ''
       }
       frame = requestAnimationFrame(tick)
     }
@@ -225,6 +230,7 @@ export function useArtworkAutoScroll({
     return () => {
       // 调度取消不等于播放销毁：暂停/设置变更仍需保留当前帧。
       cancelAnimationFrame(frame)
+      if (containerRef.current) containerRef.current.style.transform = ''
     }
   }, [ready, active, containerRef, expand, expanded, images, revision])
 }
