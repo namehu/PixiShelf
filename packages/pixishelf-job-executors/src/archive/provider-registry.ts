@@ -52,8 +52,12 @@ export class DefaultArchiveMediaProviderRegistry implements ArchiveUploaderProvi
   }
 }
 
-export function createDefaultArchiveMediaProviderRegistry(): ArchiveUploaderProviderRegistry {
-  return new DefaultArchiveMediaProviderRegistry([new EHentaiProvider()])
+export function createDefaultArchiveMediaProviderRegistry(
+  options: { getEhCookie?: () => Promise<string | null> } = {}
+): ArchiveUploaderProviderRegistry {
+  return new DefaultArchiveMediaProviderRegistry([
+    new EHentaiProvider(undefined, options.getEhCookie ? { getCookie: options.getEhCookie } : {})
+  ])
 }
 
 function isArchiveUploaderProvider(provider: ArchiveMediaProvider): provider is ArchiveUploaderProvider {

@@ -58,7 +58,7 @@ describe('deleted artwork cache', () => {
     ]
     const list = [['artwork', 'list'], { input: { expectedUserId: 'alice' }, type: 'query' }]
     const readingPage = {
-      items: [{ artwork: { id: 1 }, reading: { seenCount: 1 } }, { artwork: { id: 42 } }],
+      items: [{ artwork: { id: 1 }, reading: { progressCount: 1 } }, { artwork: { id: 42 } }],
       nextCursor: { id: 42 }
     }
     const historyKeys = [

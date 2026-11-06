@@ -1,6 +1,6 @@
 import { extractJobDiagnostic } from '@pixishelf/job-contracts'
 import type { ArchiveRemoteMedia } from '../types.js'
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Readable } from 'node:stream'
@@ -31,7 +31,7 @@ async function storeImageFixture(
   image: Buffer,
   filename: string,
   mimeType: string,
-  remoteOptions: Partial<Pick<ArchiveRemoteMedia, 'expectedSha1' | 'httpStatus' | 'contentLength' | 'stream'>> = {}
+  remoteOptions: Partial<ArchiveRemoteMedia> = {}
 ) {
   const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-archive-storage-'))
   temporaryDirectories.push(root)
@@ -85,6 +85,107 @@ afterEach(async () => {
 })
 
 describe('archive executor storage safety', () => {
+  it.each(['ORIGINAL', 'DISPLAY'] as const)(
+    'records actual original bytes even when requested quality is %s',
+    async (requestedQuality) => {
+      const image = await sharp({ create: { width: 2, height: 3, channels: 3, background: 'blue' } })
+        .png()
+        .toBuffer()
+      const digest = createHash('sha1').update(image).digest('hex')
+      const { store } = await storeImageFixture(image, 'original.png', 'image/png', {
+        quality: requestedQuality,
+        expectedSha1: digest,
+        downloadUrl: `https://node.hath.network/om/1/${digest}-${image.length}-2-3-png/x/0/name.png`,
+        ehDelivery: { requestedQuality, originalResponse: false }
+      })
+      expect(await store()).toMatchObject({
+        quality: 'ORIGINAL',
+        mimeType: 'image/png',
+        deliveryEvidence: { quality: 'ORIGINAL', actualSha1: digest }
+      })
+    }
+  )
+
+  it.each(['derivative', 'unknown', 'wrong-dimensions', 'wrong-mime', 'wrong-claim'] as const)(
+    'pauses an unverified original without leaving files: %s',
+    async (kind) => {
+      const image = await sharp({ create: { width: 2, height: 3, channels: 3, background: 'blue' } })
+        .png()
+        .toBuffer()
+      const digest = createHash('sha1').update(image).digest('hex')
+      const descriptor = `${digest}-${image.length}-${kind === 'wrong-dimensions' ? 20 : 2}-3-png`
+      const downloadUrl =
+        kind === 'unknown'
+          ? 'https://node.hath.network/opaque.png'
+          : kind === 'wrong-claim'
+            ? 'https://e-hentai.org/fullimg/1/key/1/source'
+            : kind === 'derivative'
+              ? `https://node.hath.network/om/1/${'a'.repeat(40)}-1000-20-30-jpg/${descriptor}/1280/name.png`
+              : `https://node.hath.network/om/1/${descriptor}/x/0/name.png`
+      const { root, store } = await storeImageFixture(
+        image,
+        'source.png',
+        kind === 'wrong-mime' ? 'image/jpeg' : 'image/png',
+        {
+          expectedSha1: digest,
+          downloadUrl,
+          ehDelivery: {
+            requestedQuality: 'ORIGINAL',
+            originalResponse: kind === 'wrong-claim',
+            ...(kind === 'wrong-claim' ? { originalClaim: { width: 2, height: 3, minBytes: 999, maxBytes: 1000 } } : {})
+          }
+        }
+      )
+      await expect(store()).rejects.toMatchObject({ code: 'ORIGINAL_UNAVAILABLE', pause: true })
+      expect(await readdir(path.join(root, 'media'))).toEqual([])
+    }
+  )
+
+  it('keeps unproven display deliveries UNKNOWN instead of trusting the requested label', async () => {
+    const image = await sharp({ create: { width: 2, height: 3, channels: 3, background: 'blue' } })
+      .png()
+      .toBuffer()
+    const { store } = await storeImageFixture(image, 'source.png', 'image/png', {
+      quality: 'DISPLAY',
+      downloadUrl: 'https://node.hath.network/opaque.png',
+      ehDelivery: { requestedQuality: 'DISPLAY', originalResponse: false }
+    })
+    expect(await store()).toMatchObject({ quality: null, deliveryEvidence: { quality: 'UNKNOWN' } })
+  })
+
+  it('stores the source comparison beside the exact bytes received from a display request', async () => {
+    const image = await sharp({ create: { width: 900, height: 3, channels: 3, background: 'blue' } })
+      .png()
+      .toBuffer()
+    const digest = createHash('sha1').update(image).digest('hex')
+    const sourceOriginalClaim = { width: 1800, height: 6, mimeType: 'image/png', minBytes: 900, maxBytes: 910 }
+    const { store } = await storeImageFixture(image, 'source.png', 'image/png', {
+      quality: 'DISPLAY',
+      downloadUrl: `https://node.hath.network/h/${digest}-${image.length}-900-3-png/key;xres=1280/source.png`,
+      expectedSha1: digest,
+      ehDelivery: { requestedQuality: 'DISPLAY', originalResponse: false, sourceOriginalClaim }
+    })
+    expect(await store()).toMatchObject({
+      quality: 'DISPLAY',
+      sha256: createHash('sha256').update(image).digest('hex'),
+      deliveryEvidence: {
+        quality: 'DISPLAY',
+        reason: 'EH_DISPLAY_DIFFERS_FROM_ORIGINAL_DECLARATION',
+        actualSha1: digest,
+        originalResponse: false,
+        sourceOriginalClaim
+      }
+    })
+  })
+
+  it('pauses a login HTML response instead of recording it as an original', async () => {
+    const { store } = await storeImageFixture(Buffer.from('<html>Please log in</html>'), 'source.png', 'text/html', {
+      downloadUrl: 'https://e-hentai.org/login',
+      ehDelivery: { requestedQuality: 'ORIGINAL', originalResponse: false }
+    })
+    await expect(store()).rejects.toMatchObject({ code: 'ORIGINAL_UNAVAILABLE', pause: true })
+  })
+
   it.each(['a'.repeat(160), '猫'.repeat(160)])(
     'stores a long source filename within filesystem byte limits: %s',
     async (stem) => {

@@ -332,7 +332,7 @@ function ArchiveTaskManagement() {
         setPendingSingleActions((current) => new Set(current).add(singleActionKey(variables.taskId, variables.action)))
       },
       onSuccess: async () => {
-        await refreshPage()
+        await Promise.all([refreshPage(), requestedTaskId ? deepLinkedTaskQuery.refetch() : null])
         setDetailRefreshVersion((value) => value + 1)
       },
       onError: () => toast.error('任务操作失败，请刷新后重试'),
@@ -679,6 +679,14 @@ function ArchiveTaskManagement() {
         task={detailTask}
         realtimeConnected={realtimeConnected}
         liveRefreshVersion={liveEvents.detailRefreshVersion}
+        displayQualityPending={Boolean(
+          detailTask && pendingSingleActions.has(singleActionKey(detailTask.id, 'USE_DISPLAY_QUALITY'))
+        )}
+        onUseDisplayQuality={() => {
+          if (detailTask?.canUseDisplayQuality) {
+            singleActionMutation.mutate({ taskId: detailTask.id, action: 'USE_DISPLAY_QUALITY' })
+          }
+        }}
         onOpenChange={(open) => {
           if (!open) {
             setDetailTask(null)

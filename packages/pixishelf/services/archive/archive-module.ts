@@ -1,4 +1,7 @@
-import { ARCHIVE_COVERAGE_DEFINITION_VERSION } from '@pixishelf/job-contracts'
+import {
+  ARCHIVE_COVERAGE_DEFINITION_VERSION,
+  ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION
+} from '@pixishelf/job-contracts'
 import { lockCreatorCatalog } from '@pixishelf/db'
 import { retryUnresolvedArchivePublication } from './archive-publication-retry'
 import {
@@ -15,6 +18,8 @@ import {
   archiveUploaderUrlLockKey
 } from '@pixishelf/job-contracts'
 import { extractJobDiagnostic } from '@pixishelf/job-contracts'
+import { archiveQualityEvidenceSchema } from '@pixishelf/job-contracts'
+import { classifyArchiveCompletedDelivery } from '@pixishelf/job-executors'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { writeJobEvent } from '@/services/background-task/job-event-service'
@@ -40,7 +45,7 @@ export class ArchiveModule {
     const normalizedLimit = Math.min(Math.max(limit, 1), 100)
     const task = await prisma.archiveImport.findUnique({
       where: { id: taskId },
-      select: { id: true, totalItems: true }
+      select: { id: true, totalItems: true, publishedRevision: { select: { qualityEvidence: true } } }
     })
     if (!task) throw new ArchiveError('INTERNAL', '归档任务不存在')
 
@@ -65,6 +70,8 @@ export class ArchiveModule {
         byteCount: true,
         mimeType: true,
         quality: true,
+        deliveryEvidence: true,
+        sha256: true,
         width: true,
         height: true,
         errorCode: true,
@@ -78,39 +85,59 @@ export class ArchiveModule {
     })
     const hasNextPage = rows.length > normalizedLimit
     const items = hasNextPage ? rows.slice(0, normalizedLimit) : rows
+    const publishedEvidence = archiveQualityEvidenceSchema.safeParse(task.publishedRevision?.qualityEvidence)
 
     return {
       totalItems: task.totalItems,
       nextCursor: hasNextPage ? items.at(-1)?.pageIndex : undefined,
-      items: items.map((item) => ({
-        id: item.id,
-        pageIndex: item.pageIndex,
-        sourcePageUrl: archiveItemUrl(item.sourcePageUrl),
-        lastDownloadUrl: archiveItemUrl(item.lastDownloadUrl),
-        lastDownloadAt: item.lastDownloadAt?.toISOString() ?? null,
-        lastDownloadAttempt: item.lastDownloadAttempt ?? null,
-        expectedFilename: item.expectedFilename,
-        status: item.status,
-        attempts: item.attempts,
-        byteCount: item.byteCount?.toString() ?? null,
-        mimeType: item.mimeType,
-        quality: item.quality,
-        width: item.width,
-        height: item.height,
-        errorCode: item.errorCode,
-        errorMessage: item.errorMessage
-          ? extractJobDiagnostic(undefined, {
-              code: item.errorCode ?? undefined,
-              message: item.errorMessage,
-              remoteHost: item.remoteHost
-            }).message
-          : null,
-        errorStage: item.errorStage,
-        remoteHost: item.remoteHost,
-        startedAt: item.startedAt,
-        finishedAt: item.finishedAt,
-        updatedAt: item.updatedAt
-      }))
+      items: items.map((item) => {
+        const page = publishedEvidence.success
+          ? publishedEvidence.data.pages.find(
+              (page) =>
+                page.index === item.pageIndex &&
+                page.sha256 === item.sha256 &&
+                page.size === item.byteCount?.toString() &&
+                page.sourcePageUrl === item.sourcePageUrl
+            )
+          : null
+        const delivered = classifyArchiveCompletedDelivery(item)
+        return {
+          id: item.id,
+          pageIndex: item.pageIndex,
+          sourcePageUrl: archiveItemUrl(item.sourcePageUrl),
+          lastDownloadUrl: archiveItemUrl(item.lastDownloadUrl),
+          lastDownloadAt: item.lastDownloadAt?.toISOString() ?? null,
+          lastDownloadAttempt: item.lastDownloadAttempt ?? null,
+          expectedFilename: item.expectedFilename,
+          status: item.status,
+          attempts: item.attempts,
+          byteCount: item.byteCount?.toString() ?? null,
+          mimeType: item.mimeType,
+          quality: item.quality,
+          verifiedQuality:
+            publishedEvidence.success && publishedEvidence.data.reason
+              ? ('UNKNOWN' as const)
+              : (page?.quality ?? delivered.quality),
+          qualityReason:
+            (publishedEvidence.success ? publishedEvidence.data.reason : null) ??
+            page?.reason ?? delivered.reason,
+          width: item.width,
+          height: item.height,
+          errorCode: item.errorCode,
+          errorMessage: item.errorMessage
+            ? extractJobDiagnostic(undefined, {
+                code: item.errorCode ?? undefined,
+                message: item.errorMessage,
+                remoteHost: item.remoteHost
+              }).message
+            : null,
+          errorStage: item.errorStage,
+          remoteHost: item.remoteHost,
+          startedAt: item.startedAt,
+          finishedAt: item.finishedAt,
+          updatedAt: item.updatedAt
+        }
+      })
     }
   }
 
@@ -233,8 +260,9 @@ export class ArchiveModule {
       })
     }
     if (action === 'USE_DISPLAY_QUALITY') {
-      if (task.completionBaseRevisionId)
-        {throw stateConflict('补全必须沿用原归档画质；需要更换画质时请通过完整更新重新确认。')}
+      if (task.completionBaseRevisionId || task.upgradeBaseRevisionId) {
+        throw stateConflict('补全必须沿用原归档画质；需要更换画质时请通过完整更新重新确认。')
+      }
       if (task.phase === 'PUBLISH') throw stateConflict('归档文件已经封存，发布重试不能更改画质')
       assertActionStatus(action, task.status, ['PAUSED', 'FAILED'])
       if (task.status === 'FAILED') {
@@ -315,7 +343,11 @@ export class ArchiveModule {
           id: nextJobId,
           type: phase === 'PUBLISH' ? 'ARCHIVE_PUBLISH' : 'ARCHIVE_DOWNLOAD',
           executionLane: phase === 'PUBLISH' ? 'BACKGROUND_WRITER' : 'ARCHIVE_DOWNLOAD',
-          definitionVersion: current.sourceTotalItems == null ? 1 : ARCHIVE_COVERAGE_DEFINITION_VERSION,
+          definitionVersion: current.upgradeBaseRevisionId
+            ? ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION
+            : current.sourceTotalItems == null
+              ? 1
+              : ARCHIVE_COVERAGE_DEFINITION_VERSION,
           status: 'PENDING',
           triggerSource:
             current.origin === 'AUTO'

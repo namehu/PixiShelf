@@ -13,7 +13,7 @@ export function ArtworkMediaSummary({
     <div aria-label="作品媒体信息" className="flex flex-wrap items-baseline gap-x-5 gap-y-1.5 text-sm leading-6 text-muted-foreground">
       <span className="whitespace-nowrap"><span className="font-utility font-medium text-foreground tabular-nums">{count.toLocaleString()}</span> 项</span>
       <span className="whitespace-nowrap">
-        {unknownSizeCount > 0 ? '已知原文件' : '原文件'}{' '}
+        {unknownSizeCount > 0 ? '已知本地文件' : '本地文件'}{' '}
         <span className="font-utility font-medium text-foreground tabular-nums">{formatFileSize(totalBytes)}</span>
       </span>
       {count > 0 && (

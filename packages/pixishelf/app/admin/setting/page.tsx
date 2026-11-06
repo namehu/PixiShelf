@@ -7,10 +7,12 @@ export const metadata: Metadata = {
   description: '扫描设置与系统配置'
 }
 
-export default function SettingPage() {
+export default async function SettingPage({ searchParams }: PageProps<'/admin/setting'>) {
+  const { tab } = await searchParams
+  const defaultTab = tab === 'system' ? 'system' : 'scan'
   return (
     <AdminWorkbench title="扫描与系统设置" description="配置 Pixiv 扫描、本地导入与系统级默认行为。">
-      <SettingManagement />
+      <SettingManagement key={defaultTab} defaultTab={defaultTab} />
     </AdminWorkbench>
   )
 }

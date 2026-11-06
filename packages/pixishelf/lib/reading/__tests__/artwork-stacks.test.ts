@@ -27,12 +27,10 @@ describe('deterministic artwork stacks', () => {
     expect(buildArtworkStacks(media).map((group) => group.mediaIds)).toEqual([[1, 2, 3, 4], [5], [6, 7, 8, 9], [10], [11], [12, 13, 14, 15]])
     expect(buildArtworkStacks(items(9)).map((group) => group.mediaIds.length)).toEqual([3, 3, 3])
   })
-  it('accepts versioned stack evidence but rejects ambiguous or client-supplied membership', () => {
-    const stack = { ruleVersion: 1, fingerprint: 'a'.repeat(64), groupId: 'stack-v1-1-4' }
-    const input = (extra: object) => ({ artworkId: 1, expectedUserId: 'a', mediaRevision: 1,
-      events: [{ type: 'VIEW', mediaId: 1, observedAt: new Date().toISOString(), ...extra }] })
-    expect(ReadingReportInputSchema.safeParse(input({ stack })).success).toBe(true)
-    expect(ReadingReportInputSchema.safeParse(input({ stack: { ...stack, mediaIds: [99] } })).success).toBe(false)
-    expect(ReadingReportInputSchema.safeParse(input({ stack, summary: { generationId: '4c328fb2-aada-4027-a1df-cbecc87367b3', groupId: '1' } })).success).toBe(false)
+  it('accepts indexed advanceTo and rejects the retired stack credential', () => {
+    const input = { artworkId: 1, expectedUserId: 'alice', readingLayoutVersion: 1,
+      events: [{ type: 'VIEW', mediaId: 1, index: 0, observedAt: new Date().toISOString(), advanceTo: { mediaId: 4, index: 3 } }] }
+    expect(ReadingReportInputSchema.safeParse(input).success).toBe(true)
+    expect(ReadingReportInputSchema.safeParse({ ...input, events: [{ ...input.events[0], stack: { ruleVersion: 1 } }] }).success).toBe(false)
   })
 })

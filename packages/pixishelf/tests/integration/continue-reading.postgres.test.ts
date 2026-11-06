@@ -7,13 +7,21 @@ import { PrismaClient } from '@pixishelf/db'
 const url = process.env.CONTINUE_READING_DATABASE_URL
 if (url) {
   const target = new URL(url)
-  if (target.hostname !== '127.0.0.1' || target.port !== '55435' || target.pathname !== '/continue_reading_verification') {
-    throw new Error('Requires isolated 127.0.0.1:55435/continue_reading_verification database')
+  if (
+    target.hostname !== '127.0.0.1' ||
+    target.port !== '55433' ||
+    target.pathname !== '/pixishelf_reading_position_20261104_runtime'
+  ) {
+    throw new Error('Requires isolated 127.0.0.1:55433/pixishelf_reading_position_20261104_runtime database')
   }
 }
 const db = url ? new PrismaClient({ datasourceUrl: url }) : undefined
 const context = vi.hoisted(() => ({ db: null as unknown }))
-vi.mock('@/lib/prisma', () => ({ get prisma() { return context.db } }))
+vi.mock('@/lib/prisma', () => ({
+  get prisma() {
+    return context.db
+  }
+}))
 import { getContinueReading, markReadingRead, reportReading } from '@/services/reading-service'
 
 const prefix = `continue-${randomUUID()}`
@@ -28,13 +36,23 @@ let videoId: number
 let manualId: number
 
 async function createWork(label: string, count = 4, video = false) {
-  return db!.artwork.create({ data: {
-    title: `${prefix} ${label}`, storageKey: `${prefix}-${label}`, artistId, source: 'LOCAL_IMPORT',
-    images: { create: Array.from({ length: count }, (_, index) => ({
-      path: `/${prefix}/${label}/${index}.${video ? 'mp4' : 'png'}`, sortOrder: index,
-      mediaType: video ? 'VIDEO' as const : 'IMAGE' as const
-    })) }
-  }, include: { images: { orderBy: { sortOrder: 'asc' } } } })
+  return db!.artwork.create({
+    data: {
+      title: `${prefix} ${label}`,
+      storageKey: `${prefix}-${label}`,
+      artistId,
+      source: 'LOCAL_IMPORT',
+      logicalMediaCount: count,
+      images: {
+        create: Array.from({ length: count }, (_, index) => ({
+          path: `/${prefix}/${label}/${index}.${video ? 'mp4' : 'png'}`,
+          sortOrder: index,
+          mediaType: video ? ('VIDEO' as const) : ('IMAGE' as const)
+        }))
+      }
+    },
+    include: { images: { orderBy: { sortOrder: 'asc' } } }
+  })
 }
 
 const ids = (result: Awaited<ReturnType<typeof getContinueReading>>) => result.items.map((item) => item.artwork.id)
@@ -48,48 +66,84 @@ describe.skipIf(!url).sequential('home continuation with isolated PostgreSQL', (
       const artwork = await createWork(`candidate-${index}`)
       candidates.push(artwork.id)
       const at = new Date(recent.getTime() + Math.floor(index / 2) * 1000)
-      await db!.artworkReadingSummary.create({ data: {
-        userId: user, artworkId: artwork.id, viewCount: 1, seenCount: 1, totalCount: 4,
-        lastViewedAt: at, lastActiveAt: at, lastMediaId: artwork.images[0]!.id, lastMediaIndex: 0
-      } })
-      await db!.artworkReadMedia.create({ data: { userId: user, artworkId: artwork.id, mediaId: artwork.images[0]!.id } })
+      await db!.artworkReadingProgress.create({
+        data: {
+          userId: user,
+          artworkId: artwork.id,
+          viewCount: 1,
+          furthestMediaId: artwork.images[0]!.id,
+          furthestMediaIndex: 0,
+          lastViewedAt: at,
+          lastActiveAt: at,
+          lastMediaId: artwork.images[0]!.id,
+          lastMediaIndex: 0
+        }
+      })
     }
     // More recent completed records must not consume the six SQL candidate slots.
     for (let index = 0; index < 8; index++) {
       const artwork = await createWork(`completed-${index}`)
       excluded.push(artwork.id)
-      await db!.artworkReadingSummary.create({ data: {
-        userId: user, artworkId: artwork.id, viewCount: 1, seenCount: 4, totalCount: 4,
-        lastViewedAt: new Date(), lastActiveAt: new Date()
-      } })
+      await db!.artworkReadingProgress.create({
+        data: {
+          userId: user,
+          artworkId: artwork.id,
+          viewCount: 1,
+          completed: true,
+          lastViewedAt: new Date(),
+          lastActiveAt: new Date()
+        }
+      })
     }
     const manual = await createWork('manual-partial')
     manualId = manual.id
     excluded.push(manual.id)
-    await markReadingRead(user, { expectedUserId: user, artworkId: manual.id, mediaRevision: 1,
-      target: { kind: 'MEDIA', mediaId: manual.images[0]!.id } })
+    await markReadingRead(user, { expectedUserId: user, artworkId: manual.id, readingLayoutVersion: 1 })
     const defaults = await createWork('default-completed')
     excluded.push(defaults.id)
-    await markReadingRead(user, { expectedUserId: user, artworkId: defaults.id, mediaRevision: 1, target: { kind: 'ALL' } })
+    await markReadingRead(user, { expectedUserId: user, artworkId: defaults.id, readingLayoutVersion: 1 })
     for (const label of ['zero', 'deleted', 'trashed', 'missing-date']) {
       const artwork = await createWork(label, label === 'zero' ? 0 : 4)
       excluded.push(artwork.id)
       if (label === 'deleted') await db!.artwork.update({ where: { id: artwork.id }, data: { deletedAt: new Date() } })
-      if (label === 'trashed') await db!.artwork.update({ where: { id: artwork.id }, data: { archiveLifecycleState: 'TRASHED' } })
-      await db!.artworkReadingSummary.create({ data: {
-        userId: user, artworkId: artwork.id, viewCount: 1, seenCount: 0, totalCount: label === 'zero' ? 0 : 4,
-        lastViewedAt: label === 'missing-date' ? null : new Date(), lastActiveAt: new Date()
-      } })
+      if (label === 'trashed') {
+        await db!.artwork.update({ where: { id: artwork.id }, data: { archiveLifecycleState: 'TRASHED' } })
+      }
+      await db!.artworkReadingProgress.create({
+        data: {
+          userId: user,
+          artworkId: artwork.id,
+          viewCount: 1,
+          lastViewedAt: label === 'missing-date' ? null : new Date(),
+          lastActiveAt: new Date()
+        }
+      })
     }
     const video = await createWork('started-video', 1, true)
     videoId = video.id
-    await reportReading(user, { expectedUserId: user, artworkId: video.id, mediaRevision: 1, events: [{
-      type: 'VIEW', mediaId: video.images[0]!.id, observedAt: new Date().toISOString(), playback: { currentTime: 1, duration: 100 }
-    }] })
-    await db!.artworkReadingSummary.create({ data: {
-      userId: other, artworkId: candidates[0]!, viewCount: 2, seenCount: 2, totalCount: 4,
-      lastViewedAt: new Date(), lastActiveAt: new Date()
-    } })
+    await reportReading(user, {
+      expectedUserId: user,
+      artworkId: video.id,
+      readingLayoutVersion: 1,
+      events: [
+        {
+          type: 'VIEW',
+          mediaId: video.images[0]!.id,
+          index: 0,
+          observedAt: new Date().toISOString(),
+          playback: { currentTime: 1, duration: 100 }
+        }
+      ]
+    })
+    await db!.artworkReadingProgress.create({
+      data: {
+        userId: other,
+        artworkId: candidates[0]!,
+        viewCount: 2,
+        lastViewedAt: new Date(),
+        lastActiveAt: new Date()
+      }
+    })
   }, 30_000)
 
   afterAll(async () => {
@@ -98,7 +152,9 @@ describe.skipIf(!url).sequential('home continuation with isolated PostgreSQL', (
       await db.artwork.deleteMany({ where: { storageKey: { startsWith: prefix } } })
       await db.artist.deleteMany({ where: { name: prefix } })
       await db.userBA.deleteMany({ where: { id: { in: [user, other, empty] } } })
-    } finally { await db.$disconnect() }
+    } finally {
+      await db.$disconnect()
+    }
   })
 
   it('filters before limiting and deterministically breaks last-viewed ties by artwork ID', async () => {
@@ -115,10 +171,16 @@ describe.skipIf(!url).sequential('home continuation with isolated PostgreSQL', (
   it('includes real video activity with zero seen media but excludes manual/default progress', async () => {
     const result = await getContinueReading(user)
     expect(result.items.find((item) => item.artwork.id === videoId)?.reading).toMatchObject({
-      viewCount: 1, seenCount: 0, totalCount: 1, status: 'IN_PROGRESS'
+      viewCount: 1,
+      progressCount: 0,
+      totalCount: 1,
+      status: 'IN_PROGRESS'
     })
-    expect(await db!.artworkReadingSummary.findUnique({ where: { userId_artworkId: { userId: user, artworkId: manualId } } }))
-      .toMatchObject({ viewCount: 0, seenCount: 1, lastViewedAt: null, lastMediaId: null })
+    expect(
+      await db!.artworkReadingProgress.findUnique({
+        where: { userId_artworkId: { userId: user, artworkId: manualId } }
+      })
+    ).toMatchObject({ viewCount: 0, completed: true, lastViewedAt: null, lastMediaId: null })
     expect(ids(result)).not.toContain(manualId)
   })
 
@@ -130,7 +192,7 @@ describe.skipIf(!url).sequential('home continuation with isolated PostgreSQL', (
 
   it('drops a newly completed work and fills its slot from older eligible reading', async () => {
     const artworkId = candidates.at(-1)!
-    await markReadingRead(user, { expectedUserId: user, artworkId, mediaRevision: 1, target: { kind: 'ALL' } })
+    await markReadingRead(user, { expectedUserId: user, artworkId, readingLayoutVersion: 1 })
     const result = await getContinueReading(user)
     expect(ids(result)).toEqual([videoId, ...[...candidates].reverse().filter((id) => id !== artworkId)].slice(0, 6))
     expect(result.items).toHaveLength(6)

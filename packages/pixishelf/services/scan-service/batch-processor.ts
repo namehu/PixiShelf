@@ -3,7 +3,7 @@ import { reconcileArtworkImages } from '@/services/artwork-service/image-manager
 // oxlint-disable max-lines
 import path from 'path'
 import { Prisma } from '@prisma/client'
-import { lockArtworkForReading, lockCreatorCatalog } from '@pixishelf/db'
+import { lockArtworkForReading, lockCreatorCatalog, refreshArtworkReadingLayout } from '@pixishelf/db'
 import { prisma } from '@/lib/prisma'
 import logger from '@/lib/logger'
 import { syncMediaDerivedTagsForArtworks } from '@/services/media-derived-tag-service'
@@ -253,6 +253,7 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
         const imageArtworkIds = imagesToCreate
           .map((image) => image.artworkId)
           .filter((artworkId): artworkId is number => typeof artworkId === 'number')
+        for (const artworkId of new Set(imageArtworkIds)) await refreshArtworkReadingLayout(tx, artworkId, [], false)
         await syncMediaDerivedTagsForArtworks(tx, imageArtworkIds)
       }
     },

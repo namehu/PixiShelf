@@ -5,7 +5,12 @@ import {
   resolveExecutorMediaDirectory
 } from '../scan/media-content-write.ts'
 import { needsAnimationContentScan } from '@pixishelf/job-contracts'
-import { Prisma, invalidateArtworkReadingForRebuild, type PrismaClient } from '@pixishelf/db'
+import {
+  Prisma,
+  invalidateArtworkReadingForRebuild,
+  refreshArtworkReadingLayout,
+  type PrismaClient
+} from '@pixishelf/db'
 import type { QueueSqlExecutor } from '@pixishelf/job-runtime'
 import type {
   PendingReplaceDatabasePort,
@@ -228,6 +233,7 @@ export function createPrismaPendingReplaceDatabase(
         await invalidateArtworkReadingForRebuild(client, input.item.artworkId!)
         await assertMediaSnapshot(client, input.item, input.expectedOldMedia)
         await replaceMedia(client, input.item.artworkId!, input.newMedia)
+        await refreshArtworkReadingLayout(client, input.item.artworkId!, [], false)
         await appendManualTags(client, input.item.artworkId!, input.appendTagIds)
         await syncDerivedMediaTags(client, input.item.artworkId!, input.newMedia)
         await checkpointItem(client, {
@@ -248,6 +254,7 @@ export function createPrismaPendingReplaceDatabase(
         await invalidateArtworkReadingForRebuild(client, input.item.artworkId!)
         await assertMediaSnapshot(client, input.item, input.expectedNewMedia)
         await replaceMedia(client, input.item.artworkId!, input.oldMedia)
+        await refreshArtworkReadingLayout(client, input.item.artworkId!, [], false)
         await syncDerivedMediaTags(client, input.item.artworkId!, input.oldMedia)
         await checkpointItem(client, {
           itemId: input.item.id,

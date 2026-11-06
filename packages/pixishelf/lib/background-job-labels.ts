@@ -36,6 +36,7 @@ export const backgroundJobTypeLabels: Record<JobType, string> = {
   ARTIST_MERGE: '艺术家合并',
   CREATOR_MAINTENANCE: '创作者关系整理',
   ARCHIVE_DEFAULT_TAG_BACKFILL: '补全历史归档标签',
+  ARCHIVE_QUALITY_AUDIT: '核验归档画质',
   ARCHIVE_MAINTENANCE: '归档维护',
   ARCHIVE_INTAKE_RETENTION_CLEANUP: '归档收件历史清理',
   SCAN_RUN_RETENTION_CLEANUP: '扫描记录清理',

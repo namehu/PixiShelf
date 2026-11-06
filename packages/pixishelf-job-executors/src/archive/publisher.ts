@@ -1,4 +1,6 @@
 import { assertArchiveCompletionBase } from './completion-proof.ts'
+import { assertArchiveOriginalUpgradeBase } from './original-upgrade-proof.ts'
+import { refreshArchiveQualityEvidence } from './quality-evidence.ts'
 import { lockArchiveSourcePublication } from './dedup-source-snapshot.ts'
 import { assertArchiveImportNotDeleted } from './deletion-policy.ts'
 import path from 'node:path'
@@ -10,6 +12,9 @@ import {
   consumeDiscoveryCreators,
   assertArtworkDedupWritable,
   invalidateAnimationDurationSource,
+  readArtworkReadingLayout,
+  refreshArtworkReadingLayout,
+  lockArtworkForReading,
   invalidateArtworkReadingForRebuild
 } from '@pixishelf/db'
 import { ArchiveExecutorError } from './errors.ts'
@@ -24,6 +29,7 @@ export interface ArchivePublishResult {
   revisionId: string
   archivePath: string
   retirementRevisionId?: string
+  originalUpgrade?: boolean
 }
 
 /**
@@ -91,6 +97,23 @@ export async function publishArchiveImportInTransaction(
   const postedAt = postedAtText ? new Date(postedAtText) : null
   if (existingRef) await assertArtworkDedupWritable(transaction, { artworkId: existingRef.artworkId, kind: 'CONTENT' })
   const completion = await assertArchiveCompletionBase(transaction, archiveImport)
+  const upgrade = await assertArchiveOriginalUpgradeBase(transaction, archiveImport)
+  if (
+    upgrade &&
+    (archiveImport.selectedQuality !== 'ORIGINAL' ||
+      archiveImport.items.length !== upgrade.media.length ||
+      archiveImport.items.some((item) => {
+        const evidence = item.deliveryEvidence as { version?: number; quality?: string } | null
+        return (
+          item.quality !== 'ORIGINAL' ||
+          evidence?.version !== 1 ||
+          evidence.quality !== 'ORIGINAL' ||
+          !upgrade.media.some((media) => media.index === item.pageIndex)
+        )
+      }))
+  )
+    throw new ArchiveExecutorError('MEDIA_INVALID', '尚有页面未证实为原图，原有归档已保留。')
+  const preserved = upgrade ?? completion
   if (
     completion &&
     completion.media.some((media) => {
@@ -104,7 +127,10 @@ export async function publishArchiveImportInTransaction(
     })
   )
     throw new ArchiveExecutorError('MEDIA_INVALID', '来源的已有页面内容已变化，补全已停止；请通过完整更新重新确认。')
-  if (existingRef && !completion) await invalidateArtworkReadingForRebuild(transaction, existingRef.artworkId)
+  if (existingRef) await lockArtworkForReading(transaction, existingRef.artworkId)
+  const previousLayout =
+    existingRef && preserved ? await readArtworkReadingLayout(transaction, existingRef.artworkId) : []
+  if (existingRef && !preserved) await invalidateArtworkReadingForRebuild(transaction, existingRef.artworkId)
   const artwork = existingRef
     ? await transaction.artwork.update({
         where: { id: existingRef.artworkId },
@@ -192,18 +218,32 @@ export async function publishArchiveImportInTransaction(
     artwork.id
   )
   await syncArtworkRelationships(transaction, artwork.id, archiveImport.providerKey, metadata.relationships)
-  if (completion) {
-    for (const media of completion.media) {
+  if (preserved) {
+    for (const media of preserved.media) {
       const item = archiveImport.items.find((item) => item.pageIndex === media.index)!
       const imagePath = normalizeRelativePath(path.join(paths.finalRelativePath, item.stagedPath!))
-      await transaction.image.update({ where: { id: media.imageId }, data: { path: imagePath } })
-      if (/\.webp$/i.test(imagePath))
+      await transaction.image.update({
+        where: { id: media.imageId },
+        data: {
+          path: imagePath,
+          ...(upgrade
+            ? {
+                width: item.width,
+                height: item.height,
+                size: item.byteCount,
+                mediaType: 'IMAGE' as const,
+                webpAnimationStatus: null
+              }
+            : {})
+        }
+      })
+      if (upgrade || /\.webp$/i.test(imagePath))
         await invalidateAnimationDurationSource(transaction, { imageId: media.imageId, sourcePath: imagePath })
     }
   } else await transaction.image.deleteMany({ where: { artworkId: artwork.id } })
   await transaction.image.createMany({
     data: archiveImport.items
-      .filter((item) => !completion?.media.some((media) => media.index === item.pageIndex))
+      .filter((item) => !preserved?.media.some((media) => media.index === item.pageIndex))
       .map((item) => ({
         artworkId: artwork.id,
         path: normalizeRelativePath(path.join(paths.finalRelativePath, item.stagedPath!)),
@@ -215,11 +255,7 @@ export async function publishArchiveImportInTransaction(
       }))
   })
 
-  if (completion)
-    await transaction.artworkReadingSummary.updateMany({
-      where: { artworkId: artwork.id },
-      data: { totalCount: archiveImport.items.length, stateVersion: { increment: 1 } }
-    })
+  await refreshArtworkReadingLayout(transaction, artwork.id, previousLayout, !!preserved)
   const publishedImages = await transaction.image.findMany({
     where: { artworkId: artwork.id },
     select: { id: true, sortOrder: true }
@@ -254,13 +290,20 @@ export async function publishArchiveImportInTransaction(
       isCurrent: true
     }
   })
-  if (completion) {
+  const publishedQuality = await refreshArchiveQualityEvidence(transaction, revision.id, now)
+  if (archiveImport.providerKey === 'e-hentai' && archiveImport.selectedQuality === 'ORIGINAL' && publishedQuality.qualityStatus !== 'ORIGINAL') {
+    throw new ArchiveExecutorError('ORIGINAL_UNAVAILABLE', '部分页面缺少与实际文件一致的原图证明，归档没有发布。', {
+      recoverable: true, pause: true, stage: 'MEDIA_VALIDATION',
+      decisionCode: upgrade ? null : 'USE_DISPLAY_QUALITY'
+    })
+  }
+  if (preserved) {
     await transaction.archiveRevision.update({
-      where: { id: completion.revisionId },
+      where: { id: preserved.revisionId },
       data: {
         retirementRequestedAt: now,
         replacedByRevisionId: revision.id,
-        retirementSnapshot: toInputJson(completion as unknown as Prisma.JsonValue)
+        retirementSnapshot: toInputJson(preserved as unknown as Prisma.JsonValue)
       }
     })
   }
@@ -299,7 +342,8 @@ export async function publishArchiveImportInTransaction(
     artworkId: artwork.id,
     revisionId: revision.id,
     archivePath: paths.finalRelativePath,
-    ...(completion ? { retirementRevisionId: completion.revisionId } : {})
+    ...(preserved ? { retirementRevisionId: preserved.revisionId } : {}),
+    ...(upgrade ? { originalUpgrade: true } : {})
   }
 }
 

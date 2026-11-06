@@ -39,7 +39,7 @@ describe('partial review projection', () => {
               source: 'LOCAL_CREATED',
               createdAt: new Date('2026-10-26T00:00:00Z'),
               likes: [],
-              readingSummaries: []
+              readingProgress: []
             }))
           )
         },

@@ -25,15 +25,15 @@ vi.mock('@/lib/trpc', () => {
 })
 
 const unread: ReadingSummaryDto = {
-  artworkId: 7, mediaRevision: 1, stateVersion: 0, viewCount: 0, seenCount: 0, totalCount: 3, status: 'UNREAD',
+  artworkId: 7, readingLayoutVersion: 1, stateVersion: 0, viewCount: 0, progressCount: 0, totalCount: 3, status: 'UNREAD', completed: false, furthestMediaId: null, furthestMediaIndex: null,
   lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null
 }
 const viewed: ReadingSummaryDto = {
-  ...unread, stateVersion: 1, viewCount: 1, seenCount: 1, status: 'IN_PROGRESS', lastMediaId: 11, lastMediaIndex: 0,
+  ...unread, stateVersion: 1, viewCount: 1, progressCount: 1, status: 'IN_PROGRESS', completed: false, furthestMediaId: null, furthestMediaIndex: null, lastMediaId: 11, lastMediaIndex: 0,
   lastViewedAt: '2026-09-28T00:00:00.000Z', lastActiveAt: '2026-09-28T00:00:00.000Z'
 }
 const context: ReadingContextDto = {
-  artworkId: 7, mediaRevision: 1, seenMediaIds: [], summary: unread, resume: null,
+  artworkId: 7, readingLayoutVersion: 1, summary: unread, resume: null,
   media: [{ mediaId: 11, memberMediaIds: [11], index: 0 }]
 }
 
@@ -42,7 +42,7 @@ beforeEach(() => {
   mocks.user = { id: 'alice' }
   mocks.context.mockResolvedValue(context)
   mocks.summaries.mockResolvedValue({ summaries: [] })
-  mocks.report.mockResolvedValue({ mediaRevision: 1, seenMediaIds: [], summary: viewed })
+  mocks.report.mockResolvedValue({ readingLayoutVersion: 1, summary: viewed })
 })
 afterEach(cleanup)
 
@@ -73,7 +73,7 @@ describe('ReadingProvider lifecycle and server refresh', () => {
     }), { wrapper: ({ children }) => <QueryClientProvider client={client}><ReadingProvider>{children}</ReadingProvider></QueryClientProvider> })
     const epoch = hook.result.current.observationEpoch
     act(() => hook.result.current.observe('detail', { mediaId: 11, ready: true, visible: true, automatic: false }))
-    expect(hook.result.current.summary?.seenCount).toBe(1)
+    expect(hook.result.current.summary?.progressCount).toBe(1)
     expect(hook.result.current.summary?.stateVersion).toBe(0)
     expect(hook.result.current.observationEpoch).toBe(epoch)
     expect(mocks.context).not.toHaveBeenCalled()
@@ -90,46 +90,12 @@ describe('ReadingProvider lifecycle and server refresh', () => {
     const { result, unmount } = setup()
     await waitFor(() => expect(result.current.reading.context).toBeDefined())
     let saving!: Promise<void>
-    act(() => { saving = result.current.reading.markRead({ kind: 'MEDIA', mediaId: 11 }) })
-    expect(result.current.reading.summary?.seenCount).toBe(1)
+    act(() => { saving = result.current.reading.markRead() })
+    expect(result.current.reading.summary?.progressCount).toBe(3)
     expect(result.current.reading.summary?.stateVersion).toBe(0)
     await act(async () => { reject(new Error('offline')); await saving })
-    expect(result.current.reading.summary?.seenCount).toBe(0)
+    expect(result.current.reading.summary?.progressCount).toBe(0)
     expect(result.current.reading.markError).toBeTruthy()
-    unmount()
-  })
-
-  it('projects a manual threshold crossing, rolls it back on failure, and can still mark all remaining media', async () => {
-    const media = Array.from({ length: 100 }, (_, index) => ({ mediaId: index + 1, memberMediaIds: [index + 1], index }))
-    const initial: ReadingContextDto = { ...context, media, seenMediaIds: media.slice(0, 89).map(item => item.mediaId),
-      summary: { ...unread, totalCount: 100, seenCount: 89, status: 'IN_PROGRESS' } }
-    mocks.context.mockResolvedValue(initial)
-    let reject!: (error: Error) => void
-    mocks.markRead.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail }))
-    const { result, unmount } = setup()
-    await waitFor(() => expect(result.current.reading.context).toBeDefined())
-    let saving!: Promise<void>
-    act(() => { saving = result.current.reading.markRead({ kind: 'MEDIA', mediaId: 90 }) })
-    expect(result.current.reading.summary).toMatchObject({ seenCount: 90, status: 'COMPLETED', viewCount: 0, stateVersion: 0 })
-    expect(result.current.reading.context?.seenMediaIds).not.toContain(91)
-    await act(async () => { reject(new Error('offline')); await saving })
-    expect(result.current.reading.summary).toEqual(initial.summary)
-
-    const completed = { ...initial.summary, stateVersion: 1, seenCount: 90, status: 'COMPLETED' as const }
-    mocks.markRead.mockResolvedValueOnce({ mediaRevision: 1, summary: completed, seenMediaIds: media.slice(0, 90).map(item => item.mediaId) })
-    await act(async () => { await result.current.reading.markRead({ kind: 'MEDIA', mediaId: 90 }) })
-    expect(result.current.reading.summary).toEqual(completed)
-    let resolve!: (value: unknown) => void
-    mocks.markRead.mockImplementationOnce(() => new Promise(done => { resolve = done }))
-    act(() => { saving = result.current.reading.markRead({ kind: 'ALL' }) })
-    expect(result.current.reading.context?.seenMediaIds).toHaveLength(100)
-    expect(result.current.reading.summary).toMatchObject({ seenCount: 100, status: 'COMPLETED', viewCount: 0, stateVersion: 1 })
-    await act(async () => {
-      resolve({ mediaRevision: 1, summary: { ...completed, seenCount: 100, stateVersion: 2 }, seenMediaIds: media.map(item => item.mediaId) })
-      await saving
-    })
-    expect(result.current.reading.summary).toMatchObject({ seenCount: 100, status: 'COMPLETED', viewCount: 0, stateVersion: 2 })
-    expect(mocks.toast).not.toHaveBeenCalled()
     unmount()
   })
 
@@ -147,14 +113,13 @@ describe('ReadingProvider lifecycle and server refresh', () => {
   })
 
   it('shows a brief bottom toast immediately on local completion and never again on acknowledgement', async () => {
-    const completed: ReadingSummaryDto = { ...viewed, seenCount: 3, status: 'COMPLETED' }
-    mocks.context.mockResolvedValue({ ...context, summary: { ...viewed, seenCount: 2 }, seenMediaIds: [12, 13],
-      media: [11, 12, 13].map((mediaId, index) => ({ mediaId, memberMediaIds: [mediaId], index })) })
-    mocks.report.mockResolvedValue({ mediaRevision: 1, seenMediaIds: [11, 12, 13], summary: completed })
+    const completed: ReadingSummaryDto = { ...viewed, progressCount: 3, status: 'COMPLETED', completed: true, furthestMediaId: null, furthestMediaIndex: null }
+    mocks.context.mockResolvedValue({ ...context, summary: { ...viewed, progressCount: 2 }, media: [11, 12, 13].map((mediaId, index) => ({ mediaId, memberMediaIds: [mediaId], index })) })
+    mocks.report.mockResolvedValue({ readingLayoutVersion: 1, summary: completed })
     const { result } = setup()
     await waitFor(() => expect(result.current.reading.context).toBeDefined())
     expect(mocks.toast).not.toHaveBeenCalled()
-    act(() => result.current.reading.observe('detail', { mediaId: 11, ready: true, visible: true, automatic: true }))
+    act(() => result.current.reading.observe('detail', { mediaId: 13, ready: true, visible: true, automatic: true }))
     expect(mocks.report).not.toHaveBeenCalled()
     expect(mocks.toast).toHaveBeenCalledExactlyOnceWith(expect.any(Function), {
       id: 'reading-completed-alice-7-1', position: 'bottom-center', duration: 2000
@@ -180,7 +145,7 @@ describe('ReadingProvider lifecycle and server refresh', () => {
     const { result, client } = setup()
     await waitFor(() => expect(result.current.reading.context).toBeDefined())
     await recordView(result.current.reading)
-    const completed: ReadingSummaryDto = { ...viewed, stateVersion: 2, viewCount: 2, seenCount: 3, status: 'COMPLETED' }
+    const completed: ReadingSummaryDto = { ...viewed, stateVersion: 2, viewCount: 2, progressCount: 3, status: 'COMPLETED', completed: true, furthestMediaId: null, furthestMediaIndex: null }
     mocks.summaries.mockResolvedValue({ summaries: [completed] })
     mocks.context.mockResolvedValue({ ...context, summary: completed })
     await act(async () => { await client.refetchQueries() })
@@ -188,9 +153,9 @@ describe('ReadingProvider lifecycle and server refresh', () => {
     expect(result.current.reading.summary).toEqual(completed)
 
     mocks.summaries.mockResolvedValue({ summaries: [] })
-    mocks.context.mockResolvedValue({ ...context, mediaRevision: 2, summary: { ...unread, mediaRevision: 2 } })
+    mocks.context.mockResolvedValue({ ...context, readingLayoutVersion: 2, summary: { ...unread, readingLayoutVersion: 2 } })
     await act(async () => { await client.refetchQueries() })
-    await waitFor(() => expect(result.current.summaries.byArtworkId.get(7)).toMatchObject({ mediaRevision: 2, seenCount: 0 }))
+    await waitFor(() => expect(result.current.summaries.byArtworkId.get(7)).toMatchObject({ readingLayoutVersion: 2, progressCount: 0 }))
     expect(result.current.reading.invalidated).toBe(true)
     expect(result.current.reading.summary).toBeNull()
   })
@@ -199,7 +164,7 @@ describe('ReadingProvider lifecycle and server refresh', () => {
     const reload = vi.fn()
     vi.stubGlobal('location', { ...window.location, reload })
     try {
-      mocks.report.mockRejectedValue(new Error('READING_MEDIA_REVISION_CONFLICT'))
+      mocks.report.mockRejectedValue(new Error('READING_LAYOUT_VERSION_CONFLICT'))
       const { result } = setup()
       await waitFor(() => expect(result.current.reading.context).toBeDefined())
       await recordView(result.current.reading)
@@ -219,14 +184,13 @@ describe('ReadingProvider lifecycle and server refresh', () => {
     const { result } = setup()
     await waitFor(() => expect(result.current.reading.context).toBeDefined())
     mocks.markRead.mockRejectedValueOnce(new Error('offline'))
-    await act(async () => { await result.current.reading.markRead({ kind: 'ALL' }) })
+    await act(async () => { await result.current.reading.markRead() })
     expect(result.current.reading.summary).toEqual(unread)
     expect(result.current.reading.markError).toBe('标记未保存，请重试。')
-    const completed = { ...unread, stateVersion: 1, seenCount: 3, status: 'COMPLETED' as const }
-    mocks.markRead.mockResolvedValue({ summary: completed, mediaRevision: 1, seenMediaIds: [11, 12, 13] })
-    await act(async () => { await result.current.reading.markRead({ kind: 'ALL' }) })
+    const completed = { ...unread, stateVersion: 1, progressCount: 3, status: 'COMPLETED' as const, completed: true, furthestMediaId: null, furthestMediaIndex: null }
+    mocks.markRead.mockResolvedValue({ summary: completed, readingLayoutVersion: 1, })
+    await act(async () => { await result.current.reading.markRead() })
     expect(result.current.reading.summary).toEqual(completed)
-    expect(result.current.reading.context?.seenMediaIds).toEqual([11, 12, 13])
     expect(result.current.reading.markError).toBeNull()
     expect(mocks.toast).not.toHaveBeenCalled()
   })
@@ -237,14 +201,14 @@ describe('ReadingProvider lifecycle and server refresh', () => {
     const { result, rerender } = setup()
     await waitFor(() => expect(result.current.reading.context).toBeDefined())
     let pending!: Promise<void>
-    act(() => { pending = result.current.reading.markRead({ kind: 'ALL' }) })
-    await act(async () => { await result.current.reading.markRead({ kind: 'ALL' }) })
+    act(() => { pending = result.current.reading.markRead() })
+    await act(async () => { await result.current.reading.markRead() })
     expect(mocks.markRead).toHaveBeenCalledTimes(1)
     mocks.user = { id: 'bob' }
     rerender()
     await waitFor(() => expect(result.current.reading.context).toBeDefined())
     await act(async () => {
-      resolve({ mediaRevision: 1, summary: { ...unread, stateVersion: 1, seenCount: 3, status: 'COMPLETED' }, seenMediaIds: [11, 12, 13] })
+      resolve({ readingLayoutVersion: 1, summary: { ...unread, stateVersion: 1, progressCount: 3, status: 'COMPLETED', completed: true, furthestMediaId: null, furthestMediaIndex: null }, })
       await pending
     })
     expect(result.current.reading.summary).toEqual(unread)

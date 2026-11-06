@@ -140,7 +140,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       requestedByUserId,
       { database, validateUrl }
     )
-    expect(legacy.items[0]).toMatchObject({ downloadMode: 'MANUAL', selectedQuality: 'ORIGINAL' })
+    expect(legacy.items[0]).toMatchObject({ downloadMode: 'MANUAL', selectedQuality: 'DISPLAY' })
   })
   it('keeps the 1000 active cap atomic across concurrent submissions and retries', async () => {
     const seededSubmissionId = `${suitePrefix}-capacity-seed`

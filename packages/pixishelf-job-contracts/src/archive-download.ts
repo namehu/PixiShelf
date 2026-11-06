@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { archivePageQualityEvidenceSchema } from './archive-quality.ts'
 
 export const archiveDownloadPreparationSchema = z.discriminatedUnion('scope', [
   z.object({ scope: z.literal('ALL_INCOMPLETE') }).strict(),
@@ -97,3 +98,20 @@ export const archiveCompletionSnapshotSchema = z
   })
   .strict()
 export type ArchiveCompletionSnapshot = z.infer<typeof archiveCompletionSnapshotSchema>
+
+export const ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION = 3 as const
+
+// Quality changes preserve exactly the archived range, including archives larger than twenty pages.
+export const archiveOriginalUpgradeSnapshotSchema = archiveCompletionSnapshotSchema.extend({
+  intent: z.literal('ORIGINAL_UPGRADE'),
+  downloadScope: archiveDownloadScopeSchema,
+  quality: z.literal('ORIGINAL'),
+  media: z
+    .array(
+      archiveCompletionSnapshotSchema.shape.media.element.extend({
+        originalEvidence: archivePageQualityEvidenceSchema.optional()
+      })
+    )
+    .min(1)
+})
+export type ArchiveOriginalUpgradeSnapshot = z.infer<typeof archiveOriginalUpgradeSnapshotSchema>

@@ -5,6 +5,8 @@ import { z } from 'zod'
 import {
   archiveImportV2PayloadSchema,
   archiveCompletionSnapshotSchema,
+  archiveOriginalUpgradeSnapshotSchema,
+  ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION,
   ARCHIVE_COVERAGE_DEFINITION_VERSION
 } from '@pixishelf/job-contracts'
 import { Prisma, lockCreatorCatalog } from '@pixishelf/db'
@@ -112,6 +114,8 @@ export async function enqueueArchiveIntakeItemInTransaction(
   }
   const active = await findActiveImport(transaction, item.providerKey, item.externalId)
   if (active) {
+    if (item.upgradeBaseRevisionId)
+      return { result: 'CONFLICT', code: 'ACTIVE_TASK', message: '该来源已有其他活动归档，原图升级没有复用它。' }
     await assertArchiveSourceSnapshot(transaction, active)
     // 同一作品已有活动归档任务时，入队动作复用已有任务而不是创建重复任务。
     const changed = await transaction.archiveIntakeItem.updateMany({
@@ -146,7 +150,7 @@ export async function enqueueArchiveIntakeItemInTransaction(
   if (existingRef && (existingRef.artwork.deletedAt || existingRef.artwork.archiveLifecycleState !== 'ACTIVE')) {
     return { result: 'CONFLICT', code: 'ARCHIVE_TRASHED', message: '该作品在归档回收站中，请先恢复' }
   }
-  if (options.autoOnly && existingRef && !item.completionBaseRevisionId) {
+  if (options.autoOnly && existingRef && !item.completionBaseRevisionId && !item.upgradeBaseRevisionId) {
     const unchanged = await isPublishedArchiveUnchanged(transaction, existingRef, resolved, item.metadataHash)
     await transaction.archiveIntakeItem.update({
       where: { id: item.id },
@@ -159,6 +163,21 @@ export async function enqueueArchiveIntakeItemInTransaction(
   const completion = item.completionBaseRevisionId
     ? archiveCompletionSnapshotSchema.parse(item.completionSnapshot)
     : null
+  const upgrade = item.upgradeBaseRevisionId ? archiveOriginalUpgradeSnapshotSchema.parse(item.upgradeSnapshot) : null
+  if (
+    upgrade &&
+    (previousRevision?.id !== upgrade.revisionId ||
+      item.upgradeBaseRevisionId !== upgrade.revisionId ||
+      existingRef?.artworkId !== upgrade.artworkId ||
+      sourcePlanDigest !== upgrade.sourcePlanDigest ||
+      resolved.media.length !== upgrade.sourceTotalItems ||
+      quality !== 'ORIGINAL')
+  )
+    return {
+      result: 'CONFLICT',
+      code: 'SOURCE_CHANGED',
+      message: '来源页面计划或本地版本已变化，原图升级已停止；原有内容已保留。'
+    }
   if (
     completion &&
     (previousRevision?.id !== completion.revisionId ||
@@ -174,10 +193,18 @@ export async function enqueueArchiveIntakeItemInTransaction(
       message: '来源内容或本地归档已变化，补全已停止；请通过完整更新重新确认。'
     }
   // An ordinary resubmission preserves existing coverage; only the completion command expands a partial archive.
-  const downloadScope = completion
-    ? 'ALL'
-    : (previousRevision?.downloadScope ?? options.downloadScope ?? item.downloadScope ?? 'ALL')
-  const mediaPlan = downloadScope === 'FIRST_20' ? resolved.media.slice(0, 20) : resolved.media
+  const downloadScope = upgrade
+    ? upgrade.downloadScope
+    : completion
+      ? 'ALL'
+      : (previousRevision?.downloadScope ?? options.downloadScope ?? item.downloadScope ?? 'ALL')
+  const mediaPlan = upgrade
+    ? resolved.media.filter((media) => upgrade.media.some((entry) => entry.index === media.index))
+    : downloadScope === 'FIRST_20'
+      ? resolved.media.slice(0, 20)
+      : resolved.media
+  if (upgrade && mediaPlan.length !== upgrade.media.length)
+    return { result: 'CONFLICT', code: 'SOURCE_CHANGED', message: '来源中缺少本地已有页面，原图升级已停止。' }
   const importId = uuid()
   const jobId = uuid()
   const paths = buildArchiveStoragePaths({
@@ -194,7 +221,7 @@ export async function enqueueArchiveIntakeItemInTransaction(
       id: jobId,
       type: 'ARCHIVE_DOWNLOAD',
       executionLane: 'ARCHIVE_DOWNLOAD',
-      definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
+      definitionVersion: upgrade ? ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION : ARCHIVE_COVERAGE_DEFINITION_VERSION,
       status: 'PENDING',
       triggerSource: origin === 'AUTO' ? 'SYSTEM' : 'MANUAL',
       requestedByUserId,
@@ -232,11 +259,14 @@ export async function enqueueArchiveIntakeItemInTransaction(
       sourcePlanDigest,
       completionBaseRevisionId: completion?.revisionId ?? null,
       completionSnapshot: completion ? toJsonValue(completion) : Prisma.DbNull,
+      upgradeBaseRevisionId: upgrade?.revisionId ?? null,
+      upgradeSnapshot: upgrade ? toJsonValue(upgrade) : Prisma.DbNull,
       totalItems: mediaPlan.length,
       warning: redactArchiveText(resolved.warnings.join('\n') || null),
       items: {
         create: mediaPlan.map((media) => {
-          const reused = completion?.media.find((entry) => entry.index === media.index)
+          const upgraded = upgrade?.media.find((entry) => entry.index === media.index && entry.originalEvidence)
+          const reused = upgraded ?? completion?.media.find((entry) => entry.index === media.index)
           return {
             pageIndex: media.index,
             sourcePageUrl: media.sourcePageUrl,
@@ -245,14 +275,24 @@ export async function enqueueArchiveIntakeItemInTransaction(
             ...(reused
               ? {
                   status: 'COMPLETED' as const,
-                  stagedGenerationPath: completion!.archivePath,
+                  stagedGenerationPath: upgrade?.archivePath ?? completion!.archivePath,
                   stagedPath: reused.path,
                   byteCount: BigInt(reused.size),
                   sha256: reused.sha256,
                   width: reused.width,
                   height: reused.height,
                   mimeType: reused.mimeType,
-                  quality: completion!.quality,
+                  quality: upgrade ? ('ORIGINAL' as const) : completion!.quality,
+                  ...(upgraded
+                    ? {
+                        deliveryEvidence: toJsonValue({
+                          version: 1,
+                          quality: 'ORIGINAL',
+                          reason: 'VERIFIED_REVISION_REUSE',
+                          inherited: upgraded.originalEvidence
+                        })
+                      }
+                    : {}),
                   finishedAt: timestamp
                 }
               : {})

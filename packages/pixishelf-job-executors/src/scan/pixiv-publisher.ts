@@ -1,5 +1,13 @@
 import { assertPixivScanSources } from './dedup-source-snapshot.ts'
-import { Prisma, checkArtworkSummarySource, invalidateAnimationDurationSource, assertArtworkDedupWritable } from '@pixishelf/db'
+import {
+  Prisma,
+  lockArtworkForReading,
+  readArtworkReadingLayout,
+  refreshArtworkReadingLayout,
+  checkArtworkSummarySource,
+  invalidateAnimationDurationSource,
+  assertArtworkDedupWritable
+} from '@pixishelf/db'
 import { ScanExecutorError } from './errors.ts'
 import { animationDurationSourceChanged, canPreserveAnimationClassification } from './animation-duration-source.ts'
 import type { DiscoveredMediaFile } from './discovery.ts'
@@ -255,6 +263,8 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
     }
     incomingIdentities.add(identity)
   }
+  await lockArtworkForReading(transaction, artworkId)
+  const previousLayout = await readArtworkReadingLayout(transaction, artworkId)
   const existingImages = await transaction.image.findMany({
     where: { artworkId },
     orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
@@ -363,6 +373,7 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
     const inserted = await transaction.image.createMany({ data: newImages.slice(offset, offset + 500) })
     newImageCount += inserted.count
   }
+  await refreshArtworkReadingLayout(transaction, artworkId, previousLayout, !isNewArtwork)
   if (isNewArtwork) await initializePixivImportReading(transaction, artworkId)
   if (input.manageCheckpoint !== false) {
     await writeItem(input, {

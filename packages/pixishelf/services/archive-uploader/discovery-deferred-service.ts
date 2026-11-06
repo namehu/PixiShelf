@@ -25,7 +25,7 @@ export const deferDiscoveryItemsSchema = z.object({ sourceId: id, itemIds: ids, 
 export const deferredItemsCommandSchema = z.object({ deferredItemIds: ids, requestId }).strict()
 export const downloadDeferredItemsSchema = deferredItemsCommandSchema.extend({
   downloadMode: z.enum(['AUTO', 'MANUAL']).default('AUTO'),
-  quality: z.enum(['ORIGINAL', 'DISPLAY']).default('ORIGINAL'),
+  quality: z.enum(['ORIGINAL', 'DISPLAY']).default('DISPLAY'),
   downloadScope: archiveDownloadScopeSchema.default('ALL')
 })
 export const listDeferredItemsSchema = z

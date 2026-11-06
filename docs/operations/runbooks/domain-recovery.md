@@ -74,8 +74,8 @@ sources:
 
 ## 阅读与派生摘要
 
-阅读表、Artwork `mediaRevision`、原媒体必须同点。完整替换/恢复/全量重建在媒体发布事务中递增版本并清空所有账户的该作品阅读；普通增删/排序保留存续媒体记录和访问次数。
+阅读进度、Artwork `readingLayoutVersion`/`logicalMediaCount`/`mediaRevision` 与原媒体必须同点。完整替换/替换恢复/全量重建在媒体发布事务中递增版本并清空所有账户的该作品阅读；普通增删/排序同事务重定位锚点并保留完成状态和访问次数。位置模型迁移及封存清理按[专项手册](./reading-position-migration.md)执行，封存证据不能单独恢复旧程序。
 
 兼容代码回退保留新增表/列，并暂停旧代码的完整重建、扫描及替换入口。旧代码若已重建媒体，保存受影响作品 ID；重新升级前逐项通过兼容事务清空相应阅读并递增版本。范围未知先审计修复，不能直接恢复阅读入口。新手动记录允许实际访问时间为空，不得伪造时间以满足旧版本。
 
-`ArtworkSummary` / `ArtworkSummaryFeature` 是派生数据，但组阅读写入的 `artwork_read_media` 是用户记录；清除摘要不能撤销已读。详细语义见[阅读记录](../../features/artwork-reading.md)和[堆叠浏览](../../features/artwork-summary.md)。
+`ArtworkSummary` / `ArtworkSummaryFeature` 是派生数据，账户的 `artwork_reading_progress` 是用户记录；清除视觉摘要不能撤销阅读前缀或完成状态。详细语义见[阅读记录](../../features/artwork-reading.md)和[堆叠浏览](../../features/artwork-summary.md)。

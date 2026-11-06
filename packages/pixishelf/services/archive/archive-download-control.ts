@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '@pixishelf/db'
-import { ARCHIVE_COVERAGE_DEFINITION_VERSION, type ArchiveDownloadPreparation } from '@pixishelf/job-contracts'
+import {
+  ARCHIVE_COVERAGE_DEFINITION_VERSION,
+  ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION,
+  type ArchiveDownloadPreparation
+} from '@pixishelf/job-contracts'
 import { prisma } from '@/lib/prisma'
 import { writeJobEvents, type JobEventWriteInput } from '@/services/background-task/job-event-service'
 import {
@@ -9,6 +13,7 @@ import {
   type ArchiveBulkTargetResult
 } from './archive-bulk-operation'
 import { archiveImportDefaultTagIdsForRetry } from './archive-job-payload'
+import { canUseArchiveDisplayQuality } from './archive-task-action-policy'
 import { ArchiveError } from './errors'
 
 export interface ArchiveDownloadControlInput {
@@ -32,6 +37,9 @@ const targetSelect = {
   origin: true,
   sourceTotalItems: true,
   completionBaseRevisionId: true,
+  upgradeBaseRevisionId: true,
+  selectedQuality: true,
+  sealedManifestSha256: true,
   completedItems: true,
   totalItems: true,
   failedItems: true,
@@ -144,8 +152,10 @@ export async function controlArchiveDownloads(
       ) {
         invalid = conflict('STATE_CONFLICT', '归档任务绑定或状态已改变，请刷新后重试')
       } else if (task.cleanupRequestedAt) invalid = conflict('CLEANUP_IN_PROGRESS', '归档任务正在清理暂存文件')
-      else if (input.useDisplayQuality && task.completionBaseRevisionId) {
+      else if (input.useDisplayQuality && (task.completionBaseRevisionId || task.upgradeBaseRevisionId)) {
         invalid = conflict('STATE_CONFLICT', '补全必须沿用原归档画质；需要更换画质时请通过完整更新重新确认。')
+      } else if (input.useDisplayQuality && !canUseArchiveDisplayQuality(task)) {
+        invalid = conflict('STATE_CONFLICT', '当前下载任务不能改用展示图，请刷新后重试')
       } else if (
         input.action === 'RESUME'
           ? !(task.systemJob.status === 'PAUSED' && ['PAUSED', 'RUNNING'].includes(task.status))
@@ -234,7 +244,11 @@ export async function controlArchiveDownloads(
               id: nextJobId,
               type: 'ARCHIVE_DOWNLOAD',
               executionLane: 'ARCHIVE_DOWNLOAD',
-              definitionVersion: task.sourceTotalItems == null ? 1 : ARCHIVE_COVERAGE_DEFINITION_VERSION,
+              definitionVersion: task.upgradeBaseRevisionId
+                ? ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION
+                : task.sourceTotalItems == null
+                  ? 1
+                  : ARCHIVE_COVERAGE_DEFINITION_VERSION,
               status: 'PENDING',
               triggerSource:
                 task.origin === 'AUTO' ? 'SYSTEM' : task.origin === 'MANUAL' ? 'MANUAL' : task.systemJob.triggerSource,
@@ -278,21 +292,13 @@ export async function controlArchiveDownloads(
           skipDuplicates: true
         })
       } else {
-        await transaction.systemJob.updateMany({
-          where: { id: { in: winners.map(({ task }) => task.systemJobId) }, status: 'PAUSED' },
-          data: {
-            status: 'PENDING',
-            pauseRequestedAt: null,
-            availableAt: timestamp,
-            errorCode: null,
-            error: null,
-            workerId: null,
-            leaseToken: null,
-            leaseExpiresAt: null,
-            heartbeatAt: null,
-            message: '归档下载继续执行已入队'
-          }
-        })
+        await transaction.$executeRaw(Prisma.sql`
+          UPDATE system_jobs SET status = 'PENDING', "pauseRequestedAt" = NULL, "availableAt" = ${timestamp},
+            "errorCode" = NULL, error = NULL, "workerId" = NULL, "leaseToken" = NULL, "leaseExpiresAt" = NULL,
+            "heartbeatAt" = NULL, message = '归档下载继续执行已入队', "updatedAt" = ${timestamp},
+            "maxAttempts" = GREATEST("maxAttempts", attempt + 1)
+          WHERE id IN (${Prisma.join(winners.map(({ task }) => task.systemJobId))}) AND status = 'PAUSED'
+        `)
         await transaction.$executeRaw(Prisma.sql`
           INSERT INTO archive_import_executions ("jobId", "archiveImportId", phase, "pendingDownloadPreparation")
           VALUES ${Prisma.join(winners.map(({ task }) => Prisma.sql`(${task.systemJobId}, ${task.id}, 'DOWNLOAD'::"ArchiveImportPhase", ${JSON.stringify(preparation)}::jsonb)`))}

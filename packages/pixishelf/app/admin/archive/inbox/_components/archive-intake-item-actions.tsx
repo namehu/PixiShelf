@@ -58,7 +58,7 @@ export function ArchiveIntakeItemActions({
       />
       {canEnqueue ? (
         <Select
-          value={selection.qualityById.get(item.id) ?? item.selectedQuality ?? 'ORIGINAL'}
+          value={selection.qualityById.get(item.id) ?? item.selectedQuality ?? 'DISPLAY'}
           disabled={actionPending}
           onValueChange={(quality) =>
             onSelectionChange((current) => ({

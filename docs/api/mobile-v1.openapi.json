@@ -1114,10 +1114,6 @@
             "type": "integer",
             "minimum": 0
           },
-          "seenCount": {
-            "type": "integer",
-            "minimum": 0
-          },
           "totalCount": {
             "type": "integer",
             "minimum": 0
@@ -1127,10 +1123,6 @@
             "minimum": 0
           },
           "artworkId": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "mediaRevision": {
             "type": "integer",
             "minimum": 1
           },
@@ -1184,21 +1176,58 @@
                 "type": "null"
               }
             ]
+          },
+          "progressCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "readingLayoutVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "completed": {
+            "type": "boolean"
+          },
+          "furthestMediaId": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "furthestMediaIndex": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
           "viewCount",
-          "seenCount",
+          "progressCount",
           "totalCount",
           "stateVersion",
           "artworkId",
-          "mediaRevision",
+          "readingLayoutVersion",
           "status",
           "lastViewedAt",
           "lastActiveAt",
           "lastMediaId",
-          "lastMediaIndex"
-        ]
+          "lastMediaIndex",
+          "completed",
+          "furthestMediaId",
+          "furthestMediaIndex"
+        ],
+        "description": "One account/artwork position summary. progressCount is completed ? totalCount : (furthestMediaIndex == null ? 0 : furthestMediaIndex + 1). Completion is sticky across ordinary media changes; no per-media seen set is returned."
       },
       "Reading": {
         "type": "object",
@@ -1206,17 +1235,6 @@
           "artworkId": {
             "type": "integer",
             "minimum": 1
-          },
-          "mediaRevision": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "seenMediaIds": {
-            "type": "array",
-            "items": {
-              "type": "integer",
-              "minimum": 1
-            }
           },
           "summary": {
             "$ref": "#/components/schemas/ReadingSummary"
@@ -1244,12 +1262,15 @@
                 "type": "null"
               }
             ]
+          },
+          "readingLayoutVersion": {
+            "type": "integer",
+            "minimum": 1
           }
         },
         "required": [
           "artworkId",
-          "mediaRevision",
-          "seenMediaIds",
+          "readingLayoutVersion",
           "summary",
           "resume"
         ]
@@ -1489,10 +1510,6 @@
           "expectedUserId": {
             "type": "string"
           },
-          "mediaRevision": {
-            "type": "integer",
-            "minimum": 1
-          },
           "events": {
             "type": "array",
             "items": {
@@ -1528,36 +1545,38 @@
                         "duration"
                       ]
                     },
-                    "stack": {
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "advanceTo": {
                       "type": "object",
                       "properties": {
-                        "ruleVersion": {
-                          "const": 1
+                        "mediaId": {
+                          "type": "integer",
+                          "minimum": 1
                         },
-                        "fingerprint": {
-                          "type": "string",
-                          "pattern": "^[a-f0-9]{64}$"
-                        },
-                        "groupId": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 100
+                        "index": {
+                          "type": "integer",
+                          "minimum": 0
                         }
                       },
                       "required": [
-                        "ruleVersion",
-                        "fingerprint",
-                        "groupId"
+                        "mediaId",
+                        "index"
                       ],
-                      "additionalProperties": false
+                      "additionalProperties": false,
+                      "description": "Optional static stack tail. The displayed media remains the last observed position; only the furthest position advances to this tail."
                     }
                   },
                   "required": [
                     "type",
                     "mediaId",
-                    "observedAt"
+                    "observedAt",
+                    "index"
                   ],
-                  "description": "Observations must be at most 60 seconds old. Video completion uses real playback position >= 90% of duration. Stack evidence is accepted only on VIEW and verified against the current complete logical index."
+                  "description": "Observation expires after 60 seconds. Supply the logical representative and zero-based index from the same readingLayoutVersion. VIEW updates the last observed position; furthest only advances. Video VIEW starts activity but advances position only with real playback >= 90% of duration. HEARTBEAT extends an existing visit without moving position.",
+                  "additionalProperties": false
                 },
                 {
                   "type": "object",
@@ -1589,49 +1608,52 @@
                         "currentTime",
                         "duration"
                       ]
+                    },
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0
                     }
                   },
                   "required": [
                     "type",
                     "mediaId",
-                    "observedAt"
+                    "observedAt",
+                    "index"
                   ],
-                  "description": "Observations must be at most 60 seconds old. Video completion uses real playback position >= 90% of duration. Stack evidence is accepted only on VIEW and verified against the current complete logical index."
+                  "description": "Observation expires after 60 seconds. Supply the logical representative and zero-based index from the same readingLayoutVersion. VIEW updates the last observed position; furthest only advances. Video VIEW starts activity but advances position only with real playback >= 90% of duration. HEARTBEAT extends an existing visit without moving position.",
+                  "additionalProperties": false
                 }
               ]
             },
             "minItems": 1,
             "maxItems": 100
+          },
+          "readingLayoutVersion": {
+            "type": "integer",
+            "minimum": 1
           }
         },
         "required": [
           "artworkId",
           "expectedUserId",
-          "mediaRevision",
+          "readingLayoutVersion",
           "events"
-        ]
+        ],
+        "additionalProperties": false
       },
       "ReportResult": {
         "type": "object",
         "properties": {
-          "seenMediaIds": {
-            "type": "array",
-            "items": {
-              "type": "integer",
-              "minimum": 1
-            }
-          },
-          "mediaRevision": {
-            "type": "integer",
-            "minimum": 1
-          },
           "summary": {
             "$ref": "#/components/schemas/ReadingSummary"
+          },
+          "readingLayoutVersion": {
+            "type": "integer",
+            "minimum": 1
           }
         },
         "required": [
-          "seenMediaIds",
-          "mediaRevision",
+          "readingLayoutVersion",
           "summary"
         ]
       },
@@ -1937,7 +1959,7 @@
           "fingerprint",
           "groups"
         ],
-        "description": "Partition of the complete Reader.index before unread filtering. Only a genuinely displayed stack representative may report its matching ruleVersion/fingerprint/groupId evidence; thumbnails and prefetch never report reading."
+        "description": "Partition of the complete Reader.index for display. A genuinely observed static stack may supply its tail as VIEW.advanceTo; thumbnails and prefetch do not produce reading observations. Reading reports use readingLayoutVersion; media page fingerprints and mediaRevision retain their media-delivery meaning."
       },
       "MediaMark": {
         "type": "object",
@@ -2056,49 +2078,18 @@
             "type": "integer",
             "minimum": 1
           },
-          "mediaRevision": {
+          "readingLayoutVersion": {
             "type": "integer",
             "minimum": 1
-          },
-          "target": {
-            "oneOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "const": "ALL"
-                  }
-                },
-                "required": [
-                  "kind"
-                ]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "const": "MEDIA"
-                  },
-                  "mediaId": {
-                    "type": "integer",
-                    "minimum": 1
-                  }
-                },
-                "required": [
-                  "kind",
-                  "mediaId"
-                ]
-              }
-            ]
           }
         },
         "required": [
           "expectedUserId",
           "artworkId",
-          "mediaRevision",
-          "target"
+          "readingLayoutVersion"
         ],
-        "description": "Positive-only manual completion, identical to H5. Does not change visit count, access timestamps or resume position. No reset or unread mutation."
+        "description": "Complete the whole nonempty artwork, without changing visit count, activity dates, furthest or last observed position. No single-media completion, reset or unread mutation. Completed stays true after ordinary additions.",
+        "additionalProperties": false
       },
       "Neighbors": {
         "type": "object",

@@ -6,7 +6,7 @@ import AnimatedWebpPlayer from '@/components/players/animated-webp-player'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { useArtworkStore } from '@/store/use-artwork-store'
 import Image from 'next/image'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useArtworkAutoBrowseStore, type PreviewStatus } from '@/store/use-artwork-auto-browse-store'
 import { useOnInView } from 'react-intersection-observer'
 import { isApngFile, isGifFile, isVideoFile, isWebpFile } from '@/lib/media'
@@ -21,6 +21,7 @@ import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
 import { useVideoReading } from '@/lib/reading/use-video-reading'
 import { MediaDetailsPlaceholder } from '@/lib/reading/artwork-reader-provider'
 import { cn } from '@/lib/utils'
+import { getAutoBrowseViewport } from './use-artwork-auto-scroll'
 
 interface LazyMediaProps {
   media: ArtworkImageResponseDto
@@ -52,21 +53,31 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
   const videoReading = useVideoReading(`${reading?.ownerUserId}:${media.id}:${media.updatedAt}`, visible && trackingActive && !suspendPlayback)
   const playback = videoReading.playback
   const video = media.mediaType === 'video' || isVideoFile(media.path)
+  const observation = {
+    mediaId: media.id,
+    // Full-detail image regions count before resource loading; stack and video gates remain.
+    ready: (!video && !fill) || (previewStatus === 'ready' && !suspendPlayback && (!video || playback !== null)),
+    visible, automatic, active: trackingActive, priority: 0,
+    ...(video && playback ? { playback } : {})
+  }
+  const observationRef = useRef({ observe, observation })
+  observationRef.current = { observe, observation }
   useEffect(() => {
-    if (!observe || !clearSurface) return
-    observe(surfaceId, {
-      mediaId: media.id,
-      // Full-detail image regions count even before fetching/decoding. Stack grants
-      // still require a loaded frame; videos still require actual playback.
-      ready: (!video && !fill) || (previewStatus === 'ready' && !suspendPlayback && (!video || playback !== null)),
-      visible,
-      automatic,
-      active: trackingActive,
-      priority: 0,
-      ...(video && playback ? { playback } : {})
-    })
-  }, [automatic, clearSurface, fill, media.id, observationEpoch, observe, previewStatus, surfaceId,
+    observe?.(surfaceId, observation)
+  }, [automatic, fill, media.id, observationEpoch, observe, previewStatus, surfaceId,
     suspendPlayback, trackingActive, visible, video, playback])
+  const [readingRootMargin, setReadingRootMargin] = useState('0px')
+  useLayoutEffect(() => {
+    const update = () => {
+      const { top, bottom } = getAutoBrowseViewport()
+      setReadingRootMargin(`${-top}px 0px ${Math.min(0, bottom - window.innerHeight)}px 0px`)
+    }
+    update()
+    const resize = new ResizeObserver(update)
+    for (const element of document.querySelectorAll('.artwork-detail-toolbar, [aria-label="手机主导航"], [data-auto-scroll-bar]')) resize.observe(element)
+    window.addEventListener('resize', update)
+    return () => { resize.disconnect(); window.removeEventListener('resize', update) }
+  }, [automatic, fill])
   useEffect(() => () => clearSurface?.(surfaceId), [clearSurface, surfaceId])
   const live = useRef(true)
   useEffect(() => {
@@ -140,7 +151,12 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
   }, [canManage, enqueue, job?.status, media, src])
 
   // A sliver of the next stack must not grant its whole group. Stack frames fit the viewport.
-  const readingRef = useOnInView((inView) => setVisible(inView), { threshold: fill ? 0.5 : 0 })
+  const readingRef = useOnInView((inView) => {
+    // Keep every intersection transition even when React batches true/false together.
+    const current = observationRef.current
+    current.observe?.(surfaceId, { ...current.observation, visible: inView })
+    setVisible(inView)
+  }, { threshold: fill ? 0.5 : 0, rootMargin: readingRootMargin })
   const trackingRef = useOnInView(
     (inView) => {
       if (inView && !(autoMode === 'slideshow' && ['running', 'waiting'].includes(useArtworkAutoBrowseStore.getState().status))) {

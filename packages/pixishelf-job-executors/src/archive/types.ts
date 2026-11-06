@@ -54,6 +54,12 @@ export interface ArchiveRemoteMedia {
   contentLength: number | null
   originalFilename: string | null
   quality: ArchiveQuality
+  ehDelivery?: {
+    requestedQuality: ArchiveQuality
+    originalResponse: boolean
+    originalClaim?: import('./eh-quality.ts').EhOriginalClaim
+    sourceOriginalClaim?: import('./eh-quality.ts').EhOriginalClaim
+  }
   remoteHost: string | null
 }
 

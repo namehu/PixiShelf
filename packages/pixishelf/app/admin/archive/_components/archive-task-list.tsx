@@ -1,4 +1,5 @@
 'use client'
+import { formatArchiveSourceSize } from '@/lib/archive-source-size'
 
 import { Fragment, useState } from 'react'
 import Link from 'next/link'
@@ -267,6 +268,9 @@ function TaskIdentity({ task, onViewItems }: { task: ArchiveTaskOutput; onViewIt
         <span aria-hidden="true">·</span>
         <ArchiveTaskCreators task={task} compact />
       </div>
+      <p className="text-xs text-muted-foreground">
+        {task.sourceSizeBytes ? `原站整部 ${formatArchiveSourceSize(task.sourceSizeBytes)}` : '原站整部大小未知'}
+      </p>
       {archiveTaskDisplayStatus(task) === 'FAILED' && (
         <div className="flex flex-col gap-1 text-xs text-destructive">
           {task.errorMessage && (
@@ -282,8 +286,8 @@ function TaskIdentity({ task, onViewItems }: { task: ArchiveTaskOutput; onViewIt
           {task.message}
         </PrivacySensitiveText>
       )}
-      {task.decisionCode === 'USE_DISPLAY_QUALITY' && (
-        <p className="text-xs text-warning">可按原质量继续，或在操作中改用展示质量</p>
+      {task.canUseDisplayQuality && (
+        <p className="text-xs text-warning">可按原图继续，或在任务操作中改用展示图</p>
       )}
       {task.publishedArtwork?.archiveLifecycleState === 'TRASHING' && (
         <p className="text-xs text-warning">正在移入回收站</p>
@@ -374,12 +378,12 @@ function TaskActions({
                 {isPending('RESUME') ? <Spinner /> : <CirclePlay aria-hidden="true" />}继续任务
               </DropdownMenuItem>
             )}
-            {task.decisionCode === 'USE_DISPLAY_QUALITY' && (
+            {task.canUseDisplayQuality && (
               <DropdownMenuItem
                 disabled={isPending('USE_DISPLAY_QUALITY')}
                 onSelect={() => onAction('USE_DISPLAY_QUALITY')}
               >
-                {isPending('USE_DISPLAY_QUALITY') ? <Spinner /> : <CirclePlay aria-hidden="true" />}改用展示质量继续
+                {isPending('USE_DISPLAY_QUALITY') ? <Spinner /> : <CirclePlay aria-hidden="true" />}改用展示图并继续
               </DropdownMenuItem>
             )}
             {['FAILED', 'CANCELLED'].includes(task.status) && (

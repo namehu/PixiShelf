@@ -2,6 +2,28 @@ import type { ArchiveBulkTargetResult } from './archive-bulk-operation'
 
 export type ArchiveTaskBulkAction = 'PAUSE' | 'RESUME' | 'CANCEL' | 'RETRY'
 
+export function canUseArchiveDisplayQuality(task: {
+  phase: string
+  status: string
+  selectedQuality: string
+  completionBaseRevisionId: string | null
+  upgradeBaseRevisionId: string | null
+  sealedManifestSha256: string | null
+  cleanupRequestedAt: Date | null
+  systemJob: { status: string }
+}): boolean {
+  return (
+    task.phase === 'DOWNLOAD' &&
+    task.selectedQuality === 'ORIGINAL' &&
+    !task.completionBaseRevisionId &&
+    !task.upgradeBaseRevisionId &&
+    !task.sealedManifestSha256 &&
+    !task.cleanupRequestedAt &&
+    ((task.status === 'PAUSED' && task.systemJob.status === 'PAUSED') ||
+      (task.status === 'FAILED' && ['FAILED', 'CANCELLED'].includes(task.systemJob.status)))
+  )
+}
+
 const allowedImportStatuses: Record<ArchiveTaskBulkAction, readonly string[]> = {
   PAUSE: ['PENDING', 'RUNNING'],
   RESUME: ['PAUSED'],

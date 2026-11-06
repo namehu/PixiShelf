@@ -1,5 +1,7 @@
 import { EventEmitter } from 'node:events'
+import { Readable } from 'node:stream'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { EHentaiProvider } from '../providers/e-hentai.js'
 
 const { lookupMock, requestMock } = vi.hoisted(() => ({
   lookupMock: vi.fn(),
@@ -39,7 +41,125 @@ class SyntheticConnection extends EventEmitter {
   }
 }
 
+const sourcePageUrl = 'https://e-hentai.org/s/key/1-1'
+const originalUrl = 'https://e-hentai.org/fullimg/1/key/1/source'
+const originalItem = { index: 0, sourcePageUrl, locator: {}, expectedFilename: '0001' }
+
+function mockOriginalRedirects(hops: readonly string[], contentType = 'image/png') {
+  lookupMock.mockResolvedValue([{ address: '1.1.1.1', family: 4 }])
+  const sent: Array<{ url: string; cookie: string | undefined }> = []
+  requestMock.mockImplementation(
+    (target: URL, options: { headers: Record<string, string> }, callback: (response: unknown) => void) => {
+      const url = target.toString()
+      const index = hops.indexOf(url)
+      expect(index).toBeGreaterThanOrEqual(0)
+      sent.push({ url, cookie: options.headers.cookie })
+      const location = hops[index + 1]
+      return Object.assign(new EventEmitter(), {
+        setTimeout: vi.fn(),
+        end: () =>
+          queueMicrotask(() =>
+            callback(
+              Object.assign(Readable.from([]), {
+                statusCode: location ? 302 : 200,
+                headers: location ? { location } : { 'content-type': contentType }
+              })
+            )
+          )
+      })
+    }
+  )
+  const client = new SafeHttpClient(['e-hentai.org', 'hath.network', 'ehgt.org'], { ARCHIVE_HTTPS_PROXY: '' })
+  return {
+    sent,
+    provider: (cookie: string | null) =>
+      new EHentaiProvider(
+        {
+          text: async () => `<a href="${originalUrl}">Download original 2 x 3 100 B</a>`,
+          request: client.request.bind(client),
+          json: client.json.bind(client)
+        },
+        { getCookie: async () => cookie }
+      )
+  }
+}
+
 describe('archive safe HTTP network policy', () => {
+  it.each([null, 'fixture=secret'])('requests the original and recomputes per-hop credentials: %s', async (cookie) => {
+    const hops = [
+      originalUrl,
+      'https://api.e-hentai.org/fullimg.php?gid=1',
+      'https://node.hath.network/h/image',
+      'https://ehgt.org/thumbnail.jpg',
+      'https://e-hentai.org/g/1/token/',
+      'https://e-hentai.org/fullimg.php?gid=1'
+    ]
+    const { sent, provider } = mockOriginalRedirects(hops)
+    const response = await provider(cookie).openMedia(originalItem, { quality: 'ORIGINAL' })
+    expect(response).toMatchObject({
+      downloadUrl: hops.at(-1),
+      quality: 'ORIGINAL',
+      ehDelivery: {
+        requestedQuality: 'ORIGINAL',
+        originalResponse: true,
+        originalClaim: { width: 2, height: 3, minBytes: 100, maxBytes: 100 }
+      }
+    })
+    expect(sent.map((hop) => hop.url)).toEqual(hops)
+    expect(sent.map((hop) => hop.cookie)).toEqual([
+      cookie ?? undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      cookie ?? undefined
+    ])
+    requestMock.mockReset()
+  })
+
+  it.each([
+    ['https://forums.e-hentai.org/index.php?act=Login&CODE=00', null, '配置 EH Cookie'],
+    ['https://e-hentai.org/bounce_login.php?b=ds&bt=fixture', null, '配置 EH Cookie'],
+    ['https://e-hentai.org/bounce_login.php?b=ds&bt=fixture', 'fixture=secret', '更新 EH Cookie']
+  ])('pauses an explicit EH login redirect without requesting %s', async (loginUrl, cookie, guidance) => {
+    const { sent, provider } = mockOriginalRedirects([originalUrl, loginUrl])
+    await expect(provider(cookie).openMedia(originalItem, { quality: 'ORIGINAL' })).rejects.toMatchObject({
+      code: 'ORIGINAL_UNAVAILABLE',
+      message: expect.stringContaining(guidance),
+      pause: true,
+      stage: 'MEDIA_REQUEST',
+      remoteHost: `${new URL(loginUrl).hostname}:443`,
+      decisionCode: null
+    })
+    expect(sent).toEqual([{ url: originalUrl, cookie: cookie ?? undefined }])
+    requestMock.mockReset()
+  })
+
+  it('does not infer login from an unrelated forum page with an HTML response', async () => {
+    const profile = 'https://forums.e-hentai.org/index.php?showuser=42'
+    const { sent, provider } = mockOriginalRedirects([originalUrl, profile], 'text/html')
+    await expect(provider('fixture=secret').openMedia(originalItem, { quality: 'ORIGINAL' })).resolves.toMatchObject({
+      downloadUrl: profile,
+      mimeType: 'text/html',
+      ehDelivery: { originalResponse: false }
+    })
+    expect(sent).toEqual([
+      { url: originalUrl, cookie: 'fixture=secret' },
+      { url: profile, cookie: undefined }
+    ])
+    requestMock.mockReset()
+  })
+
+  it('still rejects an out-of-policy host with a login-shaped path', async () => {
+    const lookalike = 'https://forums.e-hentai.org.example.test/index.php?act=Login&CODE=00'
+    const { sent, provider } = mockOriginalRedirects([originalUrl, lookalike])
+    await expect(provider('fixture=secret').openMedia(originalItem, { quality: 'ORIGINAL' })).rejects.toMatchObject({
+      code: 'SSRF_BLOCKED'
+    })
+    expect(sent).toEqual([{ url: originalUrl, cookie: 'fixture=secret' }])
+    requestMock.mockReset()
+  })
+
   it('retains HTTP status and host for typed diagnostics', () => {
     expect(() =>
       assertSuccessStatus({

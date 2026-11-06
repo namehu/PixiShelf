@@ -140,17 +140,15 @@ describe('NavHead', () => {
     function ReadingState() {
       const view = useArtworkMediaView()!
       const setMenu = view.setReadingMenu
-      useEffect(() => { setMenu({ unreadOnly: true, likedOnly: false, remaining: 2, disabled: false }) }, [setMenu])
+      useEffect(() => { setMenu({ canContinue: true, completed: false, totalCount: 2, likedOnly: false, disabled: false }) }, [setMenu])
       return <output>{view.readingRequest?.action}</output>
     }
     render(<ArtworkMediaViewProvider><ReadingState /><NavHead data={data} id="7" /></ArtworkMediaViewProvider>)
     fireEvent.click(screen.getByRole('menuitemcheckbox', { name: '只看喜欢的图片' }))
     expect(screen.getByRole('status').textContent).toBe('liked-filter')
-    fireEvent.click(screen.getByRole('button', { name: '查看全部' }))
-    expect(screen.getByRole('status').textContent).toBe('filter')
-    fireEvent.click(screen.getByRole('button', { name: '刷新未读' }))
-    expect(screen.getByRole('status').textContent).toBe('refresh')
-    fireEvent.click(screen.getByRole('button', { name: '标记全部已读' }))
+    fireEvent.click(screen.getByRole('button', { name: '继续阅读' }))
+    expect(screen.getByRole('status').textContent).toBe('continue')
+    fireEvent.click(screen.getByRole('button', { name: '标记已读完' }))
     expect(screen.getByRole('status').textContent).toBe('mark-all')
   })
 

@@ -43,6 +43,7 @@ sources:
 | [标题来源规则与人工复核](./archive-title-rules.md)        | 本地组合规则、全量预览、原子应用与人工决定                             |
 | [归档收件箱](./archive-intake.md)                         | 持久 URL 解析、下载意图、批量控制与诊断                                |
 | [部分归档与补全](./archive-partial-coverage.md)           | 下载范围、覆盖事实、显式补全与旧副本退休                               |
+| [EH 归档画质](./archive-quality.md)                       | 原站大小、交付证据核验、单部原图升级与旧版清理                         |
 | [归档生命周期](./archive-lifecycle.md)                    | 文件准备、原子数据库发布、维护与保留                                   |
 | [历史归档默认标签补全](./archive-default-tag-backfill.md) | 冻结预览、追加所有权、分批与取消                                       |
 | [归档回收站](./archive-trash.md)                          | 恢复资格、永久清理及持久删除意图                                       |
@@ -51,14 +52,14 @@ sources:
 
 ## 浏览与阅读
 
-[Android Flutter 验证版](./android-app.md)：独立 APK 的沉浸阅读、视频与 APNG、最小接口及验收边界。
+[Android Flutter 验证版](./android-app.md)：独立客户端工作已按用户要求暂停；保留已有实现、验证事实与未验收边界，不阻塞 Web 交付。
 
 视频缩放与全屏兼容见[视频画面显示](./video-display.md)，同时适用于沉浸浏览和作品详情。
 
 | 规格                                                    | 负责内容                                   |
 | ------------------------------------------------------- | ------------------------------------------ |
-| [作品阅读记录与进度](./artwork-reading.md)              | 真实观察、逻辑媒体、手动完成及版本失效     |
-| [作品堆叠浏览](./artwork-summary.md)                    | 即时分组、组内翻阅、整组已读与旧摘要兼容   |
+| [作品阅读记录与进度](./artwork-reading.md)              | 真实访问、位置前缀、粘性完成与布局失效     |
+| [作品堆叠浏览](./artwork-summary.md)                    | 即时分组、组内翻阅、组尾推进与旧视觉摘要   |
 | [作品详情自动浏览](./artwork-auto-browse.md)            | 自动滚动、轮播、WebP 协同与暂停            |
 | [沉浸浏览](./immersive-viewer-interactions.md)          | 浮层、手势、倍速、筛选记忆与跨作品自动浏览 |
 | [作品快捷筛选](./artwork-quick-filters.md)              | 账户预设、导航入口及并发约束               |

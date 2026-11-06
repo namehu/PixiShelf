@@ -8,7 +8,13 @@ import { ArtworksInfiniteQuerySchema, ViewerFeedQuerySchema } from '@/schemas/ar
 const url = process.env.FAVORITES_DATABASE_URL
 if (url) {
   const target = new URL(url)
-  if (target.hostname !== '127.0.0.1' || target.port !== '55434' || target.pathname !== '/favorites_verification') {
+  if (
+    target.hostname !== '127.0.0.1' ||
+    !(
+      (target.port === '55434' && target.pathname === '/favorites_verification') ||
+      (target.port === '55433' && target.pathname === '/pixishelf_reading_position_20261104_runtime')
+    )
+  ) {
     throw new Error('Requires isolated 127.0.0.1:55434/favorites_verification database')
   }
 }
@@ -62,8 +68,9 @@ async function walkCards(params: ArtworksInfiniteQuerySchema, userId: string) {
       params.sortBy === 'random' ||
       params.readingStatuses.length ||
       (params.ratingLevels ?? (params.likedOnly ? [2, 3, 4] : [])).length
-    )
-      {expect(readingCursor ?? randomCursor).toBeTruthy()}
+    ) {
+      expect(readingCursor ?? randomCursor).toBeTruthy()
+    }
   }
   throw new Error('Favorites pagination did not terminate')
 }
@@ -73,8 +80,9 @@ describe.skipIf(!url).sequential('account favorites with isolated PostgreSQL', (
     context.db = db
     await db!.userBA.createMany({ data: [user, other, empty].map((id) => ({ id })) })
     artistId = (await db!.artist.create({ data: { name: prefix } })).id
-    for (const suffix of ['coauthor-a', 'coauthor-b'])
-      {coauthorIds.push((await db!.artist.create({ data: { name: `${prefix}-${suffix}` } })).id)}
+    for (const suffix of ['coauthor-a', 'coauthor-b']) {
+      coauthorIds.push((await db!.artist.create({ data: { name: `${prefix}-${suffix}` } })).id)
+    }
     for (const suffix of ['first', 'second']) {
       tagIds.push((await db!.tag.create({ data: { name: `${prefix}-${suffix}` } })).id)
     }
@@ -121,13 +129,13 @@ describe.skipIf(!url).sequential('account favorites with isolated PostgreSQL', (
       if (index % 4 < 2) await db!.artworkTag.create({ data: { artworkId: artwork.id, tagId: tagIds[0]! } })
       if (index % 3 < 2) await db!.artworkTag.create({ data: { artworkId: artwork.id, tagId: tagIds[1]! } })
       if (index % 3 !== 0) {
-        await db!.artworkReadingSummary.create({
-          data: { userId: user, artworkId: artwork.id, seenCount: index % 3 === 1 ? 1 : 3, totalCount: 3, viewCount: 1 }
+        await db!.artworkReadingProgress.create({
+          data: { userId: user, artworkId: artwork.id, completed: index % 3 === 2, viewCount: 1 }
         })
       }
       if (index % 3 === 0) {
-        await db!.artworkReadingSummary.create({
-          data: { userId: other, artworkId: artwork.id, seenCount: 3, totalCount: 3, viewCount: 1 }
+        await db!.artworkReadingProgress.create({
+          data: { userId: other, artworkId: artwork.id, completed: true, viewCount: 1 }
         })
       }
     }

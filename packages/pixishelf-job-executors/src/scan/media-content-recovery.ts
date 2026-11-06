@@ -194,7 +194,7 @@ export async function readExecutorMediaRecoveryDomainSnapshot(
         })
       })
     }
-    if (payload.action === 'RETIRE_PARTIAL_REVISION') {
+    if (payload.action === 'RETIRE_PARTIAL_REVISION' || payload.action === 'RETIRE_ORIGINAL_REVISION') {
       if (input.sessionId !== `archive-retire:${job.id}`) throw unavailable()
       const snapshot = await readPartialRetirementSnapshot(tx, payload)
       return json({

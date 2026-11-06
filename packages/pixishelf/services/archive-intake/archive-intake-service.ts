@@ -1,4 +1,5 @@
 import { intakeItemWireSelect, type IntakeItemWire } from './archive-intake-wire'
+import { readIntakeSourceFacts, type IntakeSourceFacts } from './archive-intake-source-facts'
 import { hashSubmittedUrl, validateSubmittedUrl, safeThumbnailUrl } from './archive-intake-url'
 export { hashSubmittedUrl } from './archive-intake-url'
 import { randomUUID } from 'node:crypto'
@@ -8,6 +9,7 @@ import {
   archiveUploaderIdentityLockKey,
   archiveUploaderUrlLockKey,
   ARCHIVE_COVERAGE_DEFINITION_VERSION,
+  ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION,
   archiveDownloadScopeSchema
 } from '@pixishelf/job-contracts'
 import { Prisma, type PrismaClient, lockCreatorCatalog } from '@pixishelf/db'
@@ -55,7 +57,7 @@ export const createArchiveIntakeSchema = z
     idempotencyKey: z.string().trim().min(1).max(180),
     urls: z.array(z.string().max(2_048)).min(1).max(INTAKE_CREATE_LIMIT),
     downloadMode: z.enum(['AUTO', 'MANUAL']).default('MANUAL'),
-    quality: z.enum(['ORIGINAL', 'DISPLAY']).default('ORIGINAL'),
+    quality: z.enum(['ORIGINAL', 'DISPLAY']).default('DISPLAY'),
     downloadScope: archiveDownloadScopeSchema.default('ALL')
   })
   .strict()
@@ -687,8 +689,9 @@ export async function listArchiveIntakeItems(
   const hasMore = rows.length > parsed.limit
   const visible = hasMore ? rows.slice(0, parsed.limit) : rows
   const last = visible.at(-1)
+  const sourceFacts = await readIntakeSourceFacts(database, visible.map((item) => item.id))
   return {
-    items: visible.map((item) => serializeIntakeItem(item, now)),
+    items: visible.map((item) => serializeIntakeItem(item, now, sourceFacts.get(item.id))),
     nextCursor:
       hasMore && last
         ? encodeCursor(parsed.view, active ? last.queueOrder.toString() : last.updatedAt.toISOString(), last.id)
@@ -725,6 +728,7 @@ export async function getArchiveIntakeSummary(dependencies: ArchiveIntakeService
   counts.READY -= expiredReadyCount
   counts.STALE += expiredReadyCount
   const activeCount = ACTIVE_INTAKE_STATUSES.reduce((total, status) => total + counts[status], 0)
+  const sourceFacts = await readIntakeSourceFacts(database, current ? [current.id] : [])
   return {
     counts,
     activeCount,
@@ -733,7 +737,7 @@ export async function getArchiveIntakeSummary(dependencies: ArchiveIntakeService
     queuedCount: counts.QUEUED + counts.RETRY_WAIT,
     recentFailedCount,
     oldestWaitingAt: oldest?.createdAt ?? null,
-    currentItem: current ? serializeIntakeItem(current, now) : null,
+    currentItem: current ? serializeIntakeItem(current, now, sourceFacts.get(current.id)) : null,
     paused: control?.paused ?? false,
     pausedAt: control?.pausedAt ?? null
   }
@@ -951,7 +955,7 @@ async function retryIntakeItem(
       id: jobId,
       type: 'ARCHIVE_RESOLVE_ITEM',
       executionLane: 'ARCHIVE_RESOLVE',
-      definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
+      definitionVersion: item.upgradeBaseRevisionId ? ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION : ARCHIVE_COVERAGE_DEFINITION_VERSION,
       status: 'PENDING',
       triggerSource: 'RETRY',
       requestedByUserId,
@@ -1056,10 +1060,12 @@ function findActiveRetryDuplicate(
   })
 }
 
-function serializeIntakeItem(item: IntakeItemWire, now: Date) {
+function serializeIntakeItem(item: IntakeItemWire, now: Date, sourceFacts?: IntakeSourceFacts) {
   const { dedupSourceSnapshot, ...wire } = item
   return {
     ...wire,
+    sourceSizeBytes: sourceFacts?.sourceSizeBytes ?? null,
+    pageCount: item.pageCount ?? sourceFacts?.pageCount ?? null,
     sourceIntentValid: hasArchiveIntakeSourceProof(dedupSourceSnapshot, item.submittedUrl),
     thumbnailUrl: safeThumbnailUrl(item.thumbnailUrl),
     status: effectiveStatus(item, now),
@@ -1074,6 +1080,7 @@ async function serializeSubmission(transaction: Prisma.TransactionClient, submis
     include: { items: { orderBy: [{ queueOrder: 'asc' }, { id: 'asc' }], select: intakeItemWireSelect } }
   })
   const now = new Date()
+  const sourceFacts = await readIntakeSourceFacts(transaction, submission.items.map((item) => item.id))
   return {
     id: submission.id,
     rawCount: submission.rawCount,
@@ -1082,7 +1089,7 @@ async function serializeSubmission(transaction: Prisma.TransactionClient, submis
     duplicateCount: submission.duplicateCount,
     rejectedCount: submission.rejectedCount,
     createdAt: submission.createdAt,
-    items: submission.items.map((item) => serializeIntakeItem(item, now))
+    items: submission.items.map((item) => serializeIntakeItem(item, now, sourceFacts.get(item.id)))
   }
 }
 

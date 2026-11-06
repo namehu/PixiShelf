@@ -1,127 +1,100 @@
 /** Browser-safe reading contracts. Keep this module free of database imports. */
-
 export const READING_REPORT_INTERVAL_MS = 3_000
 export const READING_REPORT_MAX_AGE_MS = 60_000
 export const READING_HEARTBEAT_INTERVAL_MS = 60_000
 export const READING_VISIT_GAP_MS = 30 * 60_000
-export const READING_COMPLETION_PERCENT = 90
 export const VIDEO_READING_COMPLETION_RATIO = 0.9
+export const READING_LAYOUT_VERSION_CONFLICT_CODE = 'READING_LAYOUT_VERSION_CONFLICT'
 
 /** A transient player observation, never a persisted resume position. */
 export interface ReadingPlayback {
   currentTime: number
   duration: number
 }
-
 export function isVideoReadingComplete(playback: ReadingPlayback): boolean {
-  return Number.isFinite(playback.duration) && playback.duration > 0 &&
-    Number.isFinite(playback.currentTime) && playback.currentTime >= playback.duration * VIDEO_READING_COMPLETION_RATIO
+  return (
+    Number.isFinite(playback.duration) &&
+    playback.duration > 0 &&
+    Number.isFinite(playback.currentTime) &&
+    playback.currentTime >= playback.duration * VIDEO_READING_COMPLETION_RATIO
+  )
 }
-export const READING_MEDIA_REVISION_CONFLICT_CODE = 'READING_MEDIA_REVISION_CONFLICT'
-
 export type ReadingStatus = 'UNREAD' | 'IN_PROGRESS' | 'COMPLETED'
-
-/** Completion tolerates missing records without changing the per-media read set. */
-export function isArtworkReadingComplete(seenCount: number, totalCount: number): boolean {
-  return totalCount > 0 && seenCount * 100 >= totalCount * READING_COMPLETION_PERCENT
+export function getReadingStatus(summary: {
+  completed: boolean
+  progressCount: number
+  viewCount: number
+}): ReadingStatus {
+  if (summary.completed) return 'COMPLETED'
+  return summary.progressCount > 0 || summary.viewCount > 0 ? 'IN_PROGRESS' : 'UNREAD'
 }
-
-export function getReadingStatus(summary: { seenCount: number; totalCount: number; viewCount: number }): ReadingStatus {
-  if (isArtworkReadingComplete(summary.seenCount, summary.totalCount)) return 'COMPLETED'
-  return summary.seenCount > 0 || summary.viewCount > 0 ? 'IN_PROGRESS' : 'UNREAD'
-}
-
 export interface ReadingMediaItem {
   isVideo?: boolean
   /** The current representative Image.id for one logical display item. */
   mediaId: number
-  /** All current Image.id values belonging to this logical display item. */
   memberMediaIds: number[]
   /** Zero-based position in the complete logical media sequence. */
   index: number
 }
-
 export interface ReadingSummaryDto {
-  mediaRevision: number
-  stateVersion: number
   artworkId: number
+  readingLayoutVersion: number
+  stateVersion: number
   viewCount: number
-  seenCount: number
+  progressCount: number
   totalCount: number
+  completed: boolean
+  furthestMediaId: number | null
+  furthestMediaIndex: number | null
   status: ReadingStatus
-  /** ISO 8601 UTC timestamp of the last accepted visible media observation. */
   lastViewedAt: string | null
-  /** ISO 8601 UTC timestamp of the last accepted observation or valid heartbeat. */
   lastActiveAt: string | null
-  /** Observed Image.id, which may have been a group member rather than its representative. */
   lastMediaId: number | null
-  /** Position when the observation was accepted; current position is resolved via member IDs. */
   lastMediaIndex: number | null
 }
-
 export interface ReadingResumePosition {
   mediaId: number
   index: number
 }
-
 export interface ReadingContextDto {
   artworkId: number
-  mediaRevision: number
+  readingLayoutVersion: number
   media: ReadingMediaItem[]
-  seenMediaIds: number[]
   summary: ReadingSummaryDto
   resume: ReadingResumePosition | null
 }
-
 export type ReadingReportEvent =
   | {
       type: 'VIEW'
       mediaId: number
-      summary?: { generationId: string; groupId: string }
-      stack?: { ruleVersion: 1; fingerprint: string; groupId: string }
+      index: number
+      advanceTo?: ReadingResumePosition
       playback?: ReadingPlayback
-      /** ISO 8601 UTC timestamp when the effective observation began. */
       observedAt: string
     }
-  | {
-      type: 'HEARTBEAT'
-      mediaId: number
-      playback?: ReadingPlayback
-      /** ISO 8601 UTC timestamp while the same media remained effectively visible. */
-      observedAt: string
-    }
-
+  | { type: 'HEARTBEAT'; mediaId: number; index: number; playback?: ReadingPlayback; observedAt: string }
 export interface ReadingReportInput {
   artworkId: number
-  mediaRevision: number
-  /** Session consistency precondition only; the server always derives ownership from auth. */
   expectedUserId: string
+  readingLayoutVersion: number
   events: ReadingReportEvent[]
 }
-
 export interface ReadingMarkReadInput {
   artworkId: number
   expectedUserId: string
-  mediaRevision: number
-  target: { kind: 'ALL' } | { kind: 'MEDIA'; mediaId: number }
+  readingLayoutVersion: number
 }
-
 export interface ReadingReportResult {
-  seenMediaIds: number[]
-  mediaRevision: number
+  readingLayoutVersion: number
   summary: ReadingSummaryDto
 }
-
 export interface ReadingBatchSummariesResult {
   summaries: ReadingSummaryDto[]
 }
-
 export interface ReadingHistoryCursor {
   lastViewedAt: string
   artworkId: number
 }
-
-/** Rebuilt media supersedes all older progress, including a reset to zero. */
 export function compareReadingVersion(a: ReadingSummaryDto, b: ReadingSummaryDto): number {
-  return a.mediaRevision - b.mediaRevision || a.stateVersion - b.stateVersion
+  return a.readingLayoutVersion - b.readingLayoutVersion || a.stateVersion - b.stateVersion
 }

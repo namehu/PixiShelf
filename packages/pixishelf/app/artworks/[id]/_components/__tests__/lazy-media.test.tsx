@@ -1,13 +1,13 @@
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { useArtworkAutoBrowseStore as autoBrowse } from '@/store/use-artwork-auto-browse-store'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import LazyMedia from '../lazy-media'
 import { ReadingCollector } from '@/lib/reading/reading-collector'
 import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
 import type { ReadingContextDto, ReadingReportInput } from '@pixishelf/db/reading-contract'
 
 const playerMocks = vi.hoisted(() => ({ props: vi.fn(), animatedProps: vi.fn(), imageProps: vi.fn(), apngProps: vi.fn() }))
-const intersectionCallback = vi.hoisted(() => ({ current: null as null | ((inView: boolean) => void), threshold: 0 }))
+const intersectionCallback = vi.hoisted(() => ({ current: null as null | ((inView: boolean) => void), threshold: 0, rootMargin: '' }))
 const enqueue = vi.hoisted(() => vi.fn())
 const cancel = vi.hoisted(() => vi.fn())
 const optimizationState = vi.hoisted(() => ({
@@ -43,7 +43,7 @@ vi.mock('next/image', () => ({
 }))
 vi.mock('react-intersection-observer', () => ({
   useOnInView: (callback: (inView: boolean) => void, options?: { rootMargin?: string; threshold?: number }) => {
-    if (!options?.rootMargin) { intersectionCallback.current = callback; intersectionCallback.threshold = options?.threshold ?? 0 }
+    if (options?.rootMargin !== '-45% 0px -45% 0px') { intersectionCallback.current = callback; intersectionCallback.threshold = options?.threshold ?? 0; intersectionCallback.rootMargin = options?.rootMargin ?? '' }
     return vi.fn()
   }
 }))
@@ -54,6 +54,8 @@ vi.mock('@/store/use-artwork-store', () => ({
 vi.mock('../artwork-video-optimization-context', () => ({
   useArtworkVideoOptimization: () => optimizationState
 }))
+
+beforeEach(() => { vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} }) })
 
 describe('LazyMedia video cache version', () => {
   const media = {
@@ -68,6 +70,7 @@ describe('LazyMedia video cache version', () => {
 
   afterEach(() => {
     cleanup()
+    vi.unstubAllGlobals()
     autoBrowse.getState().initialize(1)
     optimizationState.job = null
     optimizationState.isStarting = false
@@ -81,6 +84,25 @@ describe('LazyMedia video cache version', () => {
     playerMocks.apngProps.mockReset()
   })
 
+  it('observes the viewport between the toolbar, navigation and control bar', () => {
+    const toolbar = document.createElement('div'); toolbar.className = 'artwork-detail-toolbar'
+    const navigation = document.createElement('nav'); navigation.setAttribute('aria-label', '手机主导航')
+    const controls = document.createElement('div'); controls.setAttribute('data-auto-scroll-bar', '')
+    document.body.append(toolbar, navigation, controls)
+    const rect = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 400, width: 400, height: bottom - top, x: 0, y: top, toJSON() {} })
+    vi.spyOn(toolbar, 'getBoundingClientRect').mockReturnValue(rect(0, 56))
+    vi.spyOn(navigation, 'getBoundingClientRect').mockReturnValue(rect(window.innerHeight - 60, window.innerHeight))
+    vi.spyOn(controls, 'getBoundingClientRect').mockReturnValue(rect(window.innerHeight - 100, window.innerHeight - 60))
+    const observe = vi.fn()
+    try {
+      render(<LazyMedia media={{ ...media, path: '/image.jpg', mediaType: 'image' }} index={0} reading={{ observe } as unknown as ArtworkReadingHandle} />)
+      expect(intersectionCallback.rootMargin).toBe('-56px 0px -108px 0px')
+      // IO reports false while behind the controls, then true as it enters its clipped root.
+      act(() => { intersectionCallback.current?.(false); intersectionCallback.current?.(true) })
+      expect(observe.mock.calls.some(([, value]) => value.visible && value.ready)).toBe(true)
+    } finally { toolbar.remove(); navigation.remove(); controls.remove(); vi.restoreAllMocks() }
+  })
+
   it.each([
     { path: '/image.jpg' },
     { path: '/animation.webp', isAnimated: true, webpAnimationStatus: 2 },
@@ -88,14 +110,14 @@ describe('LazyMedia video cache version', () => {
     { path: '', detailsPending: true, reliableDimensions: true }
   ])('records a brief visible image region before loading: $path', async (image) => {
     const context: ReadingContextDto = {
-      artworkId: 1, mediaRevision: 1, seenMediaIds: [], resume: null,
+      artworkId: 1, readingLayoutVersion: 1, resume: null,
       media: [{ mediaId: media.id, memberMediaIds: [media.id], index: 0 }],
-      summary: { artworkId: 1, mediaRevision: 1, stateVersion: 0, viewCount: 0, seenCount: 0,
-        totalCount: 1, status: 'UNREAD', lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null }
+      summary: { artworkId: 1, readingLayoutVersion: 1, stateVersion: 0, viewCount: 0, progressCount: 0,
+        totalCount: 1, status: 'UNREAD', completed: false, furthestMediaId: null, furthestMediaIndex: null, lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null }
     }
     const report = vi.fn(async (input: ReadingReportInput) => {
       expect(input.expectedUserId).toBe('reader')
-      return { mediaRevision: 1, seenMediaIds: [media.id], summary: context.summary }
+      return { readingLayoutVersion: 1, summary: context.summary }
     })
     const collector = new ReadingCollector({ report })
     collector.setAccount('reader')
@@ -109,8 +131,7 @@ describe('LazyMedia video cache version', () => {
     try {
       await collector.flush()
       expect(report).not.toHaveBeenCalled()
-      act(() => intersectionCallback.current?.(true))
-      act(() => intersectionCallback.current?.(false))
+      act(() => { intersectionCallback.current?.(true); intersectionCallback.current?.(false) })
       view.unmount()
       await collector.flush()
       expect(report).toHaveBeenCalledTimes(1)

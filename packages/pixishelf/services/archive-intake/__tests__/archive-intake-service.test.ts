@@ -12,6 +12,32 @@ import { enqueueArchiveIntakeManySchema } from '../archive-intake-enqueue-servic
 import { redactArchiveUrl } from '@/services/archive/archive-redaction'
 
 describe('archive intake input and wire safety', () => {
+  it.each(['QUEUED', 'RESOLVING'])('shows discovered whole-gallery facts immediately while %s without loading a media plan', async (status) => {
+    const item = intakeRecord({ status, pageCount: null })
+    const findMany = vi.fn<(input: { select: Record<string, unknown> }) => Promise<typeof item[]>>().mockResolvedValue([item])
+    const database = { archiveIntakeItem: { findMany }, $queryRaw: vi.fn(async () => [{
+      id: item.id, resolvedFileSize: null, catalogFileSize: 1116691497, catalogFileCount: 232
+    }]) }
+    const result = await listArchiveIntakeItems({}, { database: database as never })
+    expect(result.items[0]).toMatchObject({ status, sourceSizeBytes: 1116691497, pageCount: 232 })
+    expect(findMany.mock.calls[0]![0].select).not.toHaveProperty('resolvedSnapshot')
+  })
+
+  it('keeps pasted source size unknown until resolution supplies the original gallery facts', async () => {
+    const item = intakeRecord({ status: 'QUEUED', pageCount: null })
+    const database = { archiveIntakeItem: { findMany: async () => [item] }, $queryRaw: vi.fn()
+      .mockResolvedValueOnce([{ id: item.id, resolvedFileSize: null, catalogFileSize: null, catalogFileCount: null }])
+      .mockResolvedValueOnce([{ id: item.id, resolvedFileSize: 1116691497, catalogFileSize: null, catalogFileCount: null }]) }
+    expect((await listArchiveIntakeItems({}, { database: database as never })).items[0]?.sourceSizeBytes).toBeNull()
+    expect((await listArchiveIntakeItems({}, { database: database as never })).items[0]?.sourceSizeBytes).toBe(1116691497)
+  })
+
+  it('defaults only new requests to display quality and preserves explicit original intent', () => {
+    const input = { idempotencyKey: 'fixture-default', urls: ['https://e-hentai.org/g/123/token/'] }
+    expect(createArchiveIntakeSchema.parse(input).quality).toBe('DISPLAY')
+    expect(createArchiveIntakeSchema.parse({ ...input, quality: 'ORIGINAL' }).quality).toBe('ORIGINAL')
+  })
+
   it('enforces create and bulk limits at the service boundary', () => {
     expect(
       createArchiveIntakeSchema.safeParse({
@@ -120,6 +146,7 @@ describe('archive intake input and wire safety', () => {
       { view: 'FAILED', limit: 1 },
       {
         database: {
+          $queryRaw: async () => [],
           archiveIntakeItem: {
             findMany: async () => [
               intakeRecord({
@@ -145,7 +172,7 @@ describe('archive intake input and wire safety', () => {
     const first = intakeRecord({ id: 'item-b', queueOrder: BigInt(10) })
     const second = intakeRecord({ id: 'item-c', queueOrder: BigInt(10) })
     const findMany = vi.fn().mockResolvedValueOnce([first, second]).mockResolvedValueOnce([])
-    const database = { archiveIntakeItem: { findMany } }
+    const database = { archiveIntakeItem: { findMany }, $queryRaw: async () => [] }
 
     const page = await listArchiveIntakeItems(
       { view: 'ACTIVE', limit: 1, search: 'gallery' },
@@ -176,7 +203,7 @@ describe('archive intake input and wire safety', () => {
     const findMany = vi.fn().mockResolvedValue([intakeRecord(), intakeRecord({ id: 'item-next' })])
     const page = await listArchiveIntakeItems(
       { view: 'ACTIVE', limit: 1 },
-      { database: { archiveIntakeItem: { findMany } } as never }
+      { database: { archiveIntakeItem: { findMany }, $queryRaw: async () => [] } as never }
     )
     await expect(
       listArchiveIntakeItems(

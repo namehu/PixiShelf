@@ -17,7 +17,7 @@ export * from './media-content-writes'
 export * from './media-content-evidence'
 export * from './media-content-recovery'
 
-const latestRequiredMigration = '20261031003000_video_playback'
+const latestRequiredMigration = '20261104010000_reading_position_progress'
 
 const requiredSourceSnapshotTables = [
   'scan_run_metadata_inputs',
@@ -58,8 +58,7 @@ const requiredQueueObjects = [
   'ArtworkSummaryFeature',
   'artist_merges',
   'ImageAnimationMetadata',
-  'artwork_reading_summaries',
-  'artwork_read_media',
+  'artwork_reading_progress',
   'creator_maintenance_plans',
   'creator_maintenance_items',
   'artwork_artists',

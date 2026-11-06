@@ -24,7 +24,7 @@ export interface ArchiveIntakeOptionsValue {
 
 export const DEFAULT_ARCHIVE_INTAKE_OPTIONS: ArchiveIntakeOptionsValue = {
   downloadMode: 'AUTO',
-  quality: 'ORIGINAL',
+  quality: 'DISPLAY',
   downloadScope: 'ALL'
 }
 

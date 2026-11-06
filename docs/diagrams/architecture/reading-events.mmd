@@ -6,20 +6,21 @@ sequenceDiagram
   participant D as PostgreSQL
   U->>A: 初始化 expectedUserId / artworkId
   A->>R: 会话身份
-  R->>D: 作品锁 + 当前逻辑索引 + 阅读摘要
-  D-->>U: mediaRevision / fingerprint / 首屏页
-  U->>C: ready + 前台 + 真实可见 / 视频播放
-  C->>C: 预测进度，按账户和版本排队
-  Note over C,A: 每 3 秒合并、每批最多 100 条；60 秒 TTL；同作品串行
-  C->>A: VIEW / HEARTBEAT + expectedUserId + revision
+  R->>D: 作品锁 + 逻辑索引 + 单行位置
+  D-->>U: readingLayoutVersion / 媒体指纹 / 首屏页
+  U->>C: ready + 前台 + 可见 / 视频播放
+  C->>C: 预测最远前缀与完成，按账户和布局排队
+  Note over C,A: 每 3 秒合并，最多 100 条；60 秒 TTL；同作品串行
+  C->>A: VIEW / HEARTBEAT + 逻辑 ID/index + readingLayoutVersion
   A->>R: 认证及输入校验
-  R->>D: 锁 Artwork，核对版本和权威媒体/组
-  alt 身份、版本与凭据有效
-    R->>D: 同事务合并已读集合、访问窗口和摘要版本
+  R->>D: 锁 Artwork，读取批次锚点与账户单行
+  alt 身份、布局与媒体有效
+    R->>D: 同事务推进 furthest / 最新 VIEW last / completed
     D-->>C: 确认摘要 / stateVersion
     C-->>U: 确认预测
-  else 账户或版本冲突
+  else 账户或布局冲突
     R-->>C: 拒绝写入
     C-->>U: 清旧队列与预测，重新打开
   end
-  Note over R,D: 完整重建共用锁：发布 + 版本递增 + 清空阅读同事务
+  Note over R,D: 普通媒体发布同事务更新数量、布局版本与锚点；完成保持
+  Note over R,D: 全量重建同事务推进版本并清空阅读

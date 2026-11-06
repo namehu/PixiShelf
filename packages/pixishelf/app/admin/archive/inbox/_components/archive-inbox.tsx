@@ -1,4 +1,5 @@
 'use client'
+import { formatArchiveSourceSize } from '@/lib/archive-source-size'
 
 import { InboxLoading } from './archive-inbox-loading'
 import { ArchiveDeleteFailedDialog } from './archive-delete-failed-dialog'
@@ -267,7 +268,7 @@ export function ArchiveInbox() {
       .slice(0, 100)
       .map((item) => ({
         itemId: item.id,
-        quality: selection.qualityById.get(item.id) ?? item.selectedQuality ?? 'ORIGINAL',
+        quality: selection.qualityById.get(item.id) ?? item.selectedQuality ?? 'DISPLAY',
         downloadScope: selection.downloadScopeById?.get(item.id) ?? item.downloadScope ?? 'ALL'
       }))
     if (!selected.length) return
@@ -701,6 +702,10 @@ function LocatedIntakeItemDialog({
               <QueueDatum label="更新时间" value={formatTimestamp(item.updatedAt)} />
               <QueueDatum label="解析尝试" value={item.attempts} />
               <QueueDatum label="页面数" value={item.pageCount ?? '—'} />
+              <QueueDatum
+                label="原站整部大小"
+                value={item.sourceSizeBytes ? formatArchiveSourceSize(item.sourceSizeBytes) : '未知'}
+              />
               <QueueDatum label="下载范围" value={item.downloadScope === 'FIRST_20' ? '前20张' : '全部'} />
               <QueueDatum label="加入后" value={item.downloadMode === 'AUTO' ? '自动下载' : '仅解析'} />
               <QueueDatum label="下载画质" value={item.selectedQuality === 'DISPLAY' ? '展示图' : '原图'} />
@@ -1113,6 +1118,7 @@ function ItemIdentity({ item }: { item: IntakeItem }) {
   const metadata = [
     archiveSourceLabel(item.providerKey, item.externalId) || (item.providerKey ? null : '等待识别来源'),
     item.pageCount ? `${item.pageCount} 页` : null,
+    item.sourceSizeBytes ? `原站整部 ${formatArchiveSourceSize(item.sourceSizeBytes)}` : '原站整部大小未知',
     item.attempts ? `尝试 ${item.attempts}` : null,
     item.downloadMode === 'AUTO' ? '自动下载' : '仅解析',
     item.selectedQuality === 'DISPLAY' ? '展示图' : '原图'

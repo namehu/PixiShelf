@@ -9,7 +9,13 @@ import { artworkQuerySnapshotSchema, QUICK_FILTER_PREFIX } from '@/schemas/artwo
 const url = process.env.MULTISELECT_DATABASE_URL
 if (url) {
   const target = new URL(url)
-  if (target.hostname !== '127.0.0.1' || target.port !== '55438' || target.pathname !== '/filter_test') {
+  if (
+    target.hostname !== '127.0.0.1' ||
+    !(
+      (target.port === '55438' && target.pathname === '/filter_test') ||
+      (target.port === '55433' && target.pathname === '/pixishelf_reading_position_20261104_runtime')
+    )
+  ) {
     throw new Error('Requires isolated 127.0.0.1:55438/filter_test database')
   }
 }
@@ -96,22 +102,20 @@ describe.skipIf(!url).sequential('multi-select artwork queries on isolated Postg
       const status = readingStatuses[index % 3]!
       rows.push({ id: artwork.id, kinds: [...fixture.kinds], status })
       if (status !== 'UNREAD' || index === 0) {
-        await db!.artworkReadingSummary.create({
+        await db!.artworkReadingProgress.create({
           data: {
             userId: user,
             artworkId: artwork.id,
             viewCount: status === 'UNREAD' ? 0 : 1,
-            totalCount: 10,
-            seenCount: status === 'COMPLETED' ? 9 : status === 'IN_PROGRESS' ? 1 : 0
+            completed: status === 'COMPLETED'
           }
         })
       }
-      await db!.artworkReadingSummary.create({
+      await db!.artworkReadingProgress.create({
         data: {
           userId: other,
           artworkId: artwork.id,
-          totalCount: 10,
-          seenCount: 10
+          completed: true
         }
       })
     }

@@ -165,7 +165,7 @@ describe('archive inbox authorization boundary', () => {
         idempotencyKey: 'request-1',
         urls: ['https://e-hentai.org/g/1/token/'],
         downloadMode: 'MANUAL',
-        quality: 'ORIGINAL',
+        quality: 'DISPLAY',
         downloadScope: 'ALL'
       },
       'admin-1'

@@ -66,7 +66,7 @@ it('defaults single deferred download to ALL after its source was deleted', () =
     expect.objectContaining({
       deferredItemIds: ['orphan'],
       downloadMode: 'AUTO',
-      quality: 'ORIGINAL',
+      quality: 'DISPLAY',
       downloadScope: 'ALL'
     })
   )
@@ -76,7 +76,7 @@ it('sends FIRST_20 for every selected deferred row and changes the request key w
   fireEvent.click(screen.getByRole('checkbox', { name: '选择已加载的稍后决定，最多一百条' }))
   expect(screen.getByRole('button', { name: '加入收件箱' }).textContent).toBe('加入收件箱（2）')
   expect(screen.getByRole('button', { name: '恢复待办' }).textContent).toBe('恢复待办（2）')
-  fireEvent.click(screen.getByRole('button', { name: '自动下载 · 原图 · 全部' }))
+  fireEvent.click(screen.getByRole('button', { name: '自动下载 · 展示图 · 全部' }))
   fireEvent.click(screen.getByRole('radio', { name: '前20张' }))
   fireEvent.click(screen.getByRole('button', { name: '完成' }))
   fireEvent.click(
@@ -84,7 +84,7 @@ it('sends FIRST_20 for every selected deferred row and changes the request key w
   )
   const first = download.mock.calls[0]![0]
   expect(first).toMatchObject({ deferredItemIds: ['orphan', 'live'], downloadScope: 'FIRST_20' })
-  fireEvent.click(screen.getByRole('button', { name: '自动下载 · 原图 · 前20张' }))
+  fireEvent.click(screen.getByRole('button', { name: '自动下载 · 展示图 · 前20张' }))
   fireEvent.click(screen.getByRole('radio', { name: '全部' }))
   fireEvent.click(screen.getByRole('button', { name: '完成' }))
   fireEvent.click(

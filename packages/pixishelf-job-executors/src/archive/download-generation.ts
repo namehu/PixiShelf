@@ -1,4 +1,11 @@
 import { readFile } from 'node:fs/promises'
+import { Prisma } from '@pixishelf/db'
+import {
+  archiveCompletionSnapshotSchema,
+  archiveOriginalUpgradeSnapshotSchema,
+  getVerifiedOriginalPages
+} from '@pixishelf/job-contracts'
+import { classifyArchiveCompletedDelivery } from './quality-evidence.ts'
 import { ArchiveExecutorError } from './errors.ts'
 import { assertArchiveDownloadGeneration } from './dedup-source-snapshot.ts'
 import {
@@ -13,6 +20,48 @@ import {
 } from './storage.ts'
 import type { ArchiveExecutorDependencies, ArchiveTransaction } from './types.ts'
 import type { ArchiveExecutorContext, LoadedArchiveImport } from './executor.ts'
+
+export async function verifiedOriginalArchiveCheckpointIds(
+  database: Pick<ArchiveTransaction, 'archiveRevision'>,
+  archiveImport: LoadedArchiveImport
+): Promise<Set<string>> {
+  const frozen = archiveImport.upgradeBaseRevisionId
+    ? archiveOriginalUpgradeSnapshotSchema.parse(archiveImport.upgradeSnapshot)
+    : archiveImport.completionBaseRevisionId
+      ? archiveCompletionSnapshotSchema.parse(archiveImport.completionSnapshot)
+      : null
+  const revision = frozen
+    ? await database.archiveRevision.findUnique({
+        where: { id: frozen.revisionId },
+        select: { qualityEvidence: true, mediaSnapshot: true }
+      })
+    : null
+  const originals = revision ? getVerifiedOriginalPages(revision) : null
+  return new Set(
+    archiveImport.items
+      .filter((item) => {
+        if (classifyArchiveCompletedDelivery(item).quality === 'ORIGINAL') return true
+        const inherited = frozen?.media.find((entry) => entry.index === item.pageIndex)
+        const original = originals?.get(item.pageIndex)
+        return (
+          item.status === 'COMPLETED' &&
+          inherited &&
+          original &&
+          original.imageId === inherited.imageId &&
+          original.path === inherited.path &&
+          original.sourcePageUrl === item.sourcePageUrl &&
+          original.sha256 === item.sha256 &&
+          original.size === item.byteCount?.toString() &&
+          inherited.sha256 === item.sha256 &&
+          inherited.size === item.byteCount?.toString() &&
+          inherited.width === item.width &&
+          inherited.height === item.height &&
+          inherited.mimeType === item.mimeType
+        )
+      })
+      .map((item) => item.id)
+  )
+}
 
 function throwIfAborted(signal: AbortSignal) {
   if (signal.aborted) throw signal.reason ?? new ArchiveExecutorError('CANCELLED', '归档执行已取消')
@@ -43,8 +92,9 @@ export async function registerArchiveDownloadGeneration(
       existing.drainedAt ||
       existing.sealedAt ||
       existing.cleanedAt
-    )
-      {throw new ArchiveExecutorError('STATE_CONFLICT', '归档执行代已退出或不属于当前执行')}
+    ) {
+      throw new ArchiveExecutorError('STATE_CONFLICT', '归档执行代已退出或不属于当前执行')
+    }
   } else {
     await transaction.archiveStagingGeneration.create({
       data: {
@@ -92,6 +142,10 @@ export async function prepareDownloadGeneration(
     })
   )
   const previousPath = archiveImport.stagingPath
+  const originalRequired = archiveImport.providerKey === 'e-hentai' && archiveImport.selectedQuality === 'ORIGINAL'
+  const originalCheckpoints = originalRequired
+    ? await verifiedOriginalArchiveCheckpointIds(dependencies.database, archiveImport)
+    : null
   // A legacy rename may have succeeded before its DB transaction. Verify it read-only in the download lane.
   const finalExists = await pathExists(paths.finalAbsolutePath)
   let existingManifestDigest: string | null = null
@@ -108,6 +162,18 @@ export async function prepareDownloadGeneration(
     }
     await assertArchiveManifestIdentity(paths.finalAbsolutePath, archiveImport)
     await validateArchiveStoredMedia(paths.finalAbsolutePath, archiveImport.items)
+    if (originalCheckpoints && archiveImport.items.some((item) => !originalCheckpoints.has(item.id))) {
+      throw new ArchiveExecutorError(
+        'ORIGINAL_UNAVAILABLE',
+        '旧下载检查点缺少可信原图证明，归档已暂停；请重新归档或明确选择展示图。',
+        {
+          recoverable: true,
+          pause: true,
+          stage: 'MEDIA_VALIDATION',
+          decisionCode: archiveImport.upgradeBaseRevisionId ? null : 'USE_DISPLAY_QUALITY'
+        }
+      )
+    }
     existingManifestDigest = await readArchiveManifestDigest(paths.finalAbsolutePath)
     stagingDirectory = paths.finalAbsolutePath
   } else {
@@ -154,16 +220,18 @@ export async function prepareDownloadGeneration(
       )
       let copied: string | null = null
       try {
-        const source = await resolveExistingPathWithinRoot(
-          dependencies.config.scanRoot,
-          item.stagedGenerationPath ?? previousPath
-        )
-        copied = await copyArchiveCheckpoint({
-          from: source,
-          to: stagingDirectory,
-          item,
-          token: context.job.executionToken
-        })
+        if (!originalCheckpoints || originalCheckpoints.has(item.id)) {
+          const source = await resolveExistingPathWithinRoot(
+            dependencies.config.scanRoot,
+            item.stagedGenerationPath ?? previousPath
+          )
+          copied = await copyArchiveCheckpoint({
+            from: source,
+            to: stagingDirectory,
+            item,
+            token: context.job.executionToken
+          })
+        }
       } catch (error) {
         if (context.signal.aborted) throw error
         const code = (error as NodeJS.ErrnoException).code
@@ -176,8 +244,9 @@ export async function prepareDownloadGeneration(
           token: context.job.executionToken
         })
         const current = await transaction.archiveImport.findUniqueOrThrow({ where: { id: archiveImport.id } })
-        if (current.generationToken !== context.job.executionToken || current.cleanupRequestedAt)
-          {throw new ArchiveExecutorError('STATE_CONFLICT', '归档下载代已失效')}
+        if (current.generationToken !== context.job.executionToken || current.cleanupRequestedAt) {
+          throw new ArchiveExecutorError('STATE_CONFLICT', '归档下载代已失效')
+        }
         await transaction.archiveImportItem.update({
           where: { id: item.id },
           data: copied
@@ -188,6 +257,8 @@ export async function prepareDownloadGeneration(
                 stagedPath: null,
                 byteCount: null,
                 sha256: null,
+                quality: null,
+                deliveryEvidence: Prisma.DbNull,
                 finishedAt: null
               }
         })
@@ -199,6 +270,8 @@ export async function prepareDownloadGeneration(
         item.attempts = 0
         item.byteCount = null
         item.sha256 = null
+        item.quality = null
+        item.deliveryEvidence = null
       }
     }
   }

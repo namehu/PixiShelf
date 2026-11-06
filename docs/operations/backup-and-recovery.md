@@ -28,6 +28,8 @@ PixiShelf 的数据库和文件系统共同构成业务状态。只备份数据�
 
 同一天或相似文件名不能证明同一恢复点。归档 staging generation（包括未确认 drain 的 orphan）、封存清单和已 rename 未发布目录必须与数据库同点保留；不能仅凭 lease 超时清理。staging、pending replace 和 recovery 目录是领域恢复机制，不能替代备份；它们也不能在“清理缓存”时随意删除。原媒体写入声明及 `.pixishelf-upload-recovery` manifest 也属于恢复集合；新协议的适用版本、状态与停止条件见[原媒体写入异常恢复](./runbooks/media-content-recovery.md)。
 
+EH 登录态的密文随数据库保存，独立部署密钥 `EH_COOKIE_ENCRYPTION_KEY` 随受限配置保存。恢复时为 App 和 Worker 注入匹配密钥；缺失或更换密钥后由管理员重新录入 Cookie。配置副本按凭据管理，不把密钥写进验证记录。
+
 <a id="发布前一致性检查点"></a>
 
 ## 建立一致性检查点
@@ -110,6 +112,8 @@ pg_restore --verbose --no-owner --no-privileges \
 | 纯数据库关系补全 | 仅在专用手册明确文件零变化且没有其他并发写入时，才可使用该操作的数据库检查点恢复                                                              |
 
 2026-10-29 局部核验：部分归档补全后的退休标记、替代关系、媒体写入声明和删除检查点须随数据库保存。已退休旧修订的目录可以合法缺失，旧程序的“全部 revision 目录存在”假设不再成立；不能只换旧镜像或清除标记。成组回退与故障保全见[部分归档升级与恢复](./runbooks/archive-partial-coverage.md)。
+
+[EH 原图升级](../features/archive-quality.md)的恢复集合同时包含冻结的旧页映射、新旧修订、文件目录、原图交付证据和退休检查点。升级后的原图可以具有不同字节数及摘要，清理通过来源页身份和原图证据建立替代关系。清理失败时保全两侧现场，通过维护任务重试。版本 3 升级任务及原图退休能力需要配套 App/Worker；已有升级任务的实例回退须处理任务与文件状态，并使用兼容的数据库和媒体恢复点。
 
 具体删除、创作者合并、根标记、来源同步、阅读与批次恢复见[领域恢复手册](./runbooks/domain-recovery.md)。破坏性升级前的附加条件见[专项升级门禁](./runbooks/schema-and-capability-upgrades.md)。
 

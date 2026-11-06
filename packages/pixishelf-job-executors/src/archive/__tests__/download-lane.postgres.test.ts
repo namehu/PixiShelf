@@ -1,10 +1,12 @@
-vi.mock('node:fs/promises', async (importOriginal) => ({ ...await importOriginal<typeof import('node:fs/promises')>() }))
+vi.mock('node:fs/promises', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:fs/promises')>())
+}))
 import {
   enqueueArchiveIntakeItemInTransaction,
   recoverArchiveIntakeEnqueueRace,
   hashArchiveMediaPlan
 } from '../intake-enqueue.ts'
-import { archiveCompletionSnapshotSchema } from '@pixishelf/job-contracts'
+import { archiveCompletionSnapshotSchema, archiveOriginalUpgradeSnapshotSchema } from '@pixishelf/job-contracts'
 import { archiveCatalogProbe } from './catalog-order-probe.ts'
 import { captureArchiveFixtureSource } from './dedup-source-fixture.ts'
 import { cleanupFixtureContentDirectories } from '../../scan/__tests__/content-directory-cleanup.ts'
@@ -43,13 +45,14 @@ import {
 } from '@pixishelf/job-runtime'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createArchiveExecutorRegistrations } from '../executor.js'
+import { ArchiveExecutorError } from '../errors.js'
 import * as storage from '../storage.js'
 import { CentralDispatcher } from '../../../../pixishelf-worker/src/dispatcher.js'
 import { ExecutorRegistry } from '../../../../pixishelf-worker/src/executor-registry.js'
 import { RuntimeDispatcherQueue } from '../../../../pixishelf-worker/src/runtime-dispatcher-queue.js'
 import { readExecutorMediaRecoveryDomainSnapshot } from '../../scan/media-content-recovery.ts'
 import { executeArchiveMaintenance } from '../maintenance-executor.js'
-import type { ArchiveExecutorDependencies } from '../types.js'
+import type { ArchiveExecutorDependencies, ArchiveMediaProvider } from '../types.js'
 
 // No application DATABASE_URL fallback: this suite must be explicitly isolated.
 const url = process.env.QUEUE_KERNEL_TEST_DATABASE_URL
@@ -83,19 +86,278 @@ suite('archive download lane real database and filesystem', () => {
     await db?.$disconnect()
   })
 
+  it('upgrades only archived pages with verified original receipts, preserves identities and retries retirement', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'archive-original-upgrade-'))
+    roots.push(root)
+    const externalId = `${prefix}-original-upgrade`
+    const baseId = await enqueueCoverage(
+      externalId,
+      30,
+      'FIRST_20',
+      undefined,
+      'CREATED',
+      undefined,
+      undefined,
+      true,
+      'e-hentai',
+      'DISPLAY'
+    )
+    const baseIntake = await db!.archiveIntakeItem.findFirstOrThrow({ where: { archiveImportId: baseId } })
+    expect(baseIntake.selectedQuality).toBe('DISPLAY')
+    await expect(
+      db!.$executeRaw`UPDATE archive_intake_items SET "upgradeSnapshot" = '{}'::jsonb WHERE id = ${baseIntake.id}`
+    ).rejects.toThrow()
+    await expect(
+      db!.$executeRaw`UPDATE archive_imports SET "upgradeSnapshot" = '{}'::jsonb WHERE id = ${baseId}`
+    ).rejects.toThrow()
+    const defaults = await db!.$queryRaw<{ table_name: string; column_default: string }[]>`
+      SELECT table_name, column_default FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name IN ('archive_intake_items', 'archive_imports') AND column_name = 'selectedQuality'
+    `
+    expect(defaults).toHaveLength(2)
+    expect(defaults.every((column) => column.column_default.includes('DISPLAY'))).toBe(true)
+    const firstSha1 = createHash('sha1').update(png).digest('hex')
+    const firstUrl = `https://fixture.hath.network/om/1/${firstSha1}-${png.length}-2-3-png/x/file.png`
+    const displayUrl = `https://fixture.hath.network/om/1/${'a'.repeat(40)}-999-4-6-png/${firstSha1}-${png.length}-2-3-png/file.png`
+    const baseNetwork = async (item: { index: number }) =>
+      item.index === 0
+        ? {
+            ...remote(Readable.from([png])),
+            downloadUrl: firstUrl,
+            expectedSha1: firstSha1,
+            ehDelivery: { requestedQuality: 'DISPLAY' as const, originalResponse: false }
+          }
+        : {
+            ...remote(Readable.from([png])),
+            quality: 'DISPLAY' as const,
+            downloadUrl: displayUrl,
+            expectedSha1: firstSha1,
+            ehDelivery: { requestedQuality: 'DISPLAY' as const, originalResponse: false }
+          }
+    await execute(await claim('ARCHIVE_DOWNLOAD', 'fixture', [2]), dependencies(root, baseNetwork))
+    await execute(await claim('ARCHIVE_PUBLISH', 'fixture', [2]), dependencies(root))
+    const base = await db!.archiveRevision.findUniqueOrThrow({ where: { id: baseId }, include: { artwork: true } })
+    expect(base).toMatchObject({ qualityStatus: 'MIXED', qualityOriginalCount: 1, qualityDisplayCount: 19 })
+    const images = await db!.image.findMany({
+      where: { artworkId: base.artworkId },
+      orderBy: { sortOrder: 'asc' },
+      include: { contentSource: true }
+    })
+    expect(images).toHaveLength(20)
+    await db!.userBA.create({ data: { id: prefix } })
+    await db!.artworkReadingProgress.create({
+      data: {
+        userId: prefix,
+        artworkId: base.artworkId,
+        completed: true,
+        furthestMediaId: images[19]!.id,
+        furthestMediaIndex: 19,
+        viewCount: 4,
+        lastMediaId: images[19]!.id,
+        lastMediaIndex: 19
+      }
+    })
+    await db!.mediaMark.create({
+      data: {
+        userId: prefix,
+        artworkId: base.artworkId,
+        mediaId: images[0]!.id,
+        bookmarkedAt: clock.now(),
+        likedAt: clock.now(),
+        artworkTitle: prefix,
+        mediaPosition: 1,
+        mediaType: 'image'
+      }
+    })
+    await db!.artworkLike.create({ data: { userId: prefix, artworkId: base.artworkId, level: 4 } })
+    const snapshot = archiveOriginalUpgradeSnapshotSchema.parse({
+      intent: 'ORIGINAL_UPGRADE',
+      artworkId: base.artworkId,
+      revisionId: base.id,
+      archivePath: base.archivePath,
+      metadataHash: base.metadataHash,
+      sourcePlanDigest: base.sourcePlanDigest,
+      sourceTotalItems: 30,
+      mediaRevision: base.artwork.mediaRevision,
+      quality: 'ORIGINAL',
+      downloadScope: 'FIRST_20',
+      media: (base.mediaSnapshot as Prisma.JsonArray).map((raw) => {
+        const item = raw as Prisma.JsonObject
+        const image = images.find((entry) => entry.id === item.imageId)!
+        const evidence = (base.qualityEvidence as Prisma.JsonObject).pages as Prisma.JsonArray
+        return {
+          ...item,
+          imagePath: image.path,
+          contentRevision: (image.contentSource?.revision ?? 0n).toString(),
+          ...(item.index === 0 ? { originalEvidence: evidence[0] } : {})
+        }
+      })
+    })
+    const original = await sharp({ create: { width: 2, height: 3, channels: 3, background: '#cc7722' } })
+      .png()
+      .toBuffer()
+    const sha1 = createHash('sha1').update(original).digest('hex')
+    const downloadUrl = `https://fixture.hath.network/om/1/${sha1}-${original.length}-2-3-png/x/file.png`
+    const network = vi.fn(async () => ({
+      stream: Readable.from([original]),
+      contentLength: original.length,
+      mimeType: 'image/png',
+      originalFilename: 'image.png',
+      quality: 'ORIGINAL' as const,
+      remoteHost: 'fixture.hath.network',
+      downloadUrl,
+      expectedSha1: sha1,
+      ehDelivery: { requestedQuality: 'ORIGINAL' as const, originalResponse: false }
+    }))
+    const upgradeId = await enqueueCoverage(
+      externalId,
+      30,
+      'FIRST_20',
+      undefined,
+      'CREATED',
+      undefined,
+      snapshot,
+      false,
+      'e-hentai'
+    )
+    await execute(await claim('ARCHIVE_DOWNLOAD', 'fixture', [3]), dependencies(root, network))
+    expect(network).toHaveBeenCalledTimes(19)
+    expect((await db!.archiveRevision.findUniqueOrThrow({ where: { id: base.id } })).isCurrent).toBe(true)
+    expect(await readFile(path.join(root, images[0]!.path))).toEqual(png)
+    const downloaded = await db!.archiveImport.findUniqueOrThrow({ where: { id: upgradeId }, include: { items: true } })
+    expect(downloaded.items).toHaveLength(20)
+    const reused = downloaded.items.find((item) => item.pageIndex === 0)!
+    expect(reused).toMatchObject({ status: 'COMPLETED', attempts: 0 })
+    for (const item of downloaded.items.filter((entry) => entry.pageIndex !== 0)) {
+      expect(item).toMatchObject({
+        status: 'COMPLETED',
+        lastDownloadUrl: downloadUrl,
+        lastDownloadAttempt: item.attempts,
+        deliveryEvidence: {
+          attempt: item.attempts,
+          downloadUrl,
+          sha256: createHash('sha256').update(original).digest('hex'),
+          byteCount: String(original.length),
+          actualSha1: sha1,
+          quality: 'ORIGINAL'
+        }
+      })
+    }
+    await execute(await claim('ARCHIVE_PUBLISH', 'fixture', [3]), dependencies(root, network))
+    const upgraded = await db!.archiveRevision.findUniqueOrThrow({ where: { id: upgradeId } })
+    expect(upgraded).toMatchObject({
+      isCurrent: true,
+      downloadScope: 'FIRST_20',
+      sourceTotalItems: 30,
+      qualityStatus: 'ORIGINAL',
+      qualityOriginalCount: 20
+    })
+    const current = await db!.image.findMany({ where: { artworkId: base.artworkId }, orderBy: { sortOrder: 'asc' } })
+    expect(current.map((image) => image.id)).toEqual(images.map((image) => image.id))
+    expect(await readFile(path.join(root, current[0]!.path))).toEqual(png)
+    expect(await readFile(path.join(root, current[1]!.path))).toEqual(original)
+    expect(await db!.artworkReadingProgress.findFirstOrThrow({ where: { artworkId: base.artworkId } })).toMatchObject({
+      lastMediaId: images[19]!.id,
+      furthestMediaId: images[19]!.id,
+      viewCount: 4,
+      completed: true
+    })
+    expect(await db!.mediaMark.findFirstOrThrow({ where: { artworkId: base.artworkId } })).toMatchObject({
+      mediaId: images[0]!.id,
+      bookmarkedAt: clock.now(),
+      likedAt: clock.now()
+    })
+    expect(await db!.artworkLike.findFirstOrThrow({ where: { artworkId: base.artworkId } })).toMatchObject({ level: 4 })
+    const retirement = await claim('ARCHIVE_MAINTENANCE', 'fixture', [3])
+    extraJobs.add(retirement.id)
+    await writeFile(path.join(root, base.archivePath, 'unregistered.txt'), 'retain me')
+    await expect(
+      executeArchiveMaintenance(
+        { ...context(retirement), payload: retirement.payload as never },
+        { database: db!, config: { scanRoot: root }, now: () => clock.now() }
+      )
+    ).rejects.toThrow('未登记内容')
+    expect(await storage.pathExists(path.join(root, base.archivePath))).toBe(true)
+    expect((await db!.archiveRevision.findUniqueOrThrow({ where: { id: upgradeId } })).isCurrent).toBe(true)
+    await rm(path.join(root, base.archivePath, 'unregistered.txt'))
+    await executeArchiveMaintenance(
+      { ...context(retirement), payload: retirement.payload as never },
+      { database: db!, config: { scanRoot: root }, now: () => clock.now() }
+    )
+    expect(await storage.pathExists(path.join(root, base.archivePath))).toBe(false)
+    expect((await db!.archiveRevision.findUniqueOrThrow({ where: { id: base.id } })).retiredAt).not.toBeNull()
+
+    const upgradedImages = await db!.image.findMany({
+      where: { artworkId: base.artworkId },
+      include: { contentSource: true }
+    })
+    const completion = archiveCompletionSnapshotSchema.parse({
+      artworkId: base.artworkId,
+      revisionId: upgraded.id,
+      archivePath: upgraded.archivePath,
+      metadataHash: upgraded.metadataHash,
+      sourcePlanDigest: upgraded.sourcePlanDigest,
+      sourceTotalItems: 30,
+      mediaRevision: base.artwork.mediaRevision,
+      quality: 'ORIGINAL',
+      media: (upgraded.mediaSnapshot as Prisma.JsonArray).map((raw) => {
+        const item = raw as Prisma.JsonObject
+        const image = upgradedImages.find((entry) => entry.id === item.imageId)!
+        return { ...item, imagePath: image.path, contentRevision: (image.contentSource?.revision ?? 0n).toString() }
+      })
+    })
+    const completedId = await enqueueCoverage(
+      externalId,
+      30,
+      'ALL',
+      completion,
+      'CREATED',
+      undefined,
+      undefined,
+      false,
+      'e-hentai'
+    )
+    network.mockClear()
+    await execute(await claim('ARCHIVE_DOWNLOAD', 'fixture', [2]), dependencies(root, network))
+    expect(network).toHaveBeenCalledTimes(10)
+    expect(await db!.archiveImport.findUniqueOrThrow({ where: { id: completedId } })).toMatchObject({
+      selectedQuality: 'ORIGINAL',
+      totalItems: 30
+    })
+    await execute(await claim('ARCHIVE_PUBLISH', 'fixture', [2]), dependencies(root, network))
+    extraJobs.add((await db!.systemJob.findUniqueOrThrow({ where: { idempotencyKey: `archive-retire:${completedId}` } })).id)
+    expect(await db!.archiveRevision.findUniqueOrThrow({ where: { id: completedId } })).toMatchObject({
+      isCurrent: true,
+      downloadScope: 'ALL',
+      qualityStatus: 'ORIGINAL',
+      qualityOriginalCount: 30
+    })
+  }, 30_000)
+
   it('publishes sealed downloads after a bound root device changes without downloading again', async () => {
     const a = await seed('remount')
     a.root = await fs.realpath(a.root)
     const uuid = randomUUID()
     await writeFile(path.join(a.root, '.pixishelf-root'), JSON.stringify({ version: 1, id: uuid }))
-    const original = (await resolveMediaContentRoots({ sourceRoot: a.root, archiveRoot: a.root, expectedPixivRootIdentity: uuid })).source
-    await db!.pixivMetadataInventoryState.create({ data: {
-      id: 'pixiv', rootIdentity: uuid, rootPathHash: hashScanRootIdentity(a.root),
-      rootDeviceId: original.deviceId, rootInode: original.inode
-    } })
-    await db!.mediaContentDirectoryState.create({ data: {
-      logicalRoot: 'source-media:v1', relativeDirectory: '', rootIdentity: original.rootIdentity
-    } })
+    const original = (
+      await resolveMediaContentRoots({ sourceRoot: a.root, archiveRoot: a.root, expectedPixivRootIdentity: uuid })
+    ).source
+    await db!.pixivMetadataInventoryState.create({
+      data: {
+        id: 'pixiv',
+        rootIdentity: uuid,
+        rootPathHash: hashScanRootIdentity(a.root),
+        rootDeviceId: original.deviceId,
+        rootInode: original.inode
+      }
+    })
+    await db!.mediaContentDirectoryState.create({
+      data: {
+        logicalRoot: 'source-media:v1',
+        relativeDirectory: '',
+        rootIdentity: original.rootIdentity
+      }
+    })
     try {
       const network = vi.fn(async () => remote(Readable.from([png])))
       await execute(await claim('ARCHIVE_DOWNLOAD'), dependencies(a.root, network))
@@ -106,16 +368,29 @@ suite('archive download lane real database and filesystem', () => {
       vi.spyOn(fs, 'lstat').mockImplementation(async (file, options) => {
         const state = await lstat(file, options as never)
         return file === a.root
-          ? Object.assign(Object.create(Object.getPrototypeOf(state)), state, { dev: typeof state.dev === 'bigint' ? state.dev + 1n : state.dev + 1 })
+          ? Object.assign(Object.create(Object.getPrototypeOf(state)), state, {
+              dev: typeof state.dev === 'bigint' ? state.dev + 1n : state.dev + 1
+            })
           : state
       })
       await execute(await claim('ARCHIVE_PUBLISH'), dependencies(a.root, network))
-      const completed = await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id }, include: { systemJob: true, items: true } })
-      expect(completed).toMatchObject({ status: 'COMPLETED', generationToken: sealed.generationToken, systemJob: { status: 'COMPLETED' } })
+      const completed = await db!.archiveImport.findUniqueOrThrow({
+        where: { id: a.id },
+        include: { systemJob: true, items: true }
+      })
+      expect(completed).toMatchObject({
+        status: 'COMPLETED',
+        generationToken: sealed.generationToken,
+        systemJob: { status: 'COMPLETED' }
+      })
       expect(network).not.toHaveBeenCalled()
       const image = await db!.image.findFirstOrThrow({ where: { artworkId: completed.publishedArtworkId! } })
       expect(await readFile(path.join(a.root, image.path))).toEqual(png)
-      expect(await db!.mediaContentDirectoryState.findUniqueOrThrow({ where: { logicalRoot_relativeDirectory: { logicalRoot: 'source-media:v1', relativeDirectory: '' } } })).toMatchObject({ rootIdentity: original.rootIdentity })
+      expect(
+        await db!.mediaContentDirectoryState.findUniqueOrThrow({
+          where: { logicalRoot_relativeDirectory: { logicalRoot: 'source-media:v1', relativeDirectory: '' } }
+        })
+      ).toMatchObject({ rootIdentity: original.rootIdentity })
     } finally {
       vi.restoreAllMocks()
       await db!.pixivMetadataInventoryState.delete({ where: { id: 'pixiv' } })
@@ -154,15 +429,13 @@ suite('archive download lane real database and filesystem', () => {
       })
       expect(images).toHaveLength(20)
       await db!.userBA.create({ data: { id: prefix } })
-      await db!.artworkReadMedia.createMany({
-        data: images.map((image) => ({ userId: prefix, artworkId: base.artworkId, mediaId: image.id }))
-      })
-      await db!.artworkReadingSummary.create({
+      await db!.artworkReadingProgress.create({
         data: {
           userId: prefix,
           artworkId: base.artworkId,
-          totalCount: 20,
-          seenCount: 20,
+          completed: true,
+          furthestMediaId: images[19]!.id,
+          furthestMediaIndex: 19,
           viewCount: 4,
           lastMediaId: images[19]!.id,
           lastMediaIndex: 19
@@ -260,15 +533,14 @@ suite('archive download lane real database and filesystem', () => {
       const all = await db!.image.findMany({ where: { artworkId: base.artworkId }, orderBy: { sortOrder: 'asc' } })
       expect(all).toHaveLength(30)
       expect(all.slice(0, 20).map((image) => image.id)).toEqual(images.map((image) => image.id))
-      expect(await db!.artworkReadMedia.count({ where: { artworkId: base.artworkId } })).toBe(20)
       expect(await db!.mediaMark.findFirst({ where: { artworkId: base.artworkId } })).toMatchObject({
         mediaId: images[0]!.id
       })
       expect(await db!.artworkLike.findFirst({ where: { artworkId: base.artworkId } })).toMatchObject({ level: 4 })
-      expect(await db!.artworkReadingSummary.findFirst({ where: { artworkId: base.artworkId } })).toMatchObject({
+      expect(await db!.artworkReadingProgress.findFirst({ where: { artworkId: base.artworkId } })).toMatchObject({
         viewCount: 4,
-        totalCount: 30,
-        seenCount: 20,
+        completed: true,
+        furthestMediaIndex: 19,
         lastMediaId: images[19]!.id
       })
       expect((await db!.artwork.findUniqueOrThrow({ where: { id: base.artworkId } })).mediaRevision).toBe(
@@ -896,6 +1168,63 @@ suite('archive download lane real database and filesystem', () => {
       expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(2)
     }
   )
+
+  it('resets saved in-flight pages after an action-required pause and resumes only unfinished pages', async () => {
+    const a = await seed('action-required-saved-pages')
+    await addPages(a.id, 12)
+    const slow = new PassThrough()
+    let failLogin!: () => void
+    const login = new Promise<void>((resolve) => {
+      failLogin = resolve
+    })
+    const deps = dependencies(a.root, async (item) => {
+      if (item.index === 0) return remote(slow)
+      if (item.index === 1) {
+        await login
+        throw new ArchiveExecutorError('ORIGINAL_UNAVAILABLE', 'Fixture login required', { pause: true })
+      }
+      return remote(Readable.from([png]))
+    })
+    deps.config.mediaConcurrency = 3
+    const job = await claim('ARCHIVE_DOWNLOAD')
+    const running = execute(job, deps)
+    void running.catch(() => undefined)
+    try {
+      await vi.waitFor(
+        async () =>
+          expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'DOWNLOADING' } })).toBe(2),
+        { timeout: 5_000 }
+      )
+      expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(10)
+      failLogin()
+      await running
+      const paused = await db!.archiveImport.findUniqueOrThrow({
+        where: { id: a.id },
+        include: { systemJob: true, items: { orderBy: { pageIndex: 'asc' } }, generations: true }
+      })
+      expect(paused).toMatchObject({ status: 'PAUSED', completedItems: 10, failedItems: 0 })
+      expect(paused.systemJob.status).toBe('PAUSED')
+      expect(paused.items.slice(0, 2)).toMatchObject([
+        { pageIndex: 0, status: 'PENDING', startedAt: null, finishedAt: null, attempts: 1 },
+        { pageIndex: 1, status: 'PENDING', attempts: 1, errorCode: 'ORIGINAL_UNAVAILABLE' }
+      ])
+      expect(paused.items.slice(2).every((item) => item.status === 'COMPLETED')).toBe(true)
+      expect(paused.generations[0]?.drainedAt).not.toBeNull()
+      expect(slow.destroyed).toBe(true)
+      expect(await db!.systemJob.count({ where: { parentJobId: job.id } })).toBe(0)
+
+      await db!.systemJob.update({ where: { id: job.id }, data: { status: 'PENDING', availableAt: clock.now() } })
+      await db!.archiveImport.update({ where: { id: a.id }, data: { status: 'PENDING' } })
+      const reopen = vi.fn<ArchiveMediaProvider['openMedia']>(async () => remote(Readable.from([png])))
+      await execute(await claim('ARCHIVE_DOWNLOAD'), dependencies(a.root, reopen))
+      expect(reopen.mock.calls.map(([item]) => item.index).sort()).toEqual([0, 1])
+      expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(12)
+    } finally {
+      failLogin()
+      slow.destroy()
+      await running.catch(() => undefined)
+    }
+  })
 
   it('saves a small batch after five seconds while the next image is still streaming', async () => {
     const a = await seed('batch-timer')
@@ -1566,7 +1895,10 @@ function remote(stream: Readable) {
     remoteHost: 'example.test'
   }
 }
-function dependencies(root: string, openMedia = async () => remote(Readable.from([png]))): ArchiveExecutorDependencies {
+function dependencies(
+  root: string,
+  openMedia: ArchiveMediaProvider['openMedia'] = async () => remote(Readable.from([png]))
+): ArchiveExecutorDependencies {
   return {
     database: db!,
     config: { scanRoot: root, mediaConcurrency: 2 },
@@ -1620,7 +1952,9 @@ async function cleanup() {
   await db.archiveIntakeSubmission.deleteMany({ where: { id: { startsWith: prefix } } })
   await db.artwork.deleteMany({ where: { title: prefix } })
   await db.archiveImport.deleteMany({ where: { id: { startsWith: prefix } } })
-  await db.artworkDedupSourceIdentity.deleteMany({ where: { providerKey: 'test', externalId: { startsWith: prefix } } })
+  await db.artworkDedupSourceIdentity.deleteMany({
+    where: { providerKey: { in: ['test', 'e-hentai'] }, externalId: { startsWith: prefix } }
+  })
   await db.jobResourceLease.deleteMany({ where: { ownerJobId: { in: [...extraJobs] } } })
   await db.systemJob.deleteMany({ where: { id: { in: [...extraJobs] } } })
   extraJobs.clear()
@@ -1655,11 +1989,15 @@ async function enqueueCoverage(
   downloadScope: 'ALL' | 'FIRST_20',
   completion?: ReturnType<typeof archiveCompletionSnapshotSchema.parse>,
   expectedResult = 'CREATED',
-  requestedScope?: 'ALL' | 'FIRST_20'
+  requestedScope?: 'ALL' | 'FIRST_20',
+  upgrade?: ReturnType<typeof archiveOriginalUpgradeSnapshotSchema.parse>,
+  useQualityDefault = false,
+  providerKey = 'test',
+  quality: 'ORIGINAL' | 'DISPLAY' = 'ORIGINAL'
 ) {
   const id = `${prefix}-${randomUUID()}`
   const resolved = {
-    providerKey: 'test',
+    providerKey,
     externalId,
     canonicalUrl: `https://example.test/${externalId}`,
     locator: {},
@@ -1695,21 +2033,25 @@ async function enqueueCoverage(
       status: 'READY',
       downloadMode: 'MANUAL',
       downloadScope,
-      selectedQuality: 'ORIGINAL',
-      providerKey: 'test',
+      ...(useQualityDefault ? {} : { selectedQuality: 'ORIGINAL' as const }),
+      providerKey,
       externalId,
       canonicalUrl: resolved.canonicalUrl,
       resolvedSnapshot: resolved,
       metadataHash: 'a'.repeat(64),
       expiresAt: new Date(clock.now().getTime() + 3_600_000),
-      dedupSourceSnapshot: await captureArchiveFixtureSource(db!, 'test', externalId),
-      ...(completion ? { completionBaseRevisionId: completion.revisionId, completionSnapshot: completion } : {})
+      dedupSourceSnapshot: await captureArchiveFixtureSource(db!, providerKey, externalId),
+      ...(completion ? { completionBaseRevisionId: completion.revisionId, completionSnapshot: completion } : {}),
+      ...(upgrade ? { upgradeBaseRevisionId: upgrade.revisionId, upgradeSnapshot: upgrade } : {})
     }
   })
+  if (useQualityDefault) {
+    expect((await db!.archiveIntakeItem.findUniqueOrThrow({ where: { id } })).selectedQuality).toBe('DISPLAY')
+  }
   expect(hashArchiveMediaPlan(resolved.media)).toHaveLength(64)
   const result = await db!.$transaction((tx) =>
     enqueueArchiveIntakeItemInTransaction(tx, id, {
-      quality: 'ORIGINAL',
+      quality,
       ...(requestedScope ? { downloadScope: requestedScope } : {}),
       requestedByUserId: null,
       timestamp: clock.now(),

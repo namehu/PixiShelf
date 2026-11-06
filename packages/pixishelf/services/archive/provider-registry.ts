@@ -1,6 +1,8 @@
 import { ArchiveError } from './errors'
 import type { ArchiveProvider } from './types'
 import { EHentaiProvider } from './providers/e-hentai'
+import { loadEhCookie } from '@pixishelf/job-executors'
+import { prisma } from '@/lib/prisma'
 
 export class ArchiveProviderRegistry {
   constructor(private readonly providers: readonly ArchiveProvider[]) {}
@@ -24,4 +26,6 @@ export class ArchiveProviderRegistry {
   }
 }
 
-export const archiveProviderRegistry = new ArchiveProviderRegistry([new EHentaiProvider()])
+export const archiveProviderRegistry = new ArchiveProviderRegistry([
+  new EHentaiProvider(undefined, { getCookie: () => loadEhCookie(prisma) })
+])

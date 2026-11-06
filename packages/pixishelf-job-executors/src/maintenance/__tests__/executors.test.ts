@@ -14,6 +14,7 @@ describe('maintenance executor registrations', () => {
       { jobType: 'MEDIA_DERIVED_TAG_SYNC', definitionVersion: 1 },
       { jobType: 'JOB_EVENT_RETENTION_CLEANUP', definitionVersion: 1 },
       { jobType: 'ARCHIVE_DEFAULT_TAG_BACKFILL', definitionVersion: 1 },
+      { jobType: 'ARCHIVE_QUALITY_AUDIT', definitionVersion: 1 },
       { jobType: 'PIXIV_AI_DERIVED_TAG_SYNC', definitionVersion: 1 },
       { jobType: 'ANIMATION_DURATION_PROBE', definitionVersion: 1 },
       { jobType: 'WEBP_ANIMATION_SCAN', definitionVersion: 1 }
@@ -24,6 +25,7 @@ describe('maintenance executor registrations', () => {
           'ARTIST_MERGE',
           'CREATOR_MAINTENANCE',
           'ARCHIVE_DEFAULT_TAG_BACKFILL',
+          'ARCHIVE_QUALITY_AUDIT',
           'PIXIV_AI_DERIVED_TAG_SYNC',
           'JOB_EVENT_RETENTION_CLEANUP'
         ].includes(jobType)

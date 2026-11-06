@@ -1,4 +1,8 @@
 'use client'
+import { formatArchiveSourceSize } from '@/lib/archive-source-size'
+
+import { ArchiveQualityBadge } from '@/components/artwork/archive-quality-badge'
+import { archiveQualityReasonLabel } from '@/lib/archive-quality-reason'
 
 import { ArchiveTaskCreators } from './archive-task-creators'
 import { ArchiveItemAddresses } from './archive-item-addresses'
@@ -12,6 +16,7 @@ import { toast } from 'sonner'
 import { SSheet } from '@/components/shared/s-sheet'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useTRPC } from '@/lib/trpc'
 import type { AppRouter } from '@/server'
@@ -39,6 +44,8 @@ export function ArchiveItemDrawer({
   task,
   onOpenChange,
   onTaskChanged,
+  onUseDisplayQuality,
+  displayQualityPending,
   realtimeConnected = false,
   liveRefreshVersion = 0
 }: {
@@ -46,6 +53,8 @@ export function ArchiveItemDrawer({
   task: ArchiveTask | null
   onOpenChange: (open: boolean) => void
   onTaskChanged: () => void | Promise<unknown>
+  onUseDisplayQuality?: () => void
+  displayQualityPending?: boolean
   realtimeConnected?: boolean
   liveRefreshVersion?: number
 }) {
@@ -150,7 +159,13 @@ export function ArchiveItemDrawer({
       className="w-[min(100vw,46rem)] sm:max-w-[46rem]"
     >
       <div className="flex min-h-full min-w-0 flex-col gap-3">
-        {task && <ArchiveTaskDetails task={task} />}
+        {task && (
+          <ArchiveTaskDetails
+            task={task}
+            onUseDisplayQuality={onUseDisplayQuality}
+            displayQualityPending={displayQualityPending}
+          />
+        )}
         <div className="mb-3 flex shrink-0 items-start gap-2 rounded-md border bg-muted/30 p-3">
           <p className="min-w-0 flex-1 text-xs text-muted-foreground">
             保存的是稳定的原站图片页链接；临时 CDN 直链不会持久化。筛选由服务端执行，向下滚动自动加载。
@@ -265,7 +280,15 @@ export function ArchiveItemDrawer({
   )
 }
 
-export function ArchiveTaskDetails({ task }: { task: ArchiveTask }) {
+export function ArchiveTaskDetails({
+  task,
+  onUseDisplayQuality,
+  displayQualityPending
+}: {
+  task: ArchiveTask
+  onUseDisplayQuality?: () => void
+  displayQualityPending?: boolean
+}) {
   const [showMedia, setShowMedia] = useState(false)
   const artworkHref = archiveTaskArtworkHref(task)
   useEffect(() => setShowMedia(false), [task.id])
@@ -281,10 +304,17 @@ export function ArchiveTaskDetails({ task }: { task: ArchiveTask }) {
         <Badge variant="secondary">
           {task.publishedArtworkDeletedAt || task.publishedArtwork?.deletedAt ? '已删除' : archiveTaskPhaseLabel(task)}
         </Badge>
-        <Badge variant="outline">{task.selectedQuality === 'ORIGINAL' ? '原图' : '展示质量'}</Badge>
+        <Badge variant="outline">请求：{task.selectedQuality === 'ORIGINAL' ? '原图' : '缩放展示版'}</Badge>
+        {task.localQuality ? <ArchiveQualityBadge quality={task.localQuality} /> : null}
         {task.kind && <Badge variant="outline">{task.kind === 'UPDATE' ? '更新归档' : '首次归档'}</Badge>}
         <span className="text-xs text-muted-foreground">尝试 {task.attempt}</span>
       </div>
+      {task.localQuality?.verifiedAt ? (
+        <p className="text-xs text-muted-foreground">
+          已保存图片：原图 {task.localQuality.originalCount} 张 · 网页阅读版 {task.localQuality.displayCount} 张 · 无法确认是否为原图{' '}
+          {task.localQuality.unknownCount} 张
+        </p>
+      ) : null}
       <ArchiveTaskCreators task={task} />
       <PrivacySensitiveText as="p" className="break-all text-xs text-muted-foreground">
         提交来源：{task.submittedUrl}
@@ -295,6 +325,8 @@ export function ArchiveTaskDetails({ task }: { task: ArchiveTask }) {
         </div>
       )}
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <dt>原站整部大小</dt>
+        <dd>{task.sourceSizeBytes ? formatArchiveSourceSize(task.sourceSizeBytes) : '未知'}</dd>
         {timestamps
           .filter(([, value]) => value)
           .map(([label, value]) => (
@@ -315,6 +347,12 @@ export function ArchiveTaskDetails({ task }: { task: ArchiveTask }) {
         </PrivacySensitiveText>
       )}
       <div className="flex flex-wrap gap-2">
+        {task.canUseDisplayQuality && onUseDisplayQuality && (
+          <Button type="button" variant="outline" size="sm" disabled={displayQualityPending} onClick={onUseDisplayQuality}>
+            {displayQualityPending && <Spinner data-icon="inline-start" />}
+            改用展示图并继续
+          </Button>
+        )}
         <Button asChild variant="outline" size="sm">
           <a
             href={archiveTaskSourceHref(task.id)}
@@ -354,11 +392,12 @@ function ArchiveItemCard({
   const pageNumber = item.pageIndex + 1
   const numberLabel = String(pageNumber).padStart(String(Math.max(totalItems, 1)).length, '0')
   const metadata = [
-    item.quality === 'ORIGINAL' ? '原图' : item.quality === 'DISPLAY' ? '展示质量' : null,
+    item.verifiedQuality === 'ORIGINAL' ? '原图' : item.verifiedQuality === 'DISPLAY' ? '网页阅读版' : '版本无法确认',
     item.mimeType,
     item.width && item.height ? `${item.width}×${item.height}` : null,
     formatBytes(item.byteCount)
   ].filter(Boolean)
+  const qualityReason = archiveQualityReasonLabel(item.qualityReason)
 
   return (
     <div className="flex flex-col gap-2 rounded-lg border p-3">
@@ -378,6 +417,8 @@ function ArchiveItemCard({
           </Button>
         )}
       </div>
+
+      {item.verifiedQuality === 'UNKNOWN' ? <p className="text-xs text-muted-foreground">{qualityReason}。</p> : null}
 
       <ArchiveItemAddresses
         sourcePageUrl={item.sourcePageUrl}

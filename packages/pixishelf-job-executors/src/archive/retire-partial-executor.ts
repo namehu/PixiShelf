@@ -21,7 +21,7 @@ import {
 } from './storage.ts'
 import type { ArchiveMaintenanceExecutorDependencies } from './maintenance-executor.ts'
 
-type Payload = Extract<ArchiveMaintenancePayload, { action: 'RETIRE_PARTIAL_REVISION' }>
+type Payload = Extract<ArchiveMaintenancePayload, { action: 'RETIRE_PARTIAL_REVISION' | 'RETIRE_ORIGINAL_REVISION' }>
 export async function executePartialRetirement(
   context: ExecutionContext<ArchiveMaintenancePayload, EnqueuedChildJob>,
   payload: Payload,
@@ -35,7 +35,7 @@ export async function executePartialRetirement(
   )
   if (alreadyRetired)
     return context.finalizeInTransaction<Prisma.TransactionClient>(async (scope) => {
-      await scope.complete({ result: payload, message: '旧部分归档副本已清理' })
+      await scope.complete({ result: payload, message: '旧归档副本已清理' })
     })
   const prepared = await context.mutateInTransaction<
     Prisma.TransactionClient,
@@ -69,7 +69,7 @@ export async function executePartialRetirement(
     })
   } catch (error) {
     if (error instanceof ScanExecutorError && error.code === 'STATE_CONFLICT')
-      throw new ArchiveMediaRecoveryRequired('旧部分归档清理声明需要核对并按恢复手册续行。', { cause: error })
+      throw new ArchiveMediaRecoveryRequired('旧归档清理声明需要核对并按恢复手册续行。', { cause: error })
     throw error
   }
   const replacementDirectory = await resolveExistingPathWithinRoot(
@@ -98,7 +98,7 @@ export async function executePartialRetirement(
       }
     }
     if (!prepared.old.retirementStartedAt || (await pathExists(path.join(oldDirectory, 'manifest.json')))) {
-      await readArchiveManifestDigest(oldDirectory, prepared.old.archiveImport!.sealedManifestSha256!)
+      await readArchiveManifestDigest(oldDirectory, prepared.old.archiveImport!.sealedManifestSha256 ?? undefined)
     }
     const remaining = []
     for (const item of prepared.frozen.media) {
@@ -108,7 +108,7 @@ export async function executePartialRetirement(
     }
     await validateArchiveStoredMedia(oldDirectory, remaining)
   } else if (!prepared.old.retirementStartedAt) {
-    throw new ArchiveExecutorError('MEDIA_INVALID', '旧部分归档目录缺失且没有清理检查点。')
+    throw new ArchiveExecutorError('MEDIA_INVALID', '旧归档目录缺失且没有清理检查点。')
   }
   await context.mutateInTransaction<Prisma.TransactionClient>(async (tx) => {
     await readPartialRetirementSnapshot(tx, payload)
@@ -124,6 +124,6 @@ export async function executePartialRetirement(
       await readPartialRetirementSnapshot(tx, payload)
       await tx.archiveRevision.update({ where: { id: payload.revisionId }, data: { retiredAt: new Date() } })
     })
-    await scope.complete({ result: payload, message: '补全成功，旧部分归档副本已清理' })
+    await scope.complete({ result: payload, message: '旧归档副本已清理' })
   })
 }

@@ -5,13 +5,11 @@ import { nextCookies } from 'better-auth/next-js'
 import { bearer } from 'better-auth/plugins'
 import type { Prisma } from '@pixishelf/db'
 
-export function createAuth(
-  database:
-    | Prisma.TransactionClient
-    | Omit<typeof prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'> = prisma,
-  useNextCookies = true,
-  mobile = false
-) {
+// The adapter accesses these delegates; transaction:false also accepts an existing transaction client.
+type AuthModels = 'userBA' | 'session' | 'account' | 'verificationToken'
+type AuthDatabase = Pick<Prisma.TransactionClient, AuthModels> | Pick<typeof prisma, AuthModels>
+
+export function createAuth(database: AuthDatabase = prisma, useNextCookies = true, mobile = false) {
   return betterAuth({
     debug: process.env.NODE_ENV !== 'production',
     database: prismaAdapter(database, {

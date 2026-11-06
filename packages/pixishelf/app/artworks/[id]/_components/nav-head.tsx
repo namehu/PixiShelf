@@ -6,7 +6,7 @@ import { useTRPC } from '@/lib/trpc'
 import { useArtworkReader } from '@/lib/reading/artwork-reader-provider'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { CheckCheckIcon, ListFilterIcon, RefreshCwIcon, ChevronLeftIcon, EllipsisIcon, FullscreenIcon, ListOrderedIcon, Settings2Icon, Trash2Icon } from 'lucide-react'
+import { BookOpenIcon, CheckCheckIcon, ChevronLeftIcon, EllipsisIcon, FullscreenIcon, ListOrderedIcon, Settings2Icon, Trash2Icon } from 'lucide-react'
 import { useSafeBack } from '@/hooks/use-safe-back'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import PageToolbar from '@/components/layout/page-toolbar'
@@ -112,14 +112,11 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
                   >
                     只看喜欢的图片
                   </DropdownMenuCheckboxItem>
-                  <DropdownMenuItem disabled={mediaView.readingMenu.disabled} onSelect={() => mediaView.requestReadingAction('filter')}>
-                    <ListFilterIcon aria-hidden="true" />{mediaView.readingMenu.unreadOnly ? '查看全部' : '只看未读'}
-                  </DropdownMenuItem>
-                  {mediaView.readingMenu.unreadOnly && <DropdownMenuItem disabled={mediaView.readingMenu.disabled} onSelect={() => mediaView.requestReadingAction('refresh')}>
-                    <RefreshCwIcon aria-hidden="true" />刷新未读
+                  {mediaView.readingMenu.canContinue && <DropdownMenuItem disabled={mediaView.readingMenu.disabled} onSelect={() => mediaView.requestReadingAction('continue')}>
+                    <BookOpenIcon aria-hidden="true" />继续阅读
                   </DropdownMenuItem>}
-                  {mediaView.readingMenu.remaining > 0 && <DropdownMenuItem disabled={mediaView.readingMenu.disabled} onSelect={() => mediaView.requestReadingAction('mark-all')}>
-                    <CheckCheckIcon aria-hidden="true" />标记全部已读
+                  {!mediaView.readingMenu.completed && mediaView.readingMenu.totalCount > 0 && <DropdownMenuItem disabled={mediaView.readingMenu.disabled} onSelect={() => mediaView.requestReadingAction('mark-all')}>
+                    <CheckCheckIcon aria-hidden="true" />标记已读完
                   </DropdownMenuItem>}
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />

@@ -1,12 +1,10 @@
-import { ARTWORK_SUMMARY_CONFLICT, ARTWORK_SUMMARY_ALGORITHM_VERSION, artworkSummaryGroupsSchema } from '@pixishelf/job-contracts'
 import 'server-only'
-import { assertArtworkDedupAppWrite } from './artwork-dedup-write-guard'
+import { VIDEO_FILE_EXTENSIONS } from '@pixishelf/job-contracts'
 import { TRPCError } from '@trpc/server'
-import { type ArtworkReadingSummary } from '@prisma/client'
-import { Prisma, lockArtworkForReading } from '@pixishelf/db'
+import type { ArtworkReadingProgress } from '@prisma/client'
+import { Prisma, lockArtworkForReading, readArtworkReadingLayout, type LockedArtworkReading } from '@pixishelf/db'
 import {
-  READING_COMPLETION_PERCENT,
-  READING_MEDIA_REVISION_CONFLICT_CODE,
+  READING_LAYOUT_VERSION_CONFLICT_CODE,
   READING_REPORT_MAX_AGE_MS,
   READING_VISIT_GAP_MS,
   getReadingStatus,
@@ -14,7 +12,6 @@ import {
   type ReadingBatchSummariesResult,
   type ReadingContextDto,
   type ReadingHistoryCursor,
-  type ReadingMediaItem,
   type ReadingMarkReadInput,
   type ReadingReportInput,
   type ReadingReportResult,
@@ -22,394 +19,351 @@ import {
 } from '@pixishelf/db/reading-contract'
 import type { ArtworkCardData } from '@/types'
 import { prisma, type AppTransaction } from '@/lib/prisma'
-import { isVideoFile } from '@/lib/media'
-import { groupLogicalMedia } from './artwork-service/logical-media'
+import { isVideoFile, isGifFile, isApngFile } from '@/lib/media'
+import { assertArtworkDedupAppWrite } from './artwork-dedup-write-guard'
 import { getArtworkCardsByIds } from './artwork-service'
 import { loadReaderIndex } from './artwork-service/reader'
 import type { ReaderInitialization } from '@/schemas/artwork-reader.dto'
-import { ARTWORK_STACK_CONFLICT, ARTWORK_STACK_RULE_VERSION, buildArtworkStacks } from '@/lib/reading/artwork-stacks'
 
-type ReadingTx = AppTransaction
-
-function toDto(row: ArtworkReadingSummary, mediaRevision: number): ReadingSummaryDto {
+function toDto(
+  artwork: Pick<LockedArtworkReading, 'id' | 'logicalMediaCount' | 'readingLayoutVersion'>,
+  row?: ArtworkReadingProgress | null
+): ReadingSummaryDto {
   const fields = {
-    artworkId: row.artworkId,
-    mediaRevision,
-    stateVersion: row.stateVersion,
-    viewCount: row.viewCount,
-    seenCount: row.seenCount,
-    totalCount: row.totalCount,
-    lastViewedAt: row.lastViewedAt?.toISOString() ?? null,
-    lastActiveAt: row.lastActiveAt?.toISOString() ?? null,
-    lastMediaId: row.lastMediaId,
-    lastMediaIndex: row.lastMediaIndex
+    artworkId: artwork.id,
+    readingLayoutVersion: artwork.readingLayoutVersion,
+    stateVersion: row?.stateVersion ?? 0,
+    viewCount: row?.viewCount ?? 0,
+    progressCount: row?.completed ? artwork.logicalMediaCount : (row?.furthestMediaIndex ?? -1) + 1,
+    totalCount: artwork.logicalMediaCount,
+    completed: row?.completed ?? false,
+    furthestMediaId: row?.furthestMediaId ?? null,
+    furthestMediaIndex: row?.furthestMediaIndex ?? null,
+    lastViewedAt: row?.lastViewedAt?.toISOString() ?? null,
+    lastActiveAt: row?.lastActiveAt?.toISOString() ?? null,
+    lastMediaId: row?.lastMediaId ?? null,
+    lastMediaIndex: row?.lastMediaIndex ?? null
   }
   return { ...fields, status: getReadingStatus(fields) }
 }
-
-function emptySummary(artworkId: number, totalCount: number, mediaRevision: number): ReadingSummaryDto {
-  return {
-    artworkId,
-    mediaRevision,
-    stateVersion: 0,
-    viewCount: 0,
-    seenCount: 0,
-    totalCount,
-    status: 'UNREAD',
-    lastViewedAt: null,
-    lastActiveAt: null,
-    lastMediaId: null,
-    lastMediaIndex: null
-  }
-}
-
-async function loadMedia(tx: ReadingTx, artworkId: number) {
-  const images = await tx.image.findMany({
-    where: { artworkId },
-    orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-    select: { id: true, path: true, mediaType: true }
+async function activeArtwork(tx: AppTransaction, artworkId: number) {
+  const locked = await lockArtworkForReading(tx, artworkId)
+  if (!locked) throw new TRPCError({ code: 'NOT_FOUND', message: 'Artwork not found' })
+  await assertArtworkDedupAppWrite(tx, artworkId, 'READING')
+  const artwork = await tx.artwork.findUnique({
+    where: { id: artworkId },
+    select: { deletedAt: true, archiveLifecycleState: true }
   })
-  return groupLogicalMedia(images).map((group, index) => ({
-    mediaId: group.item.id,
-    memberMediaIds: group.members.map((member) => member.id),
-    index,
-    isVideo: group.item.mediaType === 'VIDEO' || isVideoFile(group.item.path)
-  }))
-}
-
-function seenLogicalIds(media: ReadingMediaItem[], seenIds: Set<number>) {
-  return media.filter((item) => item.memberMediaIds.some((id) => seenIds.has(id))).map((item) => item.mediaId)
-}
-
-function seenLogicalCount(media: ReadingMediaItem[], seenIds: Set<number>) {
-  return media.filter((item) => item.memberMediaIds.some((id) => seenIds.has(id))).length
-}
-
-function locateMedia(media: ReadingMediaItem[], memberId: number | null) {
-  return memberId === null ? undefined : media.find((item) => item.memberMediaIds.includes(memberId))
-}
-
-async function reconcileSummary(tx: ReadingTx, userId: string, artworkId: number, media: ReadingMediaItem[]) {
-  const key = { userId_artworkId: { userId, artworkId } }
-  const [row, seenRows] = await Promise.all([
-    tx.artworkReadingSummary.findUnique({ where: key }),
-    tx.artworkReadMedia.findMany({ where: { userId, artworkId }, select: { mediaId: true } })
-  ])
-  const seenIds = new Set(seenRows.map((item) => item.mediaId))
-  if (!row) return { row: null, seenIds }
-  const seenCount = seenLogicalCount(media, seenIds)
-  const position = locateMedia(media, row.lastMediaId)
-  const lastMediaId = position ? row.lastMediaId : null
-  const lastMediaIndex = position?.index ?? null
-  if (
-    row.seenCount === seenCount &&
-    row.totalCount === media.length &&
-    row.lastMediaId === lastMediaId &&
-    row.lastMediaIndex === lastMediaIndex
-  ) return { row, seenIds }
-  const updated = await tx.artworkReadingSummary.update({
-    where: key,
-    data: { seenCount, totalCount: media.length, lastMediaId, lastMediaIndex, stateVersion: { increment: 1 } }
-  })
-  return { row: updated, seenIds }
-}
-
-function ensureArtworkActive(artwork: { deletedAt: Date | null; archiveLifecycleState: string } | null) {
   if (!artwork || artwork.deletedAt !== null || artwork.archiveLifecycleState !== 'ACTIVE') {
     throw new TRPCError({ code: 'NOT_FOUND', message: 'Artwork not found' })
   }
+  return locked
 }
-
+function assertReportOwner(userId: string, expectedUserId: string) {
+  if (userId !== expectedUserId) throw new TRPCError({ code: 'FORBIDDEN', message: 'Reading session changed' })
+}
+function assertLayout(artwork: LockedArtworkReading, expected: number) {
+  if (artwork.readingLayoutVersion !== expected) {
+    throw new TRPCError({ code: 'CONFLICT', message: READING_LAYOUT_VERSION_CONFLICT_CODE })
+  }
+}
 export async function getReadingContext(userId: string, artworkId: number): Promise<ReadingContextDto> {
   return prisma.$transaction(async (tx) => {
-    const readingTx = tx as unknown as ReadingTx
-    const locked = await lockArtworkForReading(readingTx, artworkId)
-    if (!locked) throw new TRPCError({ code: 'NOT_FOUND', message: 'Artwork not found' })
-    await assertArtworkDedupAppWrite(tx, locked.id, 'READING')
-    ensureArtworkActive(await tx.artwork.findUnique({
-      where: { id: artworkId },
-      select: { deletedAt: true, archiveLifecycleState: true }
-    }))
-    const media = await loadMedia(readingTx, artworkId)
-    const { row, seenIds } = await reconcileSummary(readingTx, userId, artworkId, media)
-    const position = locateMedia(media, row?.lastMediaId ?? null)
-    const fallback = media.find((item) => !item.memberMediaIds.some((id) => seenIds.has(id))) ?? media[0]
-    const resume = position ?? fallback
+    const artwork = await activeArtwork(tx, artworkId)
+    const [layout, row] = await Promise.all([
+      readArtworkReadingLayout(tx, artworkId),
+      tx.artworkReadingProgress.findUnique({ where: { userId_artworkId: { userId, artworkId } } })
+    ])
+    const media = layout.map((item, index) => ({ ...item, index }))
+    const resume = media.find((item) => item.mediaId === row?.lastMediaId) ?? media[0]
     return {
       artworkId,
-      mediaRevision: locked.mediaRevision,
-      media: media.map(({ mediaId, memberMediaIds, index, isVideo }) => ({ mediaId, memberMediaIds, index, isVideo })),
-      seenMediaIds: seenLogicalIds(media, seenIds),
-      summary: row ? toDto(row, locked.mediaRevision) : emptySummary(artworkId, media.length, locked.mediaRevision),
+      readingLayoutVersion: artwork.readingLayoutVersion,
+      media,
+      summary: toDto(artwork, row),
       resume: resume ? { mediaId: resume.mediaId, index: resume.index } : null
     }
   })
 }
-
 export async function getReaderInitialization(userId: string, artworkId: number): Promise<ReaderInitialization> {
   return prisma.$transaction(async (tx) => {
-    const locked = await lockArtworkForReading(tx, artworkId)
-    if (!locked) throw new TRPCError({ code: 'NOT_FOUND', message: 'Artwork not found' })
-    await assertArtworkDedupAppWrite(tx, locked.id, 'READING')
-    const { title, index } = await loadReaderIndex(tx, artworkId)
-    const media = index.items
-    const { row, seenIds } = await reconcileSummary(tx, userId, artworkId, media)
-    const position = locateMedia(media, row?.lastMediaId ?? null)
-    const fallback = media.find((item) => !item.memberMediaIds.some((id) => seenIds.has(id))) ?? media[0]
-    const resume = position ?? fallback
-    return { title, index, reading: {
-      artworkId, mediaRevision: locked.mediaRevision,
-      seenMediaIds: seenLogicalIds(media, seenIds),
-      summary: row ? toDto(row, locked.mediaRevision) : emptySummary(artworkId, media.length, locked.mediaRevision),
-      resume: resume ? { mediaId: resume.mediaId, index: resume.index } : null
-    } }
+    const artwork = await activeArtwork(tx, artworkId)
+    const [{ title, index }, row] = await Promise.all([
+      loadReaderIndex(tx, artworkId),
+      tx.artworkReadingProgress.findUnique({ where: { userId_artworkId: { userId, artworkId } } })
+    ])
+    const resume = index.items.find((item) => item.mediaId === row?.lastMediaId) ?? index.items[0]
+    return {
+      title,
+      index,
+      reading: {
+        artworkId,
+        readingLayoutVersion: artwork.readingLayoutVersion,
+        summary: toDto(artwork, row),
+        resume: resume ? { mediaId: resume.mediaId, index: resume.index } : null
+      }
+    }
   })
 }
-
 export async function reportReading(userId: string, input: ReadingReportInput): Promise<ReadingReportResult> {
+  assertReportOwner(userId, input.expectedUserId)
   const now = Date.now()
-  const ordered = input.events.map((event) => ({ event, at: new Date(event.observedAt) }))
-  if (ordered.some(({ at }) => !Number.isFinite(at.getTime()) || at.getTime() < now - READING_REPORT_MAX_AGE_MS || at.getTime() > now + 5_000)) {
+  const ordered = input.events
+    .map((event) => ({ event, at: new Date(event.observedAt) }))
+    .sort((a, b) => a.at.getTime() - b.at.getTime())
+  if (
+    ordered.some(
+      ({ at }) =>
+        !Number.isFinite(at.getTime()) || at.getTime() < now - READING_REPORT_MAX_AGE_MS || at.getTime() > now + 5_000
+    )
+  ) {
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'Reading batch expired or has an invalid observation time' })
   }
-  ordered.sort((a, b) => a.at.getTime() - b.at.getTime())
-
   return prisma.$transaction(async (tx) => {
-    const readingTx = tx as unknown as ReadingTx
-    const locked = await lockArtworkForReading(readingTx, input.artworkId)
-    if (!locked) throw new TRPCError({ code: 'NOT_FOUND', message: 'Artwork not found' })
-    await assertArtworkDedupAppWrite(tx, locked.id, 'READING')
-    ensureArtworkActive(await tx.artwork.findUnique({
-      where: { id: input.artworkId },
-      select: { deletedAt: true, archiveLifecycleState: true }
-    }))
-    if (locked.mediaRevision !== input.mediaRevision) {
-      throw new TRPCError({ code: 'CONFLICT', message: READING_MEDIA_REVISION_CONFLICT_CODE })
+    const artwork = await activeArtwork(tx, input.artworkId)
+    assertLayout(artwork, input.readingLayoutVersion)
+    const ids = [
+      ...new Set(
+        input.events.flatMap((event) => [
+          event.mediaId,
+          ...(event.type === 'VIEW' && event.advanceTo ? [event.advanceTo.mediaId] : [])
+        ])
+      )
+    ]
+    // Only submitted anchors are returned, independent of the artwork's media count.
+    const [images, previous] = await Promise.all([
+      tx.image.findMany({
+        where: { artworkId: input.artworkId, id: { in: ids } },
+        select: { id: true, path: true, mediaType: true, webpAnimationStatus: true }
+      }),
+      tx.artworkReadingProgress.findUnique({ where: { userId_artworkId: { userId, artworkId: input.artworkId } } })
+    ])
+    const byId = new Map(images.map((item) => [item.id, item]))
+    const apngIds = images.filter((image) => /\.apng$/i.test(image.path)).map((image) => image.id)
+    if (apngIds.length) {
+      // APNGs paired with a video are not logical representatives. Never let the poster bypass playback gating.
+      const paired = await tx.$queryRaw<Array<{ id: number }>>(Prisma.sql`
+        WITH anchors AS (
+          SELECT i.id, i."artworkId", n.name FROM "Image" i
+          CROSS JOIN LATERAL (SELECT regexp_replace(regexp_replace(replace(i.path, chr(92), '/'), '/+$', ''), '^.*/', '') AS name) n
+          WHERE i.id IN (${Prisma.join(apngIds)})
+        )
+        SELECT i.id FROM anchors i WHERE (
+          SELECT v.id FROM "Image" v
+          CROSS JOIN LATERAL (SELECT regexp_replace(regexp_replace(replace(v.path, chr(92), '/'), '/+$', ''), '^.*/', '') AS name) n
+          WHERE v."artworkId" = i."artworkId"
+          AND (v."mediaType" = 'VIDEO' OR lower(substring(split_part(v.path, '?', 1) from '\\.[^.]*$')) IN (${Prisma.join(VIDEO_FILE_EXTENSIONS)}))
+          AND CASE WHEN n.name <> '..' AND length(n.name) - strpos(reverse(n.name), '.') > 0 AND strpos(reverse(n.name), '.') > 0
+            THEN left(n.name, length(n.name) - strpos(reverse(n.name), '.')) ELSE n.name END =
+            CASE WHEN i.name <> '..' AND length(i.name) - strpos(reverse(i.name), '.') > 0 AND strpos(reverse(i.name), '.') > 0
+            THEN left(i.name, length(i.name) - strpos(reverse(i.name), '.')) ELSE i.name END
+          ORDER BY v."sortOrder", v.id LIMIT 1
+        ) <> i.id
+      `)
+      if (paired.length) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Report the logical video representative' })
+      }
     }
-    const hasStack = input.events.some((event) => event.type === 'VIEW' && event.stack)
-    const stackIndex = hasStack ? (await loadReaderIndex(readingTx, input.artworkId)).index : null
-    const media = stackIndex ? stackIndex.items.map((item) => ({ ...item, isVideo: item.mediaType === 'video' })) : await loadMedia(readingTx, input.artworkId)
-    const byMemberId = new Map(media.flatMap((item) => item.memberMediaIds.map((id) => [id, item] as const)))
-    const stackGroups = new Map((stackIndex ? buildArtworkStacks(stackIndex.items) : []).map((group) => [group.id, group]))
-    const stackGrants = new Map<string, number[]>()
+    const video = (id: number) => {
+      const item = byId.get(id)!
+      return item.mediaType === 'VIDEO' || isVideoFile(item.path)
+    }
+    const staticImage = (id: number) => {
+      const item = byId.get(id)!
+      return (
+        !video(id) &&
+        item.mediaType !== 'ANIMATION' &&
+        item.webpAnimationStatus !== 2 &&
+        !isGifFile(item.path) &&
+        !isApngFile(item.path)
+      )
+    }
     for (const event of input.events) {
-      if (event.type !== 'VIEW' || !event.stack) continue
-      const group = stackGroups.get(event.stack.groupId)
-      if (event.summary || event.stack.ruleVersion !== ARTWORK_STACK_RULE_VERSION || event.stack.fingerprint !== stackIndex?.fingerprint ||
-        !group || group.mediaIds.length < 2 || !group.mediaIds.includes(event.mediaId)) {
-        throw new TRPCError({ code: 'CONFLICT', message: ARTWORK_STACK_CONFLICT })
+      if (
+        !byId.has(event.mediaId) ||
+        event.index < 0 ||
+        event.index >= artwork.logicalMediaCount ||
+        !Number.isInteger(event.index)
+      ) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid reading media or position' })
       }
-      stackGrants.set(group.id, group.mediaIds.flatMap((id) => byMemberId.get(id)!.memberMediaIds))
-    }
-    const summaryEvents = input.events.filter((event) => event.type === 'VIEW' && event.summary)
-    const summaryGrants = new Map<string, number[]>()
-    if (summaryEvents.length) {
-      await tx.$queryRaw(Prisma.sql`SELECT "artworkId" FROM "ArtworkSummary" WHERE "artworkId" = ${input.artworkId} FOR UPDATE`)
-      const snapshot = await tx.artworkSummary.findUnique({ where: { artworkId: input.artworkId } })
-      const groups = artworkSummaryGroupsSchema.safeParse(snapshot?.groups)
-      if (!snapshot || snapshot.replaceInProgress || snapshot.publishedRevision !== snapshot.sourceRevision ||
-        snapshot.algorithmVersion !== ARTWORK_SUMMARY_ALGORITHM_VERSION || !groups.success) {
-        throw new TRPCError({ code: 'CONFLICT', message: ARTWORK_SUMMARY_CONFLICT })
-      }
-      for (const event of summaryEvents) {
-        if (event.type !== 'VIEW' || !event.summary) continue
-        const group = groups.data.find((group) => group.id === event.summary!.groupId)
-        if (event.summary.generationId !== snapshot.generationId || !group || !group.mediaIds.includes(event.mediaId) ||
-          group.mediaIds.some((id) => !byMemberId.has(id) || byMemberId.get(id)!.isVideo)) {
-          throw new TRPCError({ code: 'CONFLICT', message: ARTWORK_SUMMARY_CONFLICT })
-        }
-        summaryGrants.set(group.id, group.mediaIds.flatMap((id) => byMemberId.get(id)!.memberMediaIds))
+      if (
+        event.type === 'VIEW' &&
+        event.advanceTo &&
+        (!byId.has(event.advanceTo.mediaId) ||
+          event.advanceTo.index < event.index ||
+          event.advanceTo.index >= artwork.logicalMediaCount ||
+          !Number.isInteger(event.advanceTo.index) ||
+          !staticImage(event.mediaId) ||
+          !staticImage(event.advanceTo.mediaId))
+      ) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid static stack tail' })
       }
     }
-    const { row: previous, seenIds } = await reconcileSummary(readingTx, userId, input.artworkId, media)
     let viewCount = previous?.viewCount ?? 0
     let lastViewedAt = previous?.lastViewedAt ?? null
     let lastActiveAt = previous?.lastActiveAt ?? null
     let lastMediaId = previous?.lastMediaId ?? null
     let lastMediaIndex = previous?.lastMediaIndex ?? null
-    let accepted = false
-    const newlySeen = new Set<number>()
+    let furthestMediaId = previous?.furthestMediaId ?? null
+    let furthestMediaIndex = previous?.furthestMediaIndex ?? null
+    let completed = previous?.completed ?? false
+    let changed = false
     for (const { event, at } of ordered) {
-      const item = byMemberId.get(event.mediaId)
-      if (!item) continue
-      // Old clients/poster observations must never complete a video on visibility alone.
-      if (item.isVideo && !event.playback) continue
+      if (video(event.mediaId) && !event.playback) continue
       if (event.type === 'HEARTBEAT') {
-        // Another device may own the last position while this device still reads a seen item.
-        // A heartbeat extends an existing visit without creating one or changing that position.
-        if (!lastActiveAt || at < lastActiveAt ||
+        if (
+          !lastActiveAt ||
+          at <= lastActiveAt ||
           at.getTime() - lastActiveAt.getTime() >= READING_VISIT_GAP_MS ||
-          (!(item.isVideo && event.playback) &&
-            !item.memberMediaIds.some((id) => seenIds.has(id) || newlySeen.has(id)))) continue
+          (!video(event.mediaId) && !completed && event.index > (furthestMediaIndex ?? -1))
+        ) {
+          continue
+        }
         lastActiveAt = at
-        accepted = true
+        changed = true
         continue
       }
       if (!lastActiveAt || at.getTime() - lastActiveAt.getTime() >= READING_VISIT_GAP_MS) viewCount++
-      // A valid late observation still contributes seen media and is the last accepted position.
-      // Observation timestamps and visit counts must not move backwards when devices report out of order.
-      if (!lastActiveAt || at > lastActiveAt) lastActiveAt = at
-      if (!lastViewedAt || at > lastViewedAt) lastViewedAt = at
-      lastMediaId = event.mediaId
-      lastMediaIndex = item.index
-      accepted = true
-      if (!item.isVideo || (event.playback && isVideoReadingComplete(event.playback))) {
-        for (const memberId of event.stack ? stackGrants.get(event.stack.groupId)! : event.summary ? summaryGrants.get(event.summary.groupId)! : item.memberMediaIds) {
-          if (!seenIds.has(memberId)) newlySeen.add(memberId)
+      if (!lastActiveAt || at > lastActiveAt) {
+        lastActiveAt = at
+        changed = true
+      }
+      if (
+        !lastViewedAt ||
+        at > lastViewedAt ||
+        (at.getTime() === lastViewedAt.getTime() && (lastMediaId !== event.mediaId || lastMediaIndex !== event.index))
+      ) {
+        lastViewedAt = at
+        lastMediaId = event.mediaId
+        lastMediaIndex = event.index
+        changed = true
+      }
+      if (!video(event.mediaId) || (event.playback && isVideoReadingComplete(event.playback))) {
+        const target = event.advanceTo ?? { mediaId: event.mediaId, index: event.index }
+        if (target.index > (furthestMediaIndex ?? -1)) {
+          furthestMediaId = target.mediaId
+          furthestMediaIndex = target.index
+          changed = true
+        }
+        if (!completed && artwork.logicalMediaCount > 0 && target.index === artwork.logicalMediaCount - 1) {
+          completed = true
+          changed = true
         }
       }
     }
-    if (newlySeen.size > 0) {
-      await tx.artworkReadMedia.createMany({
-        data: [...newlySeen].map((mediaId) => ({ userId, artworkId: input.artworkId, mediaId })),
-        skipDuplicates: true
-      })
-      for (const id of newlySeen) seenIds.add(id)
-    }
-    if (!accepted || !lastViewedAt || !lastActiveAt) {
-      return { mediaRevision: locked.mediaRevision, seenMediaIds: seenLogicalIds(media, seenIds), summary: previous ? toDto(previous, locked.mediaRevision) : emptySummary(input.artworkId, media.length, locked.mediaRevision) }
-    }
+    if (!changed) return { readingLayoutVersion: artwork.readingLayoutVersion, summary: toDto(artwork, previous) }
     const data = {
       viewCount,
-      seenCount: seenLogicalCount(media, seenIds),
-      totalCount: media.length,
       lastViewedAt,
       lastActiveAt,
       lastMediaId,
-      lastMediaIndex
+      lastMediaIndex,
+      furthestMediaId,
+      furthestMediaIndex,
+      completed
     }
-    if (previous && newlySeen.size === 0 && previous.viewCount === viewCount &&
-      previous.lastViewedAt?.getTime() === lastViewedAt.getTime() &&
-      previous.lastActiveAt?.getTime() === lastActiveAt.getTime() &&
-      previous.lastMediaId === lastMediaId && previous.lastMediaIndex === lastMediaIndex) {
-      return { mediaRevision: locked.mediaRevision, seenMediaIds: seenLogicalIds(media, seenIds), summary: toDto(previous, locked.mediaRevision) }
-    }
-    const updated = await tx.artworkReadingSummary.upsert({
+    const row = await tx.artworkReadingProgress.upsert({
       where: { userId_artworkId: { userId, artworkId: input.artworkId } },
       create: { userId, artworkId: input.artworkId, ...data, stateVersion: 1 },
       update: { ...data, stateVersion: { increment: 1 } }
     })
-    return { mediaRevision: locked.mediaRevision, seenMediaIds: seenLogicalIds(media, seenIds), summary: toDto(updated, locked.mediaRevision) }
+    return { readingLayoutVersion: artwork.readingLayoutVersion, summary: toDto(artwork, row) }
   })
 }
-
-/** Positive-only marking shares the same lock and logical identities as automatic observations. */
 export async function markReadingRead(userId: string, input: ReadingMarkReadInput): Promise<ReadingReportResult> {
+  assertReportOwner(userId, input.expectedUserId)
   return prisma.$transaction(async (tx) => {
-    const readingTx = tx as unknown as ReadingTx
-    const locked = await lockArtworkForReading(readingTx, input.artworkId)
-    if (!locked) throw new TRPCError({ code: 'NOT_FOUND', message: 'Artwork not found' })
-    await assertArtworkDedupAppWrite(tx, locked.id, 'READING')
-    ensureArtworkActive(await tx.artwork.findUnique({
-      where: { id: input.artworkId }, select: { deletedAt: true, archiveLifecycleState: true }
-    }))
-    if (locked.mediaRevision !== input.mediaRevision) {
-      throw new TRPCError({ code: 'CONFLICT', message: READING_MEDIA_REVISION_CONFLICT_CODE })
-    }
-    const media = await loadMedia(readingTx, input.artworkId)
-    const target = input.target
-    const selected = target.kind === 'ALL' ? media : media.filter((item) => item.memberMediaIds.includes(target.mediaId))
-    if (target.kind === 'MEDIA' && selected.length === 0) {
-      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Media does not belong to this artwork' })
-    }
-    const { row, seenIds } = await reconcileSummary(readingTx, userId, input.artworkId, media)
-    const missingIds = selected.flatMap((item) => item.memberMediaIds).filter((id) => !seenIds.has(id))
-    let updated = row
-    if (missingIds.length > 0) {
-      await tx.artworkReadMedia.createMany({
-        data: missingIds.map((mediaId) => ({ userId, artworkId: input.artworkId, mediaId })), skipDuplicates: true
-      })
-      missingIds.forEach((id) => seenIds.add(id))
-      const data = { seenCount: seenLogicalCount(media, seenIds), totalCount: media.length }
-      updated = await tx.artworkReadingSummary.upsert({
-        where: { userId_artworkId: { userId, artworkId: input.artworkId } },
-        create: { userId, artworkId: input.artworkId, ...data, stateVersion: 1 },
-        update: { ...data, stateVersion: { increment: 1 } }
+    const artwork = await activeArtwork(tx, input.artworkId)
+    assertLayout(artwork, input.readingLayoutVersion)
+    const key = { userId_artworkId: { userId, artworkId: input.artworkId } }
+    let row = await tx.artworkReadingProgress.findUnique({ where: key })
+    if (artwork.logicalMediaCount > 0 && !row?.completed) {
+      row = await tx.artworkReadingProgress.upsert({
+        where: key,
+        create: { userId, artworkId: input.artworkId, completed: true, stateVersion: 1 },
+        update: { completed: true, stateVersion: { increment: 1 } }
       })
     }
-    return {
-      mediaRevision: locked.mediaRevision,
-      seenMediaIds: seenLogicalIds(media, seenIds),
-      summary: updated ? toDto(updated, locked.mediaRevision) : emptySummary(input.artworkId, media.length, locked.mediaRevision)
-    }
+    return { readingLayoutVersion: artwork.readingLayoutVersion, summary: toDto(artwork, row) }
   })
 }
-
 export async function getReadingSummaries(userId: string, artworkIds: number[]): Promise<ReadingBatchSummariesResult> {
   const ids = [...new Set(artworkIds)]
-  if (ids.length === 0) return { summaries: [] }
-  // Include empty versioned snapshots so a rebuild can clear cached badges without a detail visit.
+  if (!ids.length) return { summaries: [] }
   const artworks = await prisma.artwork.findMany({
     where: { id: { in: ids }, deletedAt: null, archiveLifecycleState: 'ACTIVE' },
-    select: { id: true, mediaRevision: true, imageCount: true, readingSummaries: { where: { userId } } }
+    select: { id: true, logicalMediaCount: true, readingLayoutVersion: true, readingProgress: { where: { userId } } }
   })
-  return { summaries: artworks.map((artwork) => {
-    const row = artwork.readingSummaries[0]
-    return row ? toDto(row, artwork.mediaRevision) : emptySummary(artwork.id, artwork.imageCount, artwork.mediaRevision)
-  }) }
+  return { summaries: artworks.map((artwork) => toDto(artwork, artwork.readingProgress[0])) }
 }
-
 export interface ReadingHistoryItem {
   artwork: ArtworkCardData
   reading: ReadingSummaryDto
 }
-
 export interface ReadingHistoryPage {
   items: ReadingHistoryItem[]
   nextCursor?: ReadingHistoryCursor
 }
-
 export async function getContinueReading(userId: string): Promise<{ items: ReadingHistoryItem[] }> {
-  const rows = await prisma.$queryRaw<Array<ArtworkReadingSummary & { mediaRevision: number }>>(Prisma.sql`
-    SELECT rs.*, a."mediaRevision"
-    FROM artwork_reading_summaries rs
-    JOIN "Artwork" a ON a.id = rs."artworkId"
-    WHERE rs."userId" = ${userId}
-      AND rs."viewCount" > 0
-      AND rs."lastViewedAt" IS NOT NULL
-      AND rs."totalCount" > 0
-      AND rs."seenCount"::bigint * 100 < rs."totalCount"::bigint * ${READING_COMPLETION_PERCENT}
-      AND a."deletedAt" IS NULL
-      AND a."archiveLifecycleState" = 'ACTIVE'
-    ORDER BY rs."lastViewedAt" DESC, rs."artworkId" DESC
-    LIMIT 6
-  `)
-  const cards = await getArtworkCardsByIds(rows.map((item) => item.artworkId))
-  const byId = new Map(cards.map((card) => [card.id, card]))
-  return { items: rows.flatMap((row) => {
-    const artwork = byId.get(row.artworkId)
-    return artwork ? [{ artwork, reading: toDto(row, row.mediaRevision) }] : []
-  }) }
+  const rows = await prisma.artworkReadingProgress.findMany({
+    where: {
+      userId,
+      completed: false,
+      viewCount: { gt: 0 },
+      lastViewedAt: { not: null },
+      artwork: { logicalMediaCount: { gt: 0 }, deletedAt: null, archiveLifecycleState: 'ACTIVE' }
+    },
+    include: { artwork: { select: { id: true, logicalMediaCount: true, readingLayoutVersion: true } } },
+    orderBy: [{ lastViewedAt: 'desc' }, { artworkId: 'desc' }],
+    take: 6
+  })
+  const cards = new Map((await getArtworkCardsByIds(rows.map((row) => row.artworkId))).map((card) => [card.id, card]))
+  return {
+    items: rows.flatMap((row) => {
+      const artwork = cards.get(row.artworkId)
+      return artwork ? [{ artwork, reading: toDto(row.artwork, row) }] : []
+    })
+  }
 }
-
-export async function getReadingHistory(userId: string, pageSize: number, cursor?: ReadingHistoryCursor): Promise<ReadingHistoryPage> {
-  const rows = await prisma.artworkReadingSummary.findMany({
+export async function getReadingHistory(
+  userId: string,
+  pageSize: number,
+  cursor?: ReadingHistoryCursor
+): Promise<ReadingHistoryPage> {
+  const rows = await prisma.artworkReadingProgress.findMany({
     where: {
       userId,
       viewCount: { gt: 0 },
       lastViewedAt: { not: null },
       artwork: { deletedAt: null, archiveLifecycleState: 'ACTIVE' },
-      ...(cursor ? {
-        OR: [
-          { lastViewedAt: { lt: new Date(cursor.lastViewedAt) } },
-          { lastViewedAt: new Date(cursor.lastViewedAt), artworkId: { lt: cursor.artworkId } }
-        ]
-      } : {})
+      ...(cursor
+        ? {
+            OR: [
+              { lastViewedAt: { lt: new Date(cursor.lastViewedAt) } },
+              { lastViewedAt: new Date(cursor.lastViewedAt), artworkId: { lt: cursor.artworkId } }
+            ]
+          }
+        : {})
     },
-    include: { artwork: { select: { mediaRevision: true } } },
+    include: { artwork: { select: { id: true, logicalMediaCount: true, readingLayoutVersion: true } } },
     orderBy: [{ lastViewedAt: 'desc' }, { artworkId: 'desc' }],
     take: pageSize + 1
   })
   const visible = rows.slice(0, pageSize)
-  const cards = await getArtworkCardsByIds(visible.map((item) => item.artworkId))
-  const byId = new Map(cards.map((card) => [card.id, card]))
+  const cards = new Map(
+    (await getArtworkCardsByIds(visible.map((row) => row.artworkId))).map((card) => [card.id, card])
+  )
   const items = visible.flatMap((row) => {
-    const artwork = byId.get(row.artworkId)
-    return artwork ? [{ artwork, reading: toDto(row, row.artwork.mediaRevision) }] : []
+    const artwork = cards.get(row.artworkId)
+    return artwork ? [{ artwork, reading: toDto(row.artwork, row) }] : []
   })
   const last = visible.at(-1)
   return {
     items,
-    nextCursor: rows.length > pageSize && last?.lastViewedAt ? { lastViewedAt: last.lastViewedAt.toISOString(), artworkId: last.artworkId } : undefined
+    nextCursor:
+      rows.length > pageSize && last?.lastViewedAt
+        ? { lastViewedAt: last.lastViewedAt.toISOString(), artworkId: last.artworkId }
+        : undefined
   }
 }

@@ -395,7 +395,7 @@ describe('archive executor', () => {
 
   it('registers backward-compatible ARCHIVE_IMPORT v1 and frozen-default-tag v2 executors', () => {
     const registrations = createArchiveExecutorRegistrations(dependencies(createTransaction()))
-    expect(registrations).toHaveLength(6)
+    expect(registrations).toHaveLength(8)
     expect(registrations[0]).toMatchObject({ jobType: 'ARCHIVE_IMPORT', definitionVersion: 1 })
     expect(registrations[0]!.parsePayload?.({ archiveImportId: 'import-1' })).toEqual({
       archiveImportId: 'import-1',
@@ -414,7 +414,9 @@ describe('archive executor', () => {
       ['ARCHIVE_DOWNLOAD', 1],
       ['ARCHIVE_PUBLISH', 1],
       ['ARCHIVE_DOWNLOAD', 2],
-      ['ARCHIVE_PUBLISH', 2]
+      ['ARCHIVE_PUBLISH', 2],
+      ['ARCHIVE_DOWNLOAD', 3],
+      ['ARCHIVE_PUBLISH', 3]
     ])
     expect(() => registrations[0]!.parsePayload?.({ archiveImportId: '' })).toThrow()
   })
@@ -507,10 +509,21 @@ describe('archive executor', () => {
     )
   })
 
-  it('saves the aggregate with the final batch of item results', async () => {
+  it('saves the aggregate and display comparison with the final batch of item results', async () => {
     const transaction = createTransaction()
+    const sourceOriginalClaim = { width: 200, height: 200, minBytes: 260, maxBytes: 280 }
+    const actualSha1 = 'c'.repeat(40)
+    const downloadUrl = `https://node.hath.network/h/${actualSha1}-128-100-100-jpg/key;xres=1280/source.jpg`
+    const deliveryEvidence = {
+      version: 1,
+      quality: 'DISPLAY',
+      reason: 'EH_DISPLAY_DIFFERS_FROM_ORIGINAL_DECLARATION',
+      actualSha1,
+      sourceOriginalClaim
+    }
     transaction.archiveImport.findUnique.mockResolvedValue({
       ...archiveImport,
+      selectedQuality: 'DISPLAY',
       totalItems: 1,
       items: [archiveItem]
     })
@@ -518,7 +531,7 @@ describe('archive executor', () => {
     transaction.archiveImportItem.groupBy
       .mockResolvedValueOnce([{ status: 'PENDING', _count: { _all: 1 } }])
       .mockResolvedValue([{ status: 'COMPLETED', _count: { _all: 1 } }])
-    transaction.archiveImportItem.findMany.mockResolvedValue([completedArchiveItem])
+    transaction.archiveImportItem.findMany.mockResolvedValue([{ ...completedArchiveItem, quality: 'DISPLAY' }])
     transaction.archiveImport.update.mockResolvedValueOnce({ completedItems: 1 }).mockResolvedValue(undefined)
     storageMocks.storeArchiveRemoteMedia.mockResolvedValueOnce({
       relativePath: completedArchiveItem.stagedPath,
@@ -526,7 +539,9 @@ describe('archive executor', () => {
       mimeType: completedArchiveItem.mimeType,
       width: completedArchiveItem.width,
       height: completedArchiveItem.height,
-      sha256: completedArchiveItem.sha256
+      sha256: completedArchiveItem.sha256,
+      quality: 'DISPLAY',
+      deliveryEvidence
     })
     const stream = new PassThrough()
     const executorDependencies = dependencies(transaction)
@@ -534,11 +549,13 @@ describe('archive executor', () => {
       {
         key: 'test',
         openMedia: vi.fn(async () => ({
+          downloadUrl,
           stream,
           mimeType: 'image/jpeg',
           contentLength: 128,
           originalFilename: '001.jpg',
-          quality: 'ORIGINAL' as const,
+          quality: 'DISPLAY' as const,
+          ehDelivery: { requestedQuality: 'DISPLAY' as const, originalResponse: false, sourceOriginalClaim },
           remoteHost: 'example.test'
         }))
       }
@@ -553,6 +570,22 @@ describe('archive executor', () => {
       where: { id: 'import-1' },
       data: { completedItems: 1, failedItems: 0 }
     })
+    expect(transaction.archiveImportItem.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'COMPLETED',
+          lastDownloadUrl: downloadUrl,
+          lastDownloadAttempt: 1,
+          deliveryEvidence: {
+            ...deliveryEvidence,
+            downloadUrl,
+            attempt: 1,
+            sha256: completedArchiveItem.sha256,
+            byteCount: '128'
+          }
+        })
+      })
+    )
     expect(context.progress).toHaveBeenCalledWith(expect.objectContaining({ message: '已下载 1/1', progress: 95 }))
   })
 

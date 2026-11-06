@@ -9,6 +9,14 @@ sources:
 
 # PixiShelf 数据库设计补充文档
 
+## 归档实际画质证据
+
+`20261105010000_archive_quality_evidence` 仅增量增加成功下载项的 `deliveryEvidence` 与修订的 `qualityEvidence`、画质汇总、核验时间和定义版本。旧行保持 NULL/UNKNOWN；迁移不从请求偏好推断画质，也不读取文件或请求原站。新发布在同一数据库事务保存逐页证据和汇总。
+
+逐页证据冻结 Image ID、顺序、相对路径、字节数、SHA-256、来源页及判断理由，下载证据额外绑定最终成功尝试与交付地址。原图复用必须再次对应修订的冻结媒体身份；历史补全只沿同来源页、同序号和同内容的冻结复用链继承。任意未知页使汇总为 UNKNOWN；已核验的原图与展示图并存为 MIXED，各档页数独立保存。完整用户语义见[EH 归档画质](../../../docs/features/archive-quality.md)。
+
+`ARCHIVE_QUALITY_AUDIT` 复用 SystemJob 的持久结果保存最大作品范围和批次游标，每批让出 Writer。暂停继续、Worker 恢复及失败重试保留已提交进度，取消不会清除已核验修订。此任务只改数据库证据，不改原媒体、阅读或整理记录。升级按正式 generate/deploy 流程执行；回退前停止新核验任务并保持这些增量字段，恢复依据使用数据库检查点，媒体沿用同一发布检查点。
+
 ## 归档下载控制
 
 `20261102120000_archive_download_preparation` 为执行记录新增可空 JSON 准备意图，SQL NULL 保留旧恢复行为，不回填历史行。DOWNLOAD 控制只锁旧 SystemJob 并通过归档 CAS 取得赢家；原有活动来源部分唯一索引继续限制同 Provider/外部 ID 的活动归档。重试批量写入准备范围，Worker 在 fenced start 事务内消费；协议和版本回退门禁统一见[归档生命周期](../../../docs/features/archive-lifecycle.md#下载重试与继续)。
@@ -27,9 +35,13 @@ sources:
 
 ## Artwork 阅读版本与进度约束
 
-`20260924130000_add_artwork_reading_tracking` 为既有 Artwork 加入 `mediaRevision INTEGER NOT NULL DEFAULT 1`，数据库约束要求版本至少为 1；它不回填历史阅读。`artwork_reading_summaries` 使用 `(userId, artworkId)` 主键，保存访问次数、逻辑媒体进度快照和最后位置；`artwork_read_media` 使用 `(userId, artworkId, mediaId)` 主键，避免同一账户重复计入同一 Image。摘要计数约束要求 `0 <= seenCount <= totalCount` 且访问次数非负，最后序号不能为负。账户与作品删除级联清理两表；媒体删除级联清理已读成员，摘要的 `lastMediaId` 置空。
+2026-11-04 局部核验：`20261104010000_reading_position_progress` 在 Artwork 新增非负的 `logicalMediaCount` 和至少为 1 的 `readingLayoutVersion`，前者是完整逻辑序列的缓存总数，后者独立于仍用于媒体读取/分页的 `mediaRevision`。
 
-最近阅读索引为 `(userId, lastViewedAt DESC, artworkId DESC)`；两表均有按 artworkId 的索引用于重建失效清理，摘要的 lastMediaId 和已读表的 mediaId 也有外键查询索引。阅读状态由服务层在完整逻辑媒体映射上计算，数据库原始 Image 行数不直接代表总进度。普通媒体增删、排序由写入者先锁 Artwork 再写 Image，不更改版本或清空访问次数；完整重建由 App/Worker 在原发布事务中先锁 Artwork、递增版本并清空两表。此锁序还避免阅读上报持有 Artwork 行锁后触及 Image 外键、与媒体写入形成反向等待。旧版本应用回滚期间须暂停完整重建写入者；恢复边界见[备份与恢复](../../../docs/operations/backup-and-recovery.md)。
+`artwork_reading_progress` 每个 `(userId,artworkId)` 一行，保存最远与最后实际观察锚点、粘性完成、次数、真实日期及状态版本。CHECK 要求访问次数/状态版本非负，锚点 ID/索引同空或同非空且索引非负。账户与作品外键级联清理；锚点 ID 刻意不设 Image 外键，由媒体发布事务重定位，避免 Image 删除提前置空而丢失旧身份。最近阅读使用 `(userId,lastViewedAt DESC,artworkId DESC)` 索引，另有 artworkId 索引用于媒体发布和重建清理。
+
+运行时不再保存逐媒体集合。所有普通媒体写入先锁 Artwork、取得旧逻辑序列，在相同事务中发布新媒体、缓存总数、布局版本、锚点与完成状态；多作品按 ID 顺序取锁。完整重建同时递增媒体/阅读版本并清空所有账户进度。语义和回退规则统一见[阅读架构](../../../docs/architecture/reading.md)。
+
+迁移按旧摘要/旧已读行账户作品并集回填，保留旧 90% 完成快照及真实历史，精确逻辑映射与逐字段断言均在事务内执行。旧两表移除全部外键后迁入 `reading_legacy_v1`；去重 SQL 函数改读新表。封存表只作证据，不被 Prisma/runtime 读取或双写。验收至少 7 天后的独立 RESTRICT 清理、停写窗口核验与同点恢复见[位置迁移手册](../../../docs/operations/runbooks/reading-position-migration.md)。
 
 ## 单图书签与喜欢 (`MediaMark`)
 

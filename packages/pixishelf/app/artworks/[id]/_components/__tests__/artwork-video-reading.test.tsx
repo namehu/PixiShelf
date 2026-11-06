@@ -37,7 +37,7 @@ vi.mock('@/components/players/video-player', () => ({
 }))
 vi.mock('react-intersection-observer', () => ({
   useOnInView: (callback: (visible: boolean) => void, options?: { rootMargin?: string }) => {
-    if (!options?.rootMargin) mocks.intersection = callback
+    if (options?.rootMargin !== '-45% 0px -45% 0px') mocks.intersection = callback
     return vi.fn()
   }
 }))
@@ -52,7 +52,7 @@ let context: ReadingContextDto
 let top: number
 const report = vi.fn(async (input: ReadingReportInput) => {
   expect(input.expectedUserId).toBe('reader')
-  return { mediaRevision: 1, seenMediaIds: [], summary: context.summary }
+  return { readingLayoutVersion: 1, summary: context.summary }
 })
 const completed = vi.fn()
 
@@ -65,10 +65,10 @@ beforeEach(() => {
   }))
   window.history.replaceState({}, '', '/artworks/7?entry=direct')
   context = {
-    artworkId: 7, mediaRevision: 1, seenMediaIds: [], resume: null,
+    artworkId: 7, readingLayoutVersion: 1, resume: null,
     media: [{ mediaId: 11, memberMediaIds: [11], index: 0, isVideo: true }],
-    summary: { artworkId: 7, mediaRevision: 1, stateVersion: 0, viewCount: 0, seenCount: 0,
-      totalCount: 1, status: 'UNREAD', lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null }
+    summary: { artworkId: 7, readingLayoutVersion: 1, stateVersion: 0, viewCount: 0, progressCount: 0,
+      totalCount: 1, status: 'UNREAD', completed: false, furthestMediaId: null, furthestMediaIndex: null, lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null }
   }
   collector = new ReadingCollector({ report, onCompleted: completed })
   collector.setAccount('reader')
@@ -97,11 +97,11 @@ it.each([90, 100])('records a single video at position %s through the real detai
   act(() => mocks.player?.onReady?.())
   expect(collector.projectContext(context).summary.status).toBe('UNREAD')
   act(() => mocks.player?.onReadingProgress?.({ currentTime: 1, duration: 100, started: true, playing: true }))
-  expect(collector.projectContext(context).summary).toMatchObject({ status: 'IN_PROGRESS', seenCount: 0 })
+  expect(collector.projectContext(context).summary).toMatchObject({ status: 'IN_PROGRESS', completed: false, furthestMediaId: null, furthestMediaIndex: null, progressCount: 0 })
   act(() => mocks.player?.onReadingProgress?.({ currentTime: 89, duration: 100, started: true, playing: true }))
   expect(completed).not.toHaveBeenCalled()
   act(() => mocks.player?.onReadingProgress?.({ currentTime: position, duration: 100, started: true, playing: position < 100 }))
-  expect(collector.projectContext(context).summary).toMatchObject({ status: 'COMPLETED', seenCount: 1 })
+  expect(collector.projectContext(context).summary).toMatchObject({ status: 'COMPLETED', completed: true, furthestMediaId: 11, furthestMediaIndex: 0, progressCount: 1 })
   expect(completed).toHaveBeenCalledTimes(1)
   act(() => mocks.player?.onReadingProgress?.({ currentTime: 0, duration: 100, started: true, playing: true }))
   expect(collector.projectContext(context).summary.status).toBe('COMPLETED')
@@ -112,11 +112,12 @@ it.each([90, 100])('records a single video at position %s through the real detai
   ])
 })
 
-it('still rejects offscreen video observations when an intersection callback is stale', async () => {
+it('rejects playback after the observer reports the video outside its root', async () => {
   render(<ArtworkMediaSection images={[media]} artworkId={7} />)
   act(() => mocks.intersection?.(true))
   act(() => mocks.player?.onReady?.())
   top = window.innerHeight + 100
+  act(() => mocks.intersection?.(false))
   act(() => mocks.player?.onReadingProgress?.({ currentTime: 100, duration: 100, started: true, playing: false }))
   expect(collector.projectContext(context).summary.status).toBe('UNREAD')
   expect(completed).not.toHaveBeenCalled()

@@ -99,14 +99,15 @@ describe('review cursor and release boundary', () => {
       }
     }
     const database = { $transaction: async (body: (tx: unknown) => unknown) => body(tx) }
-    for (const artworkId of [2, 999999])
-      {await expect(
+    for (const artworkId of [2, 999999]) {
+      await expect(
         getArtworkDedupOperation(
           'actor',
           { expectedUserId: 'actor', operationId: operation.id, preview: { kind: 'FILES', artworkId, limit: 20 } },
           database as never
         )
-      ).rejects.toMatchObject({ code: 'CONFLICT' })}
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+    }
     expect(fileQueries).toBe(0)
     const result = await getArtworkDedupOperation(
       'actor',
@@ -127,10 +128,11 @@ describe('review cursor and release boundary', () => {
         selection: { kind: 'ALL_RECOMMENDED', excludedGroupIds: [] }
       })
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
-    for (const mode of ['ISOLATE', 'RESTORE', 'PURGE'] as const)
-      {await expect(artworkDedupAdvancedOperation('a', { expectedUserId: 'a' }, mode)).rejects.toMatchObject({
+    for (const mode of ['ISOLATE', 'RESTORE', 'PURGE'] as const) {
+      await expect(artworkDedupAdvancedOperation('a', { expectedUserId: 'a' }, mode)).rejects.toMatchObject({
         code: 'FORBIDDEN'
-      })}
+      })
+    }
     await expect(artworkDedupAdvancedOperation('a', { expectedUserId: 'b' }, 'PREPARE', 'PURGE')).rejects.toMatchObject(
       { code: 'FORBIDDEN' }
     )
@@ -201,7 +203,7 @@ describe.skipIf(!db)('current account private projection', () => {
         }
       ]
     })
-    await db!.artworkReadingSummary.create({
+    await db!.artworkReadingProgress.create({
       data: { artworkId: a.id, userId: other.id, stateVersion: 99, lastViewedAt: new Date('2020-01-01') }
     })
     const [result] = await db!.$transaction((tx) => artworkDedupMembers(tx, actor.id, [a.id]))
@@ -214,8 +216,9 @@ describe.skipIf(!db)('current account private projection', () => {
     expect(result?.otherAccountHasOrganization).toBe(true)
     expect(result?.thumbnailUrl).toBe(`/api/artwork-dedup/cover/${a.id}?expectedUserId=${encodeURIComponent(actor.id)}`)
     const serialized = JSON.stringify(result)
-    for (const secret of [other.id, 'other-private-title', 'secret.jpg', '2020-01-01'])
-      {expect(serialized).not.toContain(secret)}
+    for (const secret of [other.id, 'other-private-title', 'secret.jpg', '2020-01-01']) {
+      expect(serialized).not.toContain(secret)
+    }
     const [switched] = await db!.$transaction((tx) => artworkDedupMembers(tx, other.id, [a.id]))
     expect(switched?.ownOrganization.rating).toBe(4)
     expect(switched?.ownReading?.stateVersion).toBe(99)

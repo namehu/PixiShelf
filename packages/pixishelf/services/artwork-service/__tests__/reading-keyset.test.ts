@@ -7,23 +7,26 @@ import { appendReadingFilterAndCursor, encodeReadingCursor } from '../reading-ke
 
 function build(input: Record<string, unknown>) {
   const params = ArtworksInfiniteQuerySchema.parse({ readingStatus: 'IN_PROGRESS', ...input })
-  return { params, query: appendReadingFilterAndCursor(params, 'user-1', { whereSQL: 'WHERE TRUE', sqlParams: [], paramIndex: 1 }) }
+  return {
+    params,
+    query: appendReadingFilterAndCursor(params, 'user-1', { whereSQL: 'WHERE TRUE', sqlParams: [], paramIndex: 1 })
+  }
 }
 
 describe('reading keyset query', () => {
-  it.each([
-    ['IN_PROGRESS', '<'],
-    ['COMPLETED', '>=']
-  ])('keeps %s page and count predicates on the same exact completion threshold', (readingStatus, operator) => {
-    const { query } = build({ readingStatus })
-    const comparison = `rs."seenCount"::bigint * 100 ${operator} rs."totalCount"::bigint * 90`
-    expect(query.whereSQL).toContain(comparison)
-    expect(query.countWhereSQL).toContain(comparison)
-    expect(query.sqlParams).toEqual(['user-1'])
-    expect(query.countParams).toEqual(['user-1'])
-    expect(query.whereSQL).toContain('rs."seenCount" > 0 OR rs."viewCount" > 0')
-    expect(query.whereSQL).toContain(readingStatus === 'COMPLETED' ? 'rs."totalCount" > 0' : 'rs."totalCount" = 0 OR')
-  })
+  it.each(['IN_PROGRESS', 'COMPLETED'])(
+    'keeps %s page and count predicates on the same explicit completion state',
+    (readingStatus) => {
+      const { query } = build({ readingStatus })
+      const comparison = readingStatus === 'COMPLETED' ? 'AND rs.completed' : 'AND NOT rs.completed'
+      expect(query.whereSQL).toContain(comparison)
+      expect(query.countWhereSQL).toContain(comparison)
+      expect(query.sqlParams).toEqual(['user-1'])
+      expect(query.countParams).toEqual(['user-1'])
+      expect(query.whereSQL).toContain('rs.completed OR rs."furthestMediaIndex" IS NOT NULL OR rs."viewCount" > 0')
+      expect(query.whereSQL).not.toContain('90')
+    }
+  )
 
   it.each([
     ['title_asc', 'title', 'a.title >'],
@@ -46,7 +49,10 @@ describe('reading keyset query', () => {
   it('keeps NULLS LAST ordering for creator names in both directions', () => {
     for (const sortBy of ['artist_asc', 'artist_desc']) {
       const { params } = build({ sortBy })
-      const next = build({ sortBy, readingCursor: encodeReadingCursor(params, 'user-1', { id: 77, reading_sort_value: null }) })
+      const next = build({
+        sortBy,
+        readingCursor: encodeReadingCursor(params, 'user-1', { id: 77, reading_sort_value: null })
+      })
       expect(next.query.whereSQL).toContain('IS NULL AND a.id')
       expect(next.query.orderBySQL).toContain('NULLS LAST')
       expect(next.query.sqlParams.at(-1)).toBe(77)
@@ -60,7 +66,18 @@ describe('reading keyset query', () => {
     expect(next.query.sortValueSQL).toContain('md5(a.id::text')
     expect(next.query.sqlParams).toEqual(['user-1', '12', 'abcdef', 5])
     expect(() => build({ sortBy: 'random', randomSeed: 13, readingCursor })).toThrow('Invalid reading cursor')
-    expect(() => appendReadingFilterAndCursor(ArtworksInfiniteQuerySchema.parse({ readingStatus: 'IN_PROGRESS', sortBy: 'random', randomSeed: 12, readingCursor }), 'user-2', { whereSQL: 'WHERE TRUE', sqlParams: [], paramIndex: 1 })).toThrow('Invalid reading cursor')
+    expect(() =>
+      appendReadingFilterAndCursor(
+        ArtworksInfiniteQuerySchema.parse({
+          readingStatus: 'IN_PROGRESS',
+          sortBy: 'random',
+          randomSeed: 12,
+          readingCursor
+        }),
+        'user-2',
+        { whereSQL: 'WHERE TRUE', sqlParams: [], paramIndex: 1 }
+      )
+    ).toThrow('Invalid reading cursor')
     expect(() => build({ sortBy: 'random' })).toThrow('randomSeed')
   })
 })

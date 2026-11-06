@@ -34,7 +34,7 @@ describe('reading page SQL', () => {
     expect(sql).toContain('al."level" = ANY(')
     expect(sql).toContain('a.title ILIKE')
     expect(sql).toContain('GROUP BY')
-    expect(sql).not.toMatch(/artwork_reading_summaries|OFFSET/)
+    expect(sql).not.toMatch(/artwork_reading_progress|OFFSET/)
     expect(values).toContain('alice')
     queryRawMock.mockReset().mockResolvedValue([{ id: 2, reading_sort_value: 'B' }])
     await queryReadingArtworkIdsPage({ ...params, readingCursor: first.nextReadingCursor }, 'alice')
@@ -77,7 +77,7 @@ describe('reading page SQL', () => {
     expect(queryRawMock).toHaveBeenCalledOnce()
     expect(String(queryRawMock.mock.calls[0]?.[0])).not.toContain('COUNT(*)')
     const firstSQL = queryRawMock.mock.calls.find(([sql]) => String(sql).includes('SELECT a.id'))!
-    expect(String(firstSQL[0])).toContain('artwork_reading_summaries')
+    expect(String(firstSQL[0])).toContain('artwork_reading_progress')
     expect(String(firstSQL[0])).toContain('a.title ILIKE')
     expect(String(firstSQL[0])).not.toContain('OFFSET')
     expect(firstSQL).toContain('user-1')

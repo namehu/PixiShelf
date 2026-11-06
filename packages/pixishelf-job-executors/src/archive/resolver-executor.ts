@@ -9,6 +9,7 @@ import {
   archiveResolveItemPayloadSchema,
   JOB_DEFINITION_VERSION,
   ARCHIVE_COVERAGE_DEFINITION_VERSION,
+  ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION,
   type ArchiveResolveItemPayload,
   type JobErrorCode
 } from '@pixishelf/job-contracts'
@@ -45,7 +46,7 @@ export interface ArchiveResolverExecutorDependencies {
 export function createArchiveResolverExecutorRegistrations(
   dependencies: ArchiveResolverExecutorDependencies
 ): ExecutorDefinition<ArchiveResolveItemPayload>[] {
-  return [JOB_DEFINITION_VERSION, ARCHIVE_COVERAGE_DEFINITION_VERSION].map((definitionVersion) => ({
+  return [JOB_DEFINITION_VERSION, ARCHIVE_COVERAGE_DEFINITION_VERSION, ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION].map((definitionVersion) => ({
     jobType: 'ARCHIVE_RESOLVE_ITEM',
     executionLane: 'ARCHIVE_RESOLVE',
     definitionVersion,
@@ -239,7 +240,7 @@ async function finalizeResolved(
   ) {
     throw new ArchiveExecutorError('STATE_CONFLICT', '归档解析的原来源证明已改变')
   }
-  const automatic = intake.downloadMode === 'AUTO' || Boolean(intake.completionBaseRevisionId)
+  const automatic = intake.downloadMode === 'AUTO' || Boolean(intake.completionBaseRevisionId || intake.upgradeBaseRevisionId)
   const deletion = await scope.transaction.archiveDeletedIdentity.findUnique({
     where: { providerKey_externalId: { providerKey: resolved.providerKey, externalId: resolved.externalId } }
   })
@@ -325,7 +326,7 @@ async function finalizeResolved(
   }
 
   const unchanged =
-    !intake.completionBaseRevisionId && !activeImport && existingReference
+    !intake.completionBaseRevisionId && !intake.upgradeBaseRevisionId && !activeImport && existingReference
       ? await isPublishedArchiveUnchanged(scope.transaction, existingReference, resolved, metadataHash)
       : false
   const resolutionKind = activeImport ? 'ACTIVE_TASK' : !existingReference ? 'NEW' : unchanged ? 'UNCHANGED' : 'UPDATE'
@@ -372,7 +373,7 @@ async function finalizeResolved(
     { providerKey: resolved.providerKey, externalId: resolved.externalId }
   )
   let enqueueResult
-  if (automatic && (intake.completionBaseRevisionId || resolutionKind === 'NEW' || resolutionKind === 'ACTIVE_TASK')) {
+  if (automatic && (intake.completionBaseRevisionId || intake.upgradeBaseRevisionId || resolutionKind === 'NEW' || resolutionKind === 'ACTIVE_TASK')) {
     let defaultTagIds: number[] = []
     if (resolutionKind === 'NEW') {
       const setting = await scope.transaction.setting.findUnique({ where: { key: 'archive_default_tag_ids' } })

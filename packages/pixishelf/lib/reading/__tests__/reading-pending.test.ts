@@ -3,12 +3,12 @@ import type { ReadingContextDto, ReadingReportInput, ReadingReportResult } from 
 import { ReadingCollector } from '../reading-collector'
 
 const context: ReadingContextDto = {
-  artworkId: 1, mediaRevision: 1, media: Array.from({ length: 205 }, (_, index) => ({ mediaId: index + 1, memberMediaIds: [index + 1], index })),
-  seenMediaIds: [], resume: null,
-  summary: { artworkId: 1, mediaRevision: 1, stateVersion: 0, totalCount: 205, seenCount: 0, viewCount: 0,
-    status: 'UNREAD', lastActiveAt: null, lastViewedAt: null, lastMediaId: null, lastMediaIndex: null }
+  artworkId: 1, readingLayoutVersion: 1, media: Array.from({ length: 205 }, (_, index) => ({ mediaId: index + 1, memberMediaIds: [index + 1], index })),
+  resume: null,
+  summary: { artworkId: 1, readingLayoutVersion: 1, stateVersion: 0, totalCount: 205, progressCount: 0, viewCount: 0,
+    status: 'UNREAD', completed: false, furthestMediaId: null, furthestMediaIndex: null, lastActiveAt: null, lastViewedAt: null, lastMediaId: null, lastMediaIndex: null }
 }
-const response: ReadingReportResult = { mediaRevision: 1, summary: context.summary, seenMediaIds: [] }
+const response: ReadingReportResult = { readingLayoutVersion: 1, summary: context.summary, }
 const observe = (collector: ReadingCollector, mediaId: number) => collector.observe(`media-${mediaId}`, {
   artworkId: 1, mediaId, ready: true, visible: true, automatic: false
 })
@@ -24,7 +24,7 @@ describe('optimistic reading and durable acknowledgements', () => {
   it('projects immediately without forging versions, then sends at three seconds without debounce starvation', async () => {
     const { collector, report } = setup()
     observe(collector, 1)
-    expect(collector.projectContext(context).summary).toMatchObject({ seenCount: 1, stateVersion: 0 })
+    expect(collector.projectContext(context).summary).toMatchObject({ progressCount: 1, stateVersion: 0 })
     await vi.advanceTimersByTimeAsync(2000)
     observe(collector, 2)
     await vi.advanceTimersByTimeAsync(999)
@@ -50,9 +50,9 @@ describe('optimistic reading and durable acknowledgements', () => {
     observe(collector, 1)
     const flushing = collector.flush()
     observe(collector, 2)
-    expect(collector.projectContext(context).seenMediaIds).toEqual([1, 2])
+    expect(collector.projectContext(context).summary.progressCount).toBe(2)
     collector.clearArtwork(1)
-    finish({ ...response, seenMediaIds: [1], summary: { ...context.summary, seenCount: 1, stateVersion: 1 } })
+    finish({ ...response, summary: { ...context.summary, progressCount: 1, stateVersion: 1 } })
     await flushing
     expect(report.mock.calls.map(([input]) => input.events.map((event: { mediaId: number }) => event.mediaId))).toEqual([[1], [2]])
     collector.dispose()
@@ -62,15 +62,15 @@ describe('optimistic reading and durable acknowledgements', () => {
     const { collector } = setup(report)
     observe(collector, 1)
     await collector.flush()
-    expect(collector.projectContext(context).seenMediaIds).toEqual([1])
+    expect(collector.projectContext(context).summary.progressCount).toBe(1)
     collector.setAvailability(true, false)
     await vi.advanceTimersByTimeAsync(60_001)
     collector.setAvailability(true, true)
-    expect(collector.projectContext(context).seenMediaIds).toEqual([])
+    expect(collector.projectContext(context).summary.progressCount).toBe(0)
     report.mockRejectedValue({ data: { code: 'FORBIDDEN' } })
     observe(collector, 2)
     await collector.flush()
-    expect(collector.projectContext(context).seenMediaIds).toEqual([])
+    expect(collector.projectContext(context).summary.progressCount).toBe(0)
     collector.dispose()
   })
   it('does not optimistically complete videos from start or poster observations', () => {
@@ -78,10 +78,10 @@ describe('optimistic reading and durable acknowledgements', () => {
     const videoContext = { ...context, media: [{ mediaId: 1, memberMediaIds: [1], index: 0, isVideo: true }] }
     collector.setContext(videoContext, 'alice')
     observe(collector, 1)
-    expect(collector.projectContext(videoContext).seenMediaIds).toEqual([])
+    expect(collector.projectContext(videoContext).summary.progressCount).toBe(0)
     collector.observe('video', { artworkId: 1, mediaId: 1, ready: true, visible: true, automatic: false,
       playback: { currentTime: 90, duration: 100, playing: true } })
-    expect(collector.projectContext(videoContext).seenMediaIds).toEqual([1])
+    expect(collector.projectContext(videoContext).summary.progressCount).toBe(1)
     collector.dispose()
   })
 
@@ -138,7 +138,7 @@ describe('optimistic reading and durable acknowledgements', () => {
     expect(report).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(57000)
     expect(onDiscard).toHaveBeenCalledExactlyOnceWith(1, 'alice')
-    expect(collector.projectContext(context).seenMediaIds).toEqual([])
+    expect(collector.projectContext(context).summary.progressCount).toBe(0)
     const attempts = report.mock.calls.length
     await vi.advanceTimersByTimeAsync(30000)
     expect(report).toHaveBeenCalledTimes(attempts)
@@ -158,7 +158,7 @@ describe('optimistic reading and durable acknowledgements', () => {
     observe(collector, 2)
     reject({ data: { code: 'BAD_REQUEST' } })
     await vi.advanceTimersByTimeAsync(0)
-    expect(collector.projectContext(context).seenMediaIds).toEqual([2])
+    expect(collector.projectContext(context).summary.progressCount).toBe(2)
     expect(onDiscard).toHaveBeenCalledExactlyOnceWith(1, 'alice')
     await vi.advanceTimersByTimeAsync(3000)
     expect(report.mock.calls[1]?.[0].events).toMatchObject([{ mediaId: 2 }])

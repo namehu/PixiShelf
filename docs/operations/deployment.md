@@ -40,6 +40,8 @@ sources:
 | `build/.env`                    | Compose；容器数据库地址覆盖为 `postgres:5432` |
 | `build/.env.example`            | 变量、默认值和路径模板；不是生产秘密备份      |
 
+需要保存 EH 登录态时，为 Web 和 Worker 配置相同的独立密钥 `EH_COOKIE_ENCRYPTION_KEY`（例如在部署主机用 `openssl rand -base64 32` 生成并存入受限环境文件），随后在系统设置保存 EH Cookie。未配置 Cookie 仍可尝试匿名下载原图，由原站实际响应决定是否需要登录。将密钥随配置纳入受控备份。更换后需要在管理页重新录入 Cookie。升级前暂停写入，保存数据库和媒体的同一恢复点；运行工作区 Prisma generate/deploy，使用配套 App/Worker 并核对解析、下载、发布、核验与退休能力后恢复调度。真实源站端到端验收单独进行，详见[EH 归档画质](../features/archive-quality.md)。
+
 发布前核对数据库凭据、三个持久化媒体挂载、Better Auth URL/Secret/Trusted Origins、两枚独立服务 Token、HTTPS 和可信反向代理。`INIT_ADMIN_*` 与 `JWT_SECRET` 不负责当前账户初始化或浏览器会话。首次账户通过 `/login` 创建。
 
 `ARCHIVE_HTTPS_PROXY` 的出站范围与优先级见[网络边界](../security/access-control.md#服务网络和存储矩阵)。Compose 环境变更须重建对应容器；本地 App 环境变更须重启本地进程。归档媒体并发保存于数据库 Setting，不增加环境变量。扫描和探测参数以模板及对应功能规格为准。

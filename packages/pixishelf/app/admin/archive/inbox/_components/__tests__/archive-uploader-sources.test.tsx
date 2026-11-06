@@ -114,6 +114,8 @@ const itemsData = {
           externalId: '302',
           displayUrl: 'https://e-hentai.org/g/302/[redacted]/',
           title: 'Gallery 302',
+          fileCount: 232 as number | undefined,
+          sourceSizeBytes: 1116691497 as number | undefined,
           thumbnailUrl: 'https://ehgt.org/thumb-302.jpg',
           uploaderName: 'Uploader',
           postedAt: new Date('2026-09-02T10:30:00.000Z'),
@@ -867,6 +869,7 @@ describe('ArchiveUploaderSources', () => {
   })
   it('defaults to a pure list and loads the stored thumbnail only after switching view modes', () => {
     renderSources()
+    expect(screen.getByText(/232 页/).textContent).toContain('原站整部 1.04 GiB')
 
     expect(screen.queryByRole('link', { name: 'Gallery 302' })).toBeNull()
     const titleLink = screen.getByRole('link', { name: '打开原站 Gallery 302' })
@@ -916,14 +919,14 @@ describe('ArchiveUploaderSources', () => {
       sourceId: 'source-1',
       itemIds: ['catalog-item-1'],
       downloadMode: 'AUTO',
-      quality: 'ORIGINAL',
+      quality: 'DISPLAY',
       downloadScope: 'ALL'
     })
     expect(mocks.addToInbox).toHaveBeenCalledWith({
       sourceId: 'source-1',
       itemIds: ['catalog-item-1'],
       downloadMode: 'AUTO',
-      quality: 'ORIGINAL',
+      quality: 'DISPLAY',
       downloadScope: 'ALL',
       submissionAttemptId: '00000000-0000-4000-8000-000000000001'
     })
@@ -965,14 +968,14 @@ describe('ArchiveUploaderSources', () => {
       sourceId: 'source-1',
       itemIds: ['catalog-item-1'],
       downloadMode: 'AUTO',
-      quality: 'ORIGINAL',
+      quality: 'DISPLAY',
       downloadScope: 'ALL'
     })
     expect(mocks.addToInbox).toHaveBeenCalledWith({
       sourceId: 'source-1',
       itemIds: ['catalog-item-1'],
       downloadMode: 'AUTO',
-      quality: 'ORIGINAL',
+      quality: 'DISPLAY',
       downloadScope: 'ALL',
       submissionAttemptId: '00000000-0000-4000-8000-000000000001'
     })
@@ -1067,7 +1070,7 @@ describe('ArchiveUploaderSources', () => {
       renderSources()
       expect(screen.queryByRole('button', { name: '加入收件箱' })).toBeNull()
       fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
-      fireEvent.click(screen.getByRole('button', { name: '自动下载 · 原图 · 全部' }))
+      fireEvent.click(screen.getByRole('button', { name: '自动下载 · 展示图 · 全部' }))
       fireEvent.click(screen.getByRole('radio', { name: '仅解析' }))
       fireEvent.click(screen.getByRole('radio', { name: '展示图' }))
       fireEvent.click(screen.getByRole('radio', { name: '前20张' }))

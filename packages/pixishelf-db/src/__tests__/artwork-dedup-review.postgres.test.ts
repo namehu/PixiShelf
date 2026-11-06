@@ -102,18 +102,43 @@ async function seed(tx: Prisma.TransactionClient, groups = 1) {
   }
   return { actor, other, artist, run, members, groupIds }
 }
-async function relation(tx: Prisma.TransactionClient, f: Awaited<ReturnType<typeof seed>>, contained: number, container: number) {
+async function relation(
+  tx: Prisma.TransactionClient,
+  f: Awaited<ReturnType<typeof seed>>,
+  contained: number,
+  container: number
+) {
   const fingerprint = await tx.artworkContentFingerprint.findUniqueOrThrow({ where: { artworkId: container } })
-  await tx.image.create({ data: { artworkId: container, path: `${prefix}/${container}-${randomUUID()}.jpg`, size: 20n } })
+  await tx.image.create({
+    data: { artworkId: container, path: `${prefix}/${container}-${randomUUID()}.jpg`, size: 20n }
+  })
   const snap = await captureArtworkContentSnapshot(tx, { artworkId: container })
   if (snap.status !== 'READY') throw new Error(snap.status)
-  const evidence = { ...fingerprint, sourceRevision: snap.value.revision, mediaEpoch: snap.value.mediaEpoch, fileCount: snap.value.memberCount }
+  const evidence = {
+    ...fingerprint,
+    sourceRevision: snap.value.revision,
+    mediaEpoch: snap.value.mediaEpoch,
+    fileCount: snap.value.memberCount
+  }
   await tx.artworkContentFingerprint.upsert({ where: { artworkId: container }, create: evidence, update: evidence })
-  await tx.artworkDedupItem.update({ where: { runId_artworkId: { runId: f.run.id, artworkId: container } }, data: {
-    snapshotRevision: snap.value.revision, mediaEpoch: snap.value.mediaEpoch, memberCount: snap.value.memberCount
-  } })
-  return tx.artworkDedupRelation.create({ data: { id: randomUUID(), runId: f.run.id,
-    containedArtworkId: contained, containerArtworkId: container, containedFileCount: 1n, containerFileCount: snap.value.memberCount } })
+  await tx.artworkDedupItem.update({
+    where: { runId_artworkId: { runId: f.run.id, artworkId: container } },
+    data: {
+      snapshotRevision: snap.value.revision,
+      mediaEpoch: snap.value.mediaEpoch,
+      memberCount: snap.value.memberCount
+    }
+  })
+  return tx.artworkDedupRelation.create({
+    data: {
+      id: randomUUID(),
+      runId: f.run.id,
+      containedArtworkId: contained,
+      containerArtworkId: container,
+      containedFileCount: 1n,
+      containerFileCount: snap.value.memberCount
+    }
+  })
 }
 async function prepared(tx: Prisma.TransactionClient, f: Awaited<ReturnType<typeof seed>>) {
   const { operation } = await freezeArtworkDedupOperation(tx, {
@@ -176,7 +201,10 @@ function signal() {
 async function legacyEvidence(tx: Prisma.TransactionClient, f: Awaited<ReturnType<typeof seed>>) {
   const ids = f.members.flat()
   await tx.artworkContentSource.deleteMany({ where: { artworkId: { in: ids } } })
-  await tx.artworkContentFingerprint.updateMany({ where: { artworkId: { in: ids } }, data: { sourceRevision: 0n, mediaEpoch: 0n } })
+  await tx.artworkContentFingerprint.updateMany({
+    where: { artworkId: { in: ids } },
+    data: { sourceRevision: 0n, mediaEpoch: 0n }
+  })
   await tx.artworkDedupItem.updateMany({ where: { runId: f.run.id }, data: { snapshotRevision: 0n, mediaEpoch: 0n } })
 }
 describe.skipIf(!db)('maintenance review durable scope and publication locks', () => {
@@ -194,212 +222,503 @@ describe.skipIf(!db)('maintenance review durable scope and publication locks', (
     await db.userBA.deleteMany({ where: { id: { in: users } } })
     await db.$disconnect()
   })
-  it.each(['EXACT', 'CONTAINS', 'VISUAL', 'PARTIAL'] as const)('reviews and freezes legacy zero-version %s evidence', async kind => {
-    await db!.$transaction(async tx => {
-      const f = await seed(tx)
-      const [left, right] = f.members[0]!
-      let groupId = f.groupIds[0]!
-      if (kind !== 'EXACT') {
-        await tx.artworkDedupGroup.delete({ where: { id: groupId } })
-        const contained = await relation(tx, f, left!, right!)
-        groupId = contained.id
-        if (kind !== 'CONTAINS') {
-          await tx.artworkDedupRelation.delete({ where: { id: groupId } })
-          const summary = kind === 'VISUAL'
-            ? { evidenceVersion: 'dct63-grid3-crop-local1-v1', leftArtworkId: left!, rightArtworkId: right!, leftFileCount: '1', rightFileCount: '2', pairedCount: '1', exactCount: '0', similarCount: '1', leftUnmatchedCount: '0', rightUnmatchedCount: '1', leftUncheckedCount: '0', rightUncheckedCount: '0' }
-            : { evidenceVersion: 'sha256-multiset-overlap-v1', leftArtworkId: left!, rightArtworkId: right!, leftFileCount: '5', rightFileCount: '5', pairedCount: '4', exactCount: '4', similarCount: '0', leftUnmatchedCount: '1', rightUnmatchedCount: '1', leftUncheckedCount: '0', rightUncheckedCount: '0' }
-          await tx.artworkDedupVisualPair.create({ data: { id: groupId, runId: f.run.id, leftArtworkId: left!, rightArtworkId: right!, relationKind: kind, summary } })
+  it.each(['EXACT', 'CONTAINS', 'VISUAL', 'PARTIAL'] as const)(
+    'reviews and freezes legacy zero-version %s evidence',
+    async (kind) => {
+      await db!.$transaction(async (tx) => {
+        const f = await seed(tx)
+        const [left, right] = f.members[0]!
+        let groupId = f.groupIds[0]!
+        if (kind !== 'EXACT') {
+          await tx.artworkDedupGroup.delete({ where: { id: groupId } })
+          const contained = await relation(tx, f, left!, right!)
+          groupId = contained.id
+          if (kind !== 'CONTAINS') {
+            await tx.artworkDedupRelation.delete({ where: { id: groupId } })
+            const summary =
+              kind === 'VISUAL'
+                ? {
+                    evidenceVersion: 'dct63-grid3-crop-local1-v1',
+                    leftArtworkId: left!,
+                    rightArtworkId: right!,
+                    leftFileCount: '1',
+                    rightFileCount: '2',
+                    pairedCount: '1',
+                    exactCount: '0',
+                    similarCount: '1',
+                    leftUnmatchedCount: '0',
+                    rightUnmatchedCount: '1',
+                    leftUncheckedCount: '0',
+                    rightUncheckedCount: '0'
+                  }
+                : {
+                    evidenceVersion: 'sha256-multiset-overlap-v1',
+                    leftArtworkId: left!,
+                    rightArtworkId: right!,
+                    leftFileCount: '5',
+                    rightFileCount: '5',
+                    pairedCount: '4',
+                    exactCount: '4',
+                    similarCount: '0',
+                    leftUnmatchedCount: '1',
+                    rightUnmatchedCount: '1',
+                    leftUncheckedCount: '0',
+                    rightUncheckedCount: '0'
+                  }
+            await tx.artworkDedupVisualPair.create({
+              data: {
+                id: groupId,
+                runId: f.run.id,
+                leftArtworkId: left!,
+                rightArtworkId: right!,
+                relationKind: kind,
+                summary
+              }
+            })
+          }
         }
-      }
-      await legacyEvidence(tx, f)
-      expect((await readArtworkDedupGroupChoices(tx, { runId: f.run.id, userId: f.actor.id, groupId }))[0]).toMatchObject({ eligible: true, relationKind: kind })
-      await saveArtworkDedupReview(tx, { userId: f.actor.id, runId: f.run.id, groupId, keeperArtworkId: right!, expectedRunVersion: 1, expectedReviewVersion: 0, idempotencyKey: randomUUID() })
-      const { operation } = await freezeArtworkDedupOperation(tx, { userId: f.actor.id, runId: f.run.id, expectedRunVersion: 1, expectedReviewRevision: 1, idempotencyKey: randomUUID(), preparePurpose: 'DIRECT_DELETE', selection: { kind: 'EXPLICIT', groupIds: [groupId] } })
-      expect(await validateArtworkDedupOperationSnapshot(tx, operation.id)).toBe(true)
-      expect(await tx.artworkContentSource.count({ where: { artworkId: { in: f.members.flat() } } })).toBe(0)
-    })
-  })
+        await legacyEvidence(tx, f)
+        expect(
+          (await readArtworkDedupGroupChoices(tx, { runId: f.run.id, userId: f.actor.id, groupId }))[0]
+        ).toMatchObject({ eligible: true, relationKind: kind })
+        await saveArtworkDedupReview(tx, {
+          userId: f.actor.id,
+          runId: f.run.id,
+          groupId,
+          keeperArtworkId: right!,
+          expectedRunVersion: 1,
+          expectedReviewVersion: 0,
+          idempotencyKey: randomUUID()
+        })
+        const { operation } = await freezeArtworkDedupOperation(tx, {
+          userId: f.actor.id,
+          runId: f.run.id,
+          expectedRunVersion: 1,
+          expectedReviewRevision: 1,
+          idempotencyKey: randomUUID(),
+          preparePurpose: 'DIRECT_DELETE',
+          selection: { kind: 'EXPLICIT', groupIds: [groupId] }
+        })
+        expect(await validateArtworkDedupOperationSnapshot(tx, operation.id)).toBe(true)
+        expect(await tx.artworkContentSource.count({ where: { artworkId: { in: f.members.flat() } } })).toBe(0)
+      })
+    }
+  )
   it('upgrades existing legacy results without backfilling sources or changing reviews', async () => {
-    const migration = await readFile(new URL('../../prisma/migrations/20261027000300_artwork_dedup_legacy_review/migration.sql', import.meta.url), 'utf8')
-    const previous = await readFile(new URL('../../prisma/migrations/20261026000100_artwork_dedup_partial/migration.sql', import.meta.url), 'utf8')
+    const migration = await readFile(
+      new URL('../../prisma/migrations/20261027000300_artwork_dedup_legacy_review/migration.sql', import.meta.url),
+      'utf8'
+    )
+    const previous = await readFile(
+      new URL('../../prisma/migrations/20261026000100_artwork_dedup_partial/migration.sql', import.meta.url),
+      'utf8'
+    )
     const start = previous.indexOf('CREATE FUNCTION artwork_dedup_group_choices(')
-    const oldFunction = previous.slice(start, previous.indexOf('$$;', start) + 3).replace('CREATE FUNCTION', 'CREATE OR REPLACE FUNCTION')
+    const oldFunction = previous
+      .slice(start, previous.indexOf('$$;', start) + 3)
+      .replace('CREATE FUNCTION', 'CREATE OR REPLACE FUNCTION')
     const rollback = new Error('rollback migration fixture')
-    await expect(db!.$transaction(async tx => {
-      const f = await seed(tx)
-      await legacyEvidence(tx, f)
-      const input = { runId: f.run.id, userId: f.actor.id }
-      const before = await tx.artworkDedupItem.findMany({ where: { runId: f.run.id }, orderBy: { artworkId: 'asc' } })
-      await tx.$executeRawUnsafe(oldFunction)
-      expect((await readArtworkDedupGroupChoices(tx, input))[0]).toMatchObject({ eligible: false, reason: 'UNAVAILABLE' })
-      await tx.$executeRawUnsafe(migration)
-      expect((await readArtworkDedupGroupChoices(tx, input))[0]).toMatchObject({ eligible: true })
-      await tx.$executeRawUnsafe(migration)
-      expect((await readArtworkDedupGroupChoices(tx, input))[0]).toMatchObject({ eligible: true })
-      expect(await tx.artworkDedupItem.findMany({ where: { runId: f.run.id }, orderBy: { artworkId: 'asc' } })).toEqual(before)
-      expect(await tx.artworkContentSource.count({ where: { artworkId: { in: f.members.flat() } } })).toBe(0)
-      expect(await tx.artworkDedupReview.count({ where: { runId: f.run.id } })).toBe(0)
-      throw rollback
-    })).rejects.toBe(rollback)
+    await expect(
+      db!.$transaction(async (tx) => {
+        const f = await seed(tx)
+        await legacyEvidence(tx, f)
+        const input = { runId: f.run.id, userId: f.actor.id }
+        const before = await tx.artworkDedupItem.findMany({ where: { runId: f.run.id }, orderBy: { artworkId: 'asc' } })
+        // Both historical functions join the reading summary table retired by the current schema.
+        await tx.$executeRaw`
+          CREATE TEMP TABLE artwork_reading_summaries (
+            "userId" TEXT NOT NULL,
+            "artworkId" INTEGER NOT NULL,
+            "lastViewedAt" TIMESTAMP(3),
+            PRIMARY KEY ("userId", "artworkId")
+          ) ON COMMIT DROP
+        `
+        await tx.$executeRawUnsafe(oldFunction)
+        expect((await readArtworkDedupGroupChoices(tx, input))[0]).toMatchObject({
+          eligible: false,
+          reason: 'UNAVAILABLE'
+        })
+        await tx.$executeRawUnsafe(migration)
+        expect((await readArtworkDedupGroupChoices(tx, input))[0]).toMatchObject({ eligible: true })
+        await tx.$executeRawUnsafe(migration)
+        expect((await readArtworkDedupGroupChoices(tx, input))[0]).toMatchObject({ eligible: true })
+        expect(
+          await tx.artworkDedupItem.findMany({ where: { runId: f.run.id }, orderBy: { artworkId: 'asc' } })
+        ).toEqual(before)
+        expect(await tx.artworkContentSource.count({ where: { artworkId: { in: f.members.flat() } } })).toBe(0)
+        expect(await tx.artworkDedupReview.count({ where: { runId: f.run.id } })).toBe(0)
+        throw rollback
+      })
+    ).rejects.toBe(rollback)
   })
-  it.each(['unchanged', 'source-revision', 'source-epoch', 'writer', 'fingerprint', 'missing-fingerprint', 'deleted', 'membership', 'frozen-revision', 'frozen-epoch'] as const)(
-    'validates legacy review, inventory and final snapshot after %s', async change => {
-      await db!.$transaction(async tx => {
+  it.each([
+    'unchanged',
+    'source-revision',
+    'source-epoch',
+    'writer',
+    'fingerprint',
+    'missing-fingerprint',
+    'deleted',
+    'membership',
+    'frozen-revision',
+    'frozen-epoch'
+  ] as const)('validates legacy review, inventory and final snapshot after %s', async (change) => {
+    await db!.$transaction(
+      async (tx) => {
         const f = await seed(tx)
         await legacyEvidence(tx, f)
         const execution = await prepared(tx, f)
         const artworkId = f.members[0]![0]!
         const frozenWhere = { operationId_artworkId: { operationId: execution.operationId, artworkId } }
         switch (change) {
-          case 'source-revision': await tx.artworkContentSource.create({ data: { artworkId, revision: 1n } }); break
-          case 'source-epoch': await tx.artworkContentSource.create({ data: { artworkId, mediaEpoch: 1n } }); break
-          case 'writer': await tx.artworkContentSource.create({ data: { artworkId, writeToken: randomUUID(), writeStartedAt: new Date() } }); break
-          case 'fingerprint': await tx.artworkContentFingerprint.update({ where: { artworkId }, data: { sourceRevision: 1n } }); break
-          case 'missing-fingerprint': await tx.artworkContentFingerprint.delete({ where: { artworkId } }); break
-          case 'deleted': await tx.artwork.update({ where: { id: artworkId }, data: { deletedAt: new Date() } }); break
-          case 'membership': await tx.artworkArtistEvidence.updateMany({ where: { membership: { artworkId } }, data: { present: false } }); break
-          case 'frozen-revision': await tx.artworkDedupOperationArtwork.update({ where: frozenWhere, data: { snapshotRevision: 1n } }); break
-          case 'frozen-epoch': await tx.artworkDedupOperationArtwork.update({ where: frozenWhere, data: { mediaEpoch: 1n } }); break
+          case 'source-revision':
+            await tx.artworkContentSource.create({ data: { artworkId, revision: 1n } })
+            break
+          case 'source-epoch':
+            await tx.artworkContentSource.create({ data: { artworkId, mediaEpoch: 1n } })
+            break
+          case 'writer':
+            await tx.artworkContentSource.create({
+              data: { artworkId, writeToken: randomUUID(), writeStartedAt: new Date() }
+            })
+            break
+          case 'fingerprint':
+            await tx.artworkContentFingerprint.update({ where: { artworkId }, data: { sourceRevision: 1n } })
+            break
+          case 'missing-fingerprint':
+            await tx.artworkContentFingerprint.delete({ where: { artworkId } })
+            break
+          case 'deleted':
+            await tx.artwork.update({ where: { id: artworkId }, data: { deletedAt: new Date() } })
+            break
+          case 'membership':
+            await tx.artworkArtistEvidence.updateMany({
+              where: { membership: { artworkId } },
+              data: { present: false }
+            })
+            break
+          case 'frozen-revision':
+            await tx.artworkDedupOperationArtwork.update({ where: frozenWhere, data: { snapshotRevision: 1n } })
+            break
+          case 'frozen-epoch':
+            await tx.artworkDedupOperationArtwork.update({ where: frozenWhere, data: { mediaEpoch: 1n } })
+            break
         }
         expect(await validateArtworkDedupOperationSnapshot(tx, execution.operationId)).toBe(change === 'unchanged')
         const choice = (await readArtworkDedupGroupChoices(tx, { runId: f.run.id, userId: f.actor.id }))[0]!
         expect(choice.eligible).toBe(['unchanged', 'frozen-revision', 'frozen-epoch'].includes(change))
-        if (['source-revision', 'source-epoch', 'writer', 'deleted', 'frozen-revision', 'frozen-epoch'].includes(change)) {
-          await expect(readArtworkDedupInventoryPage(tx, { execution, artworkId })).rejects.toMatchObject({ code: 'STALE' })
+        if (
+          ['source-revision', 'source-epoch', 'writer', 'deleted', 'frozen-revision', 'frozen-epoch'].includes(change)
+        ) {
+          await expect(readArtworkDedupInventoryPage(tx, { execution, artworkId })).rejects.toMatchObject({
+            code: 'STALE'
+          })
         } else if (change === 'unchanged') {
           expect(await readArtworkDedupInventoryPage(tx, { execution, artworkId })).toBeDefined()
           expect((await completeArtworkDedupPrepare(tx, { execution })).status).toBe('READY')
         }
-      }, { timeout: 30000 })
-    }
-  )
+      },
+      { timeout: 30000 }
+    )
+  })
   it('visual directory publication accepts 101 directories in bounded batches across both roots', async () => {
-    const before = new Set((await db!.mediaContentDirectoryState.findMany({ select: { id: true } })).map(r => r.id))
+    const before = new Set((await db!.mediaContentDirectoryState.findMany({ select: { id: true } })).map((r) => r.id))
     const snapshots: MediaContentDirectorySnapshot[] = []
     for (const logicalRoot of ['source-media:v1', 'archive-media:v1'] as const) {
       const root = await db!.mediaContentDirectoryState.findFirst({ where: { logicalRoot, relativeDirectory: '' } })
       const rootIdentity = root?.rootIdentity ?? randomUUID()
       for (let index = 0; index < (logicalRoot === 'source-media:v1' ? 51 : 50); index++) {
-        const result = await db!.$transaction(tx => captureMediaContentDirectory(tx, { directory: { logicalRoot, rootIdentity, relativeDirectory: `${prefix}/batch-${index}` } }))
+        const result = await db!.$transaction((tx) =>
+          captureMediaContentDirectory(tx, {
+            directory: { logicalRoot, rootIdentity, relativeDirectory: `${prefix}/batch-${index}` }
+          })
+        )
         if (result.status !== 'READY') throw new Error(result.status)
         snapshots.push(result.value)
       }
     }
-    expect(await db!.$transaction(tx => assertArtworkDedupVisualDirectories(tx, snapshots.reverse()))).toBe(true)
+    expect(await db!.$transaction((tx) => assertArtworkDedupVisualDirectories(tx, snapshots.reverse()))).toBe(true)
     const first = snapshots[0]!
-    expect(await db!.$transaction(tx => assertArtworkDedupVisualDirectories(tx, [{ ...first, generation: first.generation + 1n }, ...snapshots.slice(1)]))).toBe(false)
-    const created = (await db!.mediaContentDirectoryState.findMany({ select: { id: true } })).filter(r => !before.has(r.id)).map(r => r.id)
+    expect(
+      await db!.$transaction((tx) =>
+        assertArtworkDedupVisualDirectories(tx, [
+          { ...first, generation: first.generation + 1n },
+          ...snapshots.slice(1)
+        ])
+      )
+    ).toBe(false)
+    const created = (await db!.mediaContentDirectoryState.findMany({ select: { id: true } }))
+      .filter((r) => !before.has(r.id))
+      .map((r) => r.id)
     await db!.mediaContentDirectoryState.deleteMany({ where: { id: { in: created } } })
   })
   it('visual publication locks both roots before artworks and serializes with a directory-first writer', async () => {
-    const f = await db!.$transaction(tx => seed(tx))
-    const before = new Set((await db!.mediaContentDirectoryState.findMany({ select: { id: true } })).map(r => r.id))
+    const f = await db!.$transaction((tx) => seed(tx))
+    const before = new Set((await db!.mediaContentDirectoryState.findMany({ select: { id: true } })).map((r) => r.id))
     const snapshots: MediaContentDirectorySnapshot[] = []
     for (const logicalRoot of ['source-media:v1', 'archive-media:v1'] as const) {
       const root = await db!.mediaContentDirectoryState.findFirst({ where: { logicalRoot, relativeDirectory: '' } })
-      const result = await db!.$transaction(tx => captureMediaContentDirectory(tx, { directory: { logicalRoot, rootIdentity: root?.rootIdentity ?? randomUUID(), relativeDirectory: `${prefix}/locking` } }))
+      const result = await db!.$transaction((tx) =>
+        captureMediaContentDirectory(tx, {
+          directory: {
+            logicalRoot,
+            rootIdentity: root?.rootIdentity ?? randomUUID(),
+            relativeDirectory: `${prefix}/locking`
+          }
+        })
+      )
       if (result.status !== 'READY') throw new Error(result.status)
       snapshots.push(result.value)
     }
-    const directoriesLocked = signal(), writerStarted = signal(), release = signal()
+    const directoriesLocked = signal(),
+      writerStarted = signal(),
+      release = signal()
     let writerFinished = false
-    const publication = db!.$transaction(async tx => {
-      expect(await assertArtworkDedupVisualDirectories(tx, snapshots.slice().reverse())).toBe(true)
-      directoriesLocked.release()
-      await release.promise
-      for (const artworkId of f.members[0]!) expect((await captureArtworkContentSnapshot(tx, { artworkId })).status).toBe('READY')
-    }, { timeout: 10000 })
+    const publication = db!.$transaction(
+      async (tx) => {
+        expect(await assertArtworkDedupVisualDirectories(tx, snapshots.slice().reverse())).toBe(true)
+        directoriesLocked.release()
+        await release.promise
+        for (const artworkId of f.members[0]!)
+          expect((await captureArtworkContentSnapshot(tx, { artworkId })).status).toBe('READY')
+      },
+      { timeout: 10000 }
+    )
     await directoriesLocked.promise
-    const writer = db!.$transaction(async tx => {
-      writerStarted.release()
-      expect((await captureMediaContentDirectory(tx, { directory: snapshots[1]! })).status).toBe('READY')
-      expect((await captureArtworkContentSnapshot(tx, { artworkId: f.members[0]![1]! })).status).toBe('READY')
-      writerFinished = true
-    }, { timeout: 10000 })
+    const writer = db!.$transaction(
+      async (tx) => {
+        writerStarted.release()
+        expect((await captureMediaContentDirectory(tx, { directory: snapshots[1]! })).status).toBe('READY')
+        expect((await captureArtworkContentSnapshot(tx, { artworkId: f.members[0]![1]! })).status).toBe('READY')
+        writerFinished = true
+      },
+      { timeout: 10000 }
+    )
     await writerStarted.promise
-    await new Promise(resolve => setTimeout(resolve, 30))
+    await new Promise((resolve) => setTimeout(resolve, 30))
     expect(writerFinished).toBe(false)
     release.release()
     await Promise.all([publication, writer])
     expect(writerFinished).toBe(true)
-    const created = (await db!.mediaContentDirectoryState.findMany({ select: { id: true } })).filter(r => !before.has(r.id)).map(r => r.id)
+    const created = (await db!.mediaContentDirectoryState.findMany({ select: { id: true } }))
+      .filter((r) => !before.has(r.id))
+      .map((r) => r.id)
     await db!.mediaContentDirectoryState.deleteMany({ where: { id: { in: created } } })
   })
   it('visual choices are manual, excluded from bulk and freeze one pair with either keeper and unchanged per-side SHA', async () => {
-    const f = await db!.$transaction(tx => seed(tx, 2))
+    const f = await db!.$transaction((tx) => seed(tx, 2))
     const [left, right] = f.members[0]!
-    await db!.$transaction(async tx => {
+    await db!.$transaction(async (tx) => {
       const r = await relation(tx, f, left!, right!)
       await tx.artworkDedupRelation.delete({ where: { id: r.id } })
     })
-    const summary = { evidenceVersion: 'dct63-grid3-crop-local1-v1', leftArtworkId: left!, rightArtworkId: right!,
-      leftFileCount: '1', rightFileCount: '2', pairedCount: '1', exactCount: '0', similarCount: '1',
-      leftUnmatchedCount: '0', rightUnmatchedCount: '1', leftUncheckedCount: '0', rightUncheckedCount: '0' }
-    const pair = await db!.artworkDedupVisualPair.create({ data: { id: randomUUID(), runId: f.run.id, leftArtworkId: left!, rightArtworkId: right!, summary } })
+    const summary = {
+      evidenceVersion: 'dct63-grid3-crop-local1-v1',
+      leftArtworkId: left!,
+      rightArtworkId: right!,
+      leftFileCount: '1',
+      rightFileCount: '2',
+      pairedCount: '1',
+      exactCount: '0',
+      similarCount: '1',
+      leftUnmatchedCount: '0',
+      rightUnmatchedCount: '1',
+      leftUncheckedCount: '0',
+      rightUncheckedCount: '0'
+    }
+    const pair = await db!.artworkDedupVisualPair.create({
+      data: { id: randomUUID(), runId: f.run.id, leftArtworkId: left!, rightArtworkId: right!, summary }
+    })
     await db!.artworkDedupGroup.delete({ where: { id: f.groupIds[0]! } })
-    await db!.artworkContentFingerprint.update({ where: { artworkId: right! }, data: { contentSha256: 'c'.repeat(64) } })
-    await db!.artworkDedupItem.update({ where: { runId_artworkId: { runId: f.run.id, artworkId: right! } }, data: { contentSha256: 'c'.repeat(64) } })
-    const choice = (await db!.$transaction(tx => readArtworkDedupGroupChoices(tx, { runId: f.run.id, userId: f.actor.id, groupId: pair.id })))[0]!
-    expect(choice).toMatchObject({ relationKind: 'VISUAL', keeperArtworkId: null, saved: false, reason: 'NEEDS_CHOICE' })
-    const freeze = (ids: string[], revision: number) => db!.$transaction(tx => freezeArtworkDedupOperation(tx, { userId: f.actor.id, runId: f.run.id, expectedRunVersion: 1,
-      expectedReviewRevision: revision, idempotencyKey: randomUUID(), preparePurpose: 'DIRECT_DELETE', selection: { kind: 'EXPLICIT', groupIds: ids } }))
+    await db!.artworkContentFingerprint.update({
+      where: { artworkId: right! },
+      data: { contentSha256: 'c'.repeat(64) }
+    })
+    await db!.artworkDedupItem.update({
+      where: { runId_artworkId: { runId: f.run.id, artworkId: right! } },
+      data: { contentSha256: 'c'.repeat(64) }
+    })
+    const choice = (
+      await db!.$transaction((tx) =>
+        readArtworkDedupGroupChoices(tx, { runId: f.run.id, userId: f.actor.id, groupId: pair.id })
+      )
+    )[0]!
+    expect(choice).toMatchObject({
+      relationKind: 'VISUAL',
+      keeperArtworkId: null,
+      saved: false,
+      reason: 'NEEDS_CHOICE'
+    })
+    const freeze = (ids: string[], revision: number) =>
+      db!.$transaction((tx) =>
+        freezeArtworkDedupOperation(tx, {
+          userId: f.actor.id,
+          runId: f.run.id,
+          expectedRunVersion: 1,
+          expectedReviewRevision: revision,
+          idempotencyKey: randomUUID(),
+          preparePurpose: 'DIRECT_DELETE',
+          selection: { kind: 'EXPLICIT', groupIds: ids }
+        })
+      )
     await expect(freeze([pair.id], 0)).rejects.toMatchObject({ code: 'EXPLICIT_CHOICE_REQUIRED' })
     for (const [i, keeperArtworkId] of [left!, right!].entries()) {
-      await db!.$transaction(tx => saveArtworkDedupReview(tx, { userId: f.actor.id, runId: f.run.id, groupId: pair.id, keeperArtworkId,
-        expectedRunVersion: 1, expectedReviewVersion: i, idempotencyKey: randomUUID() }))
-      await expect(freeze([pair.id, f.groupIds[1]!], i + 1)).rejects.toMatchObject({ code: 'VISUAL_SINGLE_PAIR_REQUIRED' })
+      await db!.$transaction((tx) =>
+        saveArtworkDedupReview(tx, {
+          userId: f.actor.id,
+          runId: f.run.id,
+          groupId: pair.id,
+          keeperArtworkId,
+          expectedRunVersion: 1,
+          expectedReviewVersion: i,
+          idempotencyKey: randomUUID()
+        })
+      )
+      await expect(freeze([pair.id, f.groupIds[1]!], i + 1)).rejects.toMatchObject({
+        code: 'VISUAL_SINGLE_PAIR_REQUIRED'
+      })
       const { operation } = await freeze([pair.id], i + 1)
       expect(operation).toMatchObject({ protocolVersion: 3, selectedGroups: 1, keepers: 1, copies: 1 })
       const group = await db!.artworkDedupOperationGroup.findFirstOrThrow({ where: { operationId: operation.id } })
       expect(group).toMatchObject({ keeperArtworkId, selectionBasis: 'SAVED', visual: summary })
-      expect(await db!.$transaction(tx => validateArtworkDedupOperationSnapshot(tx, operation.id))).toBe(true)
+      expect(await db!.$transaction((tx) => validateArtworkDedupOperationSnapshot(tx, operation.id))).toBe(true)
       if (i === 1) {
-        await db!.artworkContentFingerprint.update({ where: { artworkId: right! }, data: { contentSha256: 'd'.repeat(64) } })
-        expect(await db!.$transaction(tx => validateArtworkDedupOperationSnapshot(tx, operation.id))).toBe(false)
-        await db!.artworkContentFingerprint.update({ where: { artworkId: right! }, data: { contentSha256: 'c'.repeat(64) } })
+        await db!.artworkContentFingerprint.update({
+          where: { artworkId: right! },
+          data: { contentSha256: 'd'.repeat(64) }
+        })
+        expect(await db!.$transaction((tx) => validateArtworkDedupOperationSnapshot(tx, operation.id))).toBe(false)
+        await db!.artworkContentFingerprint.update({
+          where: { artworkId: right! },
+          data: { contentSha256: 'c'.repeat(64) }
+        })
       }
     }
-    const bulk = await db!.$transaction(tx => freezeArtworkDedupOperation(tx, { userId: f.actor.id, runId: f.run.id, expectedRunVersion: 1,
-      expectedReviewRevision: 2, idempotencyKey: randomUUID(), preparePurpose: 'DIRECT_DELETE', selection: { kind: 'ALL_RECOMMENDED', excludedGroupIds: [] } }))
-    expect(await db!.artworkDedupOperationGroup.count({ where: { operationId: bulk.operation.id, relationKind: 'VISUAL' } })).toBe(0)
+    const bulk = await db!.$transaction((tx) =>
+      freezeArtworkDedupOperation(tx, {
+        userId: f.actor.id,
+        runId: f.run.id,
+        expectedRunVersion: 1,
+        expectedReviewRevision: 2,
+        idempotencyKey: randomUUID(),
+        preparePurpose: 'DIRECT_DELETE',
+        selection: { kind: 'ALL_RECOMMENDED', excludedGroupIds: [] }
+      })
+    )
+    expect(
+      await db!.artworkDedupOperationGroup.count({ where: { operationId: bulk.operation.id, relationKind: 'VISUAL' } })
+    ).toBe(0)
   })
   it('F01 partial choices are manual, excluded from bulk and freeze one pair with either keeper and unchanged per-side SHA', async () => {
-    const f = await db!.$transaction(tx => seed(tx, 2))
+    const f = await db!.$transaction((tx) => seed(tx, 2))
     const [left, right] = f.members[0]!
-    await db!.$transaction(async tx => {
+    await db!.$transaction(async (tx) => {
       const r = await relation(tx, f, left!, right!)
       await tx.artworkDedupRelation.delete({ where: { id: r.id } })
     })
-    const summary = { evidenceVersion: 'sha256-multiset-overlap-v1', leftArtworkId: left!, rightArtworkId: right!,
-      leftFileCount: '5', rightFileCount: '5', pairedCount: '4', exactCount: '4', similarCount: '0',
-      leftUnmatchedCount: '1', rightUnmatchedCount: '1', leftUncheckedCount: '0', rightUncheckedCount: '0' }
-    const pair = await db!.artworkDedupVisualPair.create({ data: { id: randomUUID(), runId: f.run.id, relationKind: 'PARTIAL', leftArtworkId: left!, rightArtworkId: right!, summary } })
+    const summary = {
+      evidenceVersion: 'sha256-multiset-overlap-v1',
+      leftArtworkId: left!,
+      rightArtworkId: right!,
+      leftFileCount: '5',
+      rightFileCount: '5',
+      pairedCount: '4',
+      exactCount: '4',
+      similarCount: '0',
+      leftUnmatchedCount: '1',
+      rightUnmatchedCount: '1',
+      leftUncheckedCount: '0',
+      rightUncheckedCount: '0'
+    }
+    const pair = await db!.artworkDedupVisualPair.create({
+      data: {
+        id: randomUUID(),
+        runId: f.run.id,
+        relationKind: 'PARTIAL',
+        leftArtworkId: left!,
+        rightArtworkId: right!,
+        summary
+      }
+    })
     await db!.artworkDedupGroup.delete({ where: { id: f.groupIds[0]! } })
-    await db!.artworkContentFingerprint.update({ where: { artworkId: right! }, data: { contentSha256: 'c'.repeat(64) } })
-    await db!.artworkDedupItem.update({ where: { runId_artworkId: { runId: f.run.id, artworkId: right! } }, data: { contentSha256: 'c'.repeat(64) } })
-    const choice = (await db!.$transaction(tx => readArtworkDedupGroupChoices(tx, { runId: f.run.id, userId: f.actor.id, groupId: pair.id })))[0]!
-    expect(choice).toMatchObject({ relationKind: 'PARTIAL', keeperArtworkId: null, saved: false, reason: 'NEEDS_CHOICE' })
-    const freeze = (ids: string[], revision: number) => db!.$transaction(tx => freezeArtworkDedupOperation(tx, { userId: f.actor.id, runId: f.run.id, expectedRunVersion: 1,
-      expectedReviewRevision: revision, idempotencyKey: randomUUID(), preparePurpose: 'DIRECT_DELETE', selection: { kind: 'EXPLICIT', groupIds: ids } }))
+    await db!.artworkContentFingerprint.update({
+      where: { artworkId: right! },
+      data: { contentSha256: 'c'.repeat(64) }
+    })
+    await db!.artworkDedupItem.update({
+      where: { runId_artworkId: { runId: f.run.id, artworkId: right! } },
+      data: { contentSha256: 'c'.repeat(64) }
+    })
+    const choice = (
+      await db!.$transaction((tx) =>
+        readArtworkDedupGroupChoices(tx, { runId: f.run.id, userId: f.actor.id, groupId: pair.id })
+      )
+    )[0]!
+    expect(choice).toMatchObject({
+      relationKind: 'PARTIAL',
+      keeperArtworkId: null,
+      saved: false,
+      reason: 'NEEDS_CHOICE'
+    })
+    const freeze = (ids: string[], revision: number) =>
+      db!.$transaction((tx) =>
+        freezeArtworkDedupOperation(tx, {
+          userId: f.actor.id,
+          runId: f.run.id,
+          expectedRunVersion: 1,
+          expectedReviewRevision: revision,
+          idempotencyKey: randomUUID(),
+          preparePurpose: 'DIRECT_DELETE',
+          selection: { kind: 'EXPLICIT', groupIds: ids }
+        })
+      )
     await expect(freeze([pair.id], 0)).rejects.toMatchObject({ code: 'EXPLICIT_CHOICE_REQUIRED' })
     for (const [i, keeperArtworkId] of [left!, right!].entries()) {
-      await db!.$transaction(tx => saveArtworkDedupReview(tx, { userId: f.actor.id, runId: f.run.id, groupId: pair.id, keeperArtworkId,
-        expectedRunVersion: 1, expectedReviewVersion: i, idempotencyKey: randomUUID() }))
-      await expect(freeze([pair.id, f.groupIds[1]!], i + 1)).rejects.toMatchObject({ code: 'VISUAL_SINGLE_PAIR_REQUIRED' })
+      await db!.$transaction((tx) =>
+        saveArtworkDedupReview(tx, {
+          userId: f.actor.id,
+          runId: f.run.id,
+          groupId: pair.id,
+          keeperArtworkId,
+          expectedRunVersion: 1,
+          expectedReviewVersion: i,
+          idempotencyKey: randomUUID()
+        })
+      )
+      await expect(freeze([pair.id, f.groupIds[1]!], i + 1)).rejects.toMatchObject({
+        code: 'VISUAL_SINGLE_PAIR_REQUIRED'
+      })
       const { operation } = await freeze([pair.id], i + 1)
       expect(operation).toMatchObject({ protocolVersion: 4, selectedGroups: 1, keepers: 1, copies: 1 })
       const group = await db!.artworkDedupOperationGroup.findFirstOrThrow({ where: { operationId: operation.id } })
       expect(group).toMatchObject({ keeperArtworkId, selectionBasis: 'SAVED', visual: summary })
-      expect(await db!.$transaction(tx => validateArtworkDedupOperationSnapshot(tx, operation.id))).toBe(true)
+      expect(await db!.$transaction((tx) => validateArtworkDedupOperationSnapshot(tx, operation.id))).toBe(true)
       if (i === 1) {
-        await db!.artworkContentFingerprint.update({ where: { artworkId: right! }, data: { contentSha256: 'd'.repeat(64) } })
-        expect(await db!.$transaction(tx => validateArtworkDedupOperationSnapshot(tx, operation.id))).toBe(false)
-        await db!.artworkContentFingerprint.update({ where: { artworkId: right! }, data: { contentSha256: 'c'.repeat(64) } })
+        await db!.artworkContentFingerprint.update({
+          where: { artworkId: right! },
+          data: { contentSha256: 'd'.repeat(64) }
+        })
+        expect(await db!.$transaction((tx) => validateArtworkDedupOperationSnapshot(tx, operation.id))).toBe(false)
+        await db!.artworkContentFingerprint.update({
+          where: { artworkId: right! },
+          data: { contentSha256: 'c'.repeat(64) }
+        })
       }
     }
-    const bulk = await db!.$transaction(tx => freezeArtworkDedupOperation(tx, { userId: f.actor.id, runId: f.run.id, expectedRunVersion: 1,
-      expectedReviewRevision: 2, idempotencyKey: randomUUID(), preparePurpose: 'DIRECT_DELETE', selection: { kind: 'ALL_RECOMMENDED', excludedGroupIds: [] } }))
-    expect(await db!.artworkDedupOperationGroup.count({ where: { operationId: bulk.operation.id, relationKind: 'PARTIAL' } })).toBe(0)
+    const bulk = await db!.$transaction((tx) =>
+      freezeArtworkDedupOperation(tx, {
+        userId: f.actor.id,
+        runId: f.run.id,
+        expectedRunVersion: 1,
+        expectedReviewRevision: 2,
+        idempotencyKey: randomUUID(),
+        preparePurpose: 'DIRECT_DELETE',
+        selection: { kind: 'ALL_RECOMMENDED', excludedGroupIds: [] }
+      })
+    )
+    expect(
+      await db!.artworkDedupOperationGroup.count({ where: { operationId: bulk.operation.id, relationKind: 'PARTIAL' } })
+    ).toBe(0)
   })
   it('freezes all recommended groups in SQL; personal reviews remain separate and input retries retain scope', async () => {
     const f = await db!.$transaction((tx) => seed(tx, 3))
@@ -465,39 +784,106 @@ describe.skipIf(!db)('maintenance review durable scope and publication locks', (
     const [small, large] = f.members[0]!
     const r = await db!.$transaction((tx) => relation(tx, f, small!, large!))
     await db!.artworkLike.create({ data: { artworkId: small!, userId: f.other.id, level: 2 } })
-    const choice = (await db!.$transaction((tx) => readArtworkDedupGroupChoices(tx, {
-      runId: f.run.id, userId: f.actor.id, groupId: r.id
-    })))[0]!
-    expect(choice).toMatchObject({ relationKind: 'CONTAINS', keeperArtworkId: null, reason: 'NEEDS_CHOICE', protectedCount: 1 })
-    const review = { userId: f.actor.id, runId: f.run.id, groupId: r.id, keeperArtworkId: small!, expectedRunVersion: 1, expectedReviewVersion: 0, idempotencyKey: randomUUID() }
-    await expect(db!.$transaction((tx) => saveArtworkDedupReview(tx, review))).rejects.toMatchObject({ code: 'CONTAINMENT_DIRECTION_REQUIRED' })
+    const choice = (
+      await db!.$transaction((tx) =>
+        readArtworkDedupGroupChoices(tx, {
+          runId: f.run.id,
+          userId: f.actor.id,
+          groupId: r.id
+        })
+      )
+    )[0]!
+    expect(choice).toMatchObject({
+      relationKind: 'CONTAINS',
+      keeperArtworkId: null,
+      reason: 'NEEDS_CHOICE',
+      protectedCount: 1
+    })
+    const review = {
+      userId: f.actor.id,
+      runId: f.run.id,
+      groupId: r.id,
+      keeperArtworkId: small!,
+      expectedRunVersion: 1,
+      expectedReviewVersion: 0,
+      idempotencyKey: randomUUID()
+    }
+    await expect(db!.$transaction((tx) => saveArtworkDedupReview(tx, review))).rejects.toMatchObject({
+      code: 'CONTAINMENT_DIRECTION_REQUIRED'
+    })
     await db!.$transaction((tx) => saveArtworkDedupReview(tx, { ...review, keeperArtworkId: large! }))
-    const frozen = await db!.$transaction((tx) => freezeArtworkDedupOperation(tx, {
-      userId: f.actor.id, runId: f.run.id, expectedRunVersion: 1, expectedReviewRevision: 1,
-      preparePurpose: 'DIRECT_DELETE', idempotencyKey: randomUUID(), selection: { kind: 'EXPLICIT', groupIds: [r.id] }
-    }))
-    expect(frozen.operation).toMatchObject({ protocolVersion: 2, keepers: 1, copies: 1, requiresOrganizationConfirmation: true })
-    expect(await db!.artworkDedupOperationGroup.findFirst({ where: { operationId: frozen.operation.id } })).toMatchObject({
-      relationKind: 'CONTAINS', containedArtworkId: small, containerArtworkId: large, containedFileCount: 1n, containerFileCount: 2n
+    const frozen = await db!.$transaction((tx) =>
+      freezeArtworkDedupOperation(tx, {
+        userId: f.actor.id,
+        runId: f.run.id,
+        expectedRunVersion: 1,
+        expectedReviewRevision: 1,
+        preparePurpose: 'DIRECT_DELETE',
+        idempotencyKey: randomUUID(),
+        selection: { kind: 'EXPLICIT', groupIds: [r.id] }
+      })
+    )
+    expect(frozen.operation).toMatchObject({
+      protocolVersion: 2,
+      keepers: 1,
+      copies: 1,
+      requiresOrganizationConfirmation: true
+    })
+    expect(
+      await db!.artworkDedupOperationGroup.findFirst({ where: { operationId: frozen.operation.id } })
+    ).toMatchObject({
+      relationKind: 'CONTAINS',
+      containedArtworkId: small,
+      containerArtworkId: large,
+      containedFileCount: 1n,
+      containerFileCount: 2n
     })
   })
   it('deduplicates shared keepers and rejects repeated copies or retain/delete chains before freezing', async () => {
     const f = await db!.$transaction((tx) => seed(tx, 2))
     const [a, b, c, d] = f.members.flat()
     const ab = await db!.$transaction((tx) => relation(tx, f, a!, b!))
-    const cb = await db!.artworkDedupRelation.create({ data: { id: randomUUID(), runId: f.run.id, containedArtworkId: c!, containerArtworkId: b!, containedFileCount: 1n, containerFileCount: 2n } })
+    const cb = await db!.artworkDedupRelation.create({
+      data: {
+        id: randomUUID(),
+        runId: f.run.id,
+        containedArtworkId: c!,
+        containerArtworkId: b!,
+        containedFileCount: 1n,
+        containerFileCount: 2n
+      }
+    })
     const ad = await db!.$transaction((tx) => relation(tx, f, a!, d!))
-    const freeze = (ids: string[]) => db!.$transaction((tx) => freezeArtworkDedupOperation(tx, {
-      userId: f.actor.id, runId: f.run.id, expectedRunVersion: 1, expectedReviewRevision: 0,
-      preparePurpose: 'DIRECT_DELETE', idempotencyKey: randomUUID(), selection: { kind: 'EXPLICIT', groupIds: ids }
-    }))
+    const freeze = (ids: string[]) =>
+      db!.$transaction((tx) =>
+        freezeArtworkDedupOperation(tx, {
+          userId: f.actor.id,
+          runId: f.run.id,
+          expectedRunVersion: 1,
+          expectedReviewRevision: 0,
+          preparePurpose: 'DIRECT_DELETE',
+          idempotencyKey: randomUUID(),
+          selection: { kind: 'EXPLICIT', groupIds: ids }
+        })
+      )
     expect((await freeze([ab.id, cb.id])).operation).toMatchObject({ selectedGroups: 2, keepers: 1, copies: 2 })
     await expect(freeze([ab.id, ad.id])).rejects.toMatchObject({ code: 'CONFLICTING_SELECTION' })
     // The existing exact group retains a while the containment result deletes it.
     await expect(freeze([f.groupIds[0]!, ab.id])).rejects.toMatchObject({ code: 'CONFLICTING_SELECTION' })
-    const firstPage = await db!.$transaction((tx) => readArtworkDedupGroupChoices(tx, { runId: f.run.id, userId: f.actor.id, limit: 1 }))
-    const nextPage = await db!.$transaction((tx) => readArtworkDedupGroupChoices(tx, { runId: f.run.id, userId: f.actor.id, limit: 100, afterGroupId: firstPage[0]!.groupId }))
-    expect([firstPage[0]!.groupId, ...nextPage.map((r) => r.groupId)].sort()).toEqual([...f.groupIds, ab.id, cb.id, ad.id].sort())
+    const firstPage = await db!.$transaction((tx) =>
+      readArtworkDedupGroupChoices(tx, { runId: f.run.id, userId: f.actor.id, limit: 1 })
+    )
+    const nextPage = await db!.$transaction((tx) =>
+      readArtworkDedupGroupChoices(tx, {
+        runId: f.run.id,
+        userId: f.actor.id,
+        limit: 100,
+        afterGroupId: firstPage[0]!.groupId
+      })
+    )
+    expect([firstPage[0]!.groupId, ...nextPage.map((r) => r.groupId)].sort()).toEqual(
+      [...f.groupIds, ab.id, cb.id, ad.id].sort()
+    )
   })
   it.each(['PENDING', 'BLOCKED'])('cannot publish READY with %s file inspection', async (inspectionStatus) => {
     const f = await db!.$transaction((tx) => seed(tx))
@@ -518,7 +904,7 @@ describe.skipIf(!db)('maintenance review durable scope and publication locks', (
     const art = f.members[0]![0]!
     await db!.artworkLike.create({ data: { artworkId: art, userId: f.other.id, level: 1 } })
     const execution = await db!.$transaction((tx) => prepared(tx, f))
-    await db!.artworkReadingSummary.create({
+    await db!.artworkReadingProgress.create({
       data: { userId: f.actor.id, artworkId: art, lastViewedAt: new Date(), stateVersion: 3 }
     })
     const ready = signal(),

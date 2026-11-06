@@ -198,6 +198,8 @@ model LocalImportArtistMapping {
 model Artwork {
   id                    Int                   @id @default(autoincrement())
   mediaRevision         Int                   @default(1)
+  logicalMediaCount     Int                   @default(0)
+  readingLayoutVersion  Int                   @default(1)
   title                 String
   description           String?
   artistId              Int?
@@ -236,11 +238,10 @@ model Artwork {
   seriesArtworks        SeriesArtwork[]
   artworkTags           ArtworkTag[]
   images                Image[]
-  readingSummaries      ArtworkReadingSummary[]
+  readingProgress       ArtworkReadingProgress[]
   visualSummary         ArtworkSummary?
   contentSource         ArtworkContentSource?
   contentFingerprint    ArtworkContentFingerprint?
-  readMedia             ArtworkReadMedia[]
   source                ArtworkSource         @default(PIXIV_IMPORTED)
   externalRefs          ArtworkExternalRef[]
   archiveImports        ArchiveImport[]
@@ -410,8 +411,6 @@ model Image {
   chaptersHash        String?
   mediaType           MediaType               @default(UNKNOWN)
   artwork             Artwork?                @relation(fields: [artworkId], references: [id])
-  readingSummaries    ArtworkReadingSummary[] @relation("ReadingLastMedia")
-  readMedia           ArtworkReadMedia[]
   mediaMarks          MediaMark[]
   videoPlayback       MediaVideoPlayback?
   videoMetadata       MediaVideoMetadata?
@@ -781,8 +780,7 @@ model UserBA {
   sessions Session[]
   likes    ArtworkLike[]
   mediaMarks MediaMark[]
-  readingSummaries ArtworkReadingSummary[]
-  readMedia ArtworkReadMedia[]
+  readingProgress ArtworkReadingProgress[]
   settings UserSetting[]
 }
 
@@ -867,43 +865,27 @@ model MediaMark {
   @@index([mediaId])
 }
 
-model ArtworkReadingSummary {
-  userId          String
-  artworkId       Int
-  viewCount       Int      @default(0)
-  seenCount       Int      @default(0)
-  totalCount      Int      @default(0)
-  stateVersion    Int      @default(0)
-  lastViewedAt    DateTime?
-  lastActiveAt    DateTime?
-  lastMediaId     Int?
-  lastMediaIndex  Int?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  user            UserBA   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  artwork         Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
-  lastMedia       Image?   @relation("ReadingLastMedia", fields: [lastMediaId], references: [id], onDelete: SetNull)
+model ArtworkReadingProgress {
+  userId             String
+  artworkId          Int
+  furthestMediaId    Int?
+  furthestMediaIndex Int?
+  lastMediaId        Int?
+  lastMediaIndex     Int?
+  completed          Boolean  @default(false)
+  viewCount          Int      @default(0)
+  lastViewedAt       DateTime?
+  lastActiveAt       DateTime?
+  stateVersion       Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  user               UserBA   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  artwork            Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
 
   @@id([userId, artworkId])
-  @@index([userId, lastViewedAt(sort: Desc), artworkId(sort: Desc)], map: "artwork_reading_summaries_user_recent_idx")
+  @@index([userId, lastViewedAt(sort: Desc), artworkId(sort: Desc)], map: "artwork_reading_progress_user_recent_idx")
   @@index([artworkId])
-  @@index([lastMediaId])
-  @@map("artwork_reading_summaries")
-}
-
-model ArtworkReadMedia {
-  userId     String
-  artworkId  Int
-  mediaId    Int
-  firstSeenAt DateTime @default(now())
-  user       UserBA   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  artwork    Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
-  media      Image    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
-
-  @@id([userId, artworkId, mediaId])
-  @@index([artworkId])
-  @@index([mediaId])
-  @@map("artwork_read_media")
+  @@map("artwork_reading_progress")
 }
 
 model Setting {
@@ -1146,6 +1128,8 @@ model DerivedMediaGcEntry {
 }
 
 model ArchiveImport {
+  upgradeBaseRevisionId String?
+  upgradeSnapshot Json?
   downloadScope ArchiveDownloadScope @default(ALL)
   sourceTotalItems Int?
   sourcePlanDigest String? @db.VarChar(64)
@@ -1168,8 +1152,8 @@ model ArchiveImport {
   canonicalUrl       String              @db.Text
   locator            Json
   status             ArchiveImportStatus @default(PENDING)
-  requestedQuality   ArchiveQuality      @default(ORIGINAL)
-  selectedQuality    ArchiveQuality      @default(ORIGINAL)
+  requestedQuality   ArchiveQuality      @default(DISPLAY)
+  selectedQuality    ArchiveQuality      @default(DISPLAY)
   decisionCode       String?             @db.VarChar(80)
   normalizedMetadata Json
   rawMetadata        Json
@@ -1264,6 +1248,8 @@ model ArchiveIntakeSubmission {
 }
 
 model ArchiveIntakeItem {
+  upgradeBaseRevisionId String?
+  upgradeSnapshot Json?
   downloadScope ArchiveDownloadScope @default(ALL)
   completionBaseRevisionId String?
   completionSnapshot Json?
@@ -1291,7 +1277,7 @@ model ArchiveIntakeItem {
   resolutionKind        ArchiveIntakeResolutionKind?
   duplicateOfItemId     String?
   activeArchiveImportId String?
-  selectedQuality       ArchiveQuality               @default(ORIGINAL)
+  selectedQuality       ArchiveQuality               @default(DISPLAY)
   downloadMode          ArchiveIntakeDownloadMode    @default(MANUAL)
   resolvedAt            DateTime?
   expiresAt             DateTime?
@@ -1315,6 +1301,7 @@ model ArchiveIntakeItem {
   uploaderScanItem      ArchiveUploaderScanItem?     @relation("ArchiveUploaderScanIntakeItem")
   uploaderCatalogItems  ArchiveUploaderCatalogItem[] @relation("ArchiveUploaderCatalogIntakeItem")
 
+  @@index([upgradeBaseRevisionId], map: "archive_intake_items_upgrade_base_idx")
   @@index([status, queueOrder])
   @@index([submissionId, createdAt])
   @@index([normalizedUrlHash, status])
@@ -1675,6 +1662,8 @@ model ArchivePreviewSession {
 }
 
 model ArchiveImportItem {
+  /// Verified delivery classification bound to the final successful download attempt.
+  deliveryEvidence Json?
   id               String                  @id @default(cuid())
   archiveImportId  String
   pageIndex        Int
@@ -1725,6 +1714,14 @@ model ArchiveDeletedIdentity {
 }
 
 model ArchiveRevision {
+  /// Evidence concerns the frozen local revision, never the requested download preference.
+  qualityEvidence Json?
+  qualityStatus ArchiveMediaQuality @default(UNKNOWN)
+  qualityOriginalCount Int @default(0)
+  qualityDisplayCount Int @default(0)
+  qualityUnknownCount Int @default(0)
+  qualityVerifiedAt DateTime?
+  qualityDefinitionVersion Int?
   downloadScope ArchiveDownloadScope @default(ALL)
   sourceTotalItems Int?
   sourcePlanDigest String? @db.VarChar(64)
@@ -2553,6 +2550,13 @@ enum ArchiveDownloadScope {
 enum ArchiveQuality {
   ORIGINAL
   DISPLAY
+}
+
+enum ArchiveMediaQuality {
+  ORIGINAL
+  DISPLAY
+  MIXED
+  UNKNOWN
 }
 
 enum ArchiveLifecycleState {

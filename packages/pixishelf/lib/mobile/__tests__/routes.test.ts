@@ -42,14 +42,14 @@ const request = (path: string, method = 'GET', body?: unknown) =>
 const reading = {
   artworkId: 4,
   expectedUserId: 'owner',
-  mediaRevision: 1,
-  events: [{ type: 'VIEW', mediaId: 8, observedAt: new Date().toISOString() }]
+  readingLayoutVersion: 1,
+  events: [{ type: 'VIEW', mediaId: 8, index: 0, observedAt: new Date().toISOString() }]
 }
 beforeEach(() => {
   vi.resetAllMocks()
   mocks.session.mockResolvedValue({ user: { id: 'owner' }, session: { expiresAt: new Date() } })
   mocks.allow.mockReturnValue(true)
-  mocks.report.mockResolvedValue({ seenMediaIds: [8] })
+  mocks.report.mockResolvedValue({ readingLayoutVersion: 1, summary: { progressCount: 1 } })
   mocks.rating.mockResolvedValue({ level: 2 })
   mocks.feed.mockResolvedValue({ items: [] })
   mocks.settings.mockResolvedValue({})

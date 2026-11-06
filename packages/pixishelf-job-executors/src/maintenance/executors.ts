@@ -16,6 +16,8 @@ import type { EnqueuedChildJob, ExecutionContext, ExecutorDefinition, QueueSqlEx
 import { cleanupArchiveIntakeHistory } from './archive-intake-retention-cleanup.ts'
 import { executeAnimationDurationProbe } from './animation-duration-probe.ts'
 import { executeArchiveDefaultTagBackfill } from './archive-default-tag-backfill.ts'
+import { executeArchiveQualityAudit } from '../archive/quality-audit-executor.ts'
+import { archiveQualityAuditPayloadSchema, type ArchiveQualityAuditPayload } from '@pixishelf/job-contracts'
 import { cleanupJobEvents } from './job-event-retention-cleanup.ts'
 import { syncAllMediaDerivedTags } from './media-derived-tag-sync.ts'
 import { syncPixivAiDerivedTags } from './pixiv-ai-derived-tag-sync.ts'
@@ -115,6 +117,15 @@ export function createMaintenanceExecutorRegistrations(
       parsePayload: (payload) => archiveDefaultTagBackfillPayloadSchema.parse(payload),
       execute: (context: ExecutionContext<ArchiveDefaultTagBackfillPayload, EnqueuedChildJob>) =>
         executeArchiveDefaultTagBackfill(context, dependencies.now ? { now: dependencies.now } : {})
+    } as ExecutorDefinition,
+    {
+      jobType: 'ARCHIVE_QUALITY_AUDIT',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
+      parsePayload: (payload) => archiveQualityAuditPayloadSchema.parse(payload),
+      execute: (context: ExecutionContext<ArchiveQualityAuditPayload, EnqueuedChildJob>) =>
+        executeArchiveQualityAudit(context, dependencies.now)
     } as ExecutorDefinition,
     {
       jobType: 'PIXIV_AI_DERIVED_TAG_SYNC',

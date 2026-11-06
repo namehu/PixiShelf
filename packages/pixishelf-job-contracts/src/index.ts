@@ -1,5 +1,6 @@
 export * from './audit-apply.ts'
 export * from './archive-download.ts'
+export * from './archive-quality.ts'
 export * from './archive-uploader.ts'
 export * from './artwork-storage-path.ts'
 export * from './artwork-summary.ts'

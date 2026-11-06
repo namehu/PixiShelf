@@ -97,6 +97,78 @@ describe('archive uploader stable metadata comparison', () => {
 
 describe('EHentaiProvider resolution', () => {
   it.each([
+    ['the selected image URL', 'https://first.hath.network', 'b', true],
+    ['the same descriptor on another node', 'https://second.hath.network', 'b', true],
+    ['a different descriptor after redirection', 'https://second.hath.network', 'c', false]
+  ])('keeps the original declaration for DISPLAY when served by %s', async (_case, host, hash, hasClaim) => {
+    const imagePath = (digest: string) => `/h/${digest.repeat(40)}-100-900-1200-wbp/key;xres=1280/file.webp`
+    const selectedUrl = `https://first.hath.network${imagePath('b')}`
+    const sourcePageUrl = 'https://e-hentai.org/s/key/123-1'
+    const http = {
+      text: vi.fn(async () => `
+        <title>file.png :: Gallery</title>
+        <img id="img" src="${selectedUrl}">
+        <a href="/fullimg/123/1/key/file.png">Download original 1800 x 2400 1000 B</a>
+      `),
+      request: vi.fn(async () => ({
+        status: 200,
+        headers: { 'content-type': 'image/webp' },
+        stream: Readable.from([]),
+        url: `${host}${imagePath(hash)}`
+      }))
+    }
+    const getCookie = vi.fn(async () => 'fixture=secret')
+    const provider = new EHentaiProvider(http as never, { getCookie })
+    const remote = await provider.openMedia(
+      { index: 0, sourcePageUrl, locator: {}, expectedFilename: '0001' },
+      { quality: 'DISPLAY' }
+    )
+    expect(remote.ehDelivery).toEqual({
+      requestedQuality: 'DISPLAY',
+      originalResponse: false,
+      ...(hasClaim
+        ? { sourceOriginalClaim: { width: 1800, height: 2400, minBytes: 1000, maxBytes: 1000, mimeType: 'image/png' } }
+        : {})
+    })
+    expect(remote.expectedSha1).toBe(hash.repeat(40))
+    expect(http.text).toHaveBeenCalledExactlyOnceWith(sourcePageUrl, expect.any(Object))
+    expect(http.request).toHaveBeenCalledExactlyOnceWith(selectedUrl, { headers: { referer: sourcePageUrl } })
+    expect(getCookie).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['Download original', true],
+    ['View image', false]
+  ])(
+    'requires an explicit source declaration before proving a direct original response: %s',
+    async (label, originalResponse) => {
+      const originalUrl = 'https://e-hentai.org/fullimg/123/key/1/source'
+      const http = {
+        text: vi.fn(async () => `<a href="${originalUrl}">${label}</a>`),
+        request: vi.fn(async () => ({
+          status: 200,
+          headers: { 'content-type': 'image/png' },
+          stream: Readable.from([]),
+          url: originalUrl
+        }))
+      }
+      const provider = new EHentaiProvider(http as never, { getCookie: async () => 'fixture=secret' })
+      const remote = await provider.openMedia(
+        { index: 0, sourcePageUrl: 'https://e-hentai.org/s/key/123-1', locator: {}, expectedFilename: '0001' },
+        { quality: 'ORIGINAL' }
+      )
+      expect(remote.ehDelivery?.originalResponse).toBe(originalResponse)
+      const policy = (
+        http.request.mock.calls[0] as unknown as [string, { headersForUrl: (url: URL) => Record<string, string> }]
+      )[1]
+      expect(policy.headersForUrl(new URL(originalUrl))).toEqual({ cookie: 'fixture=secret' })
+      expect(policy.headersForUrl(new URL('https://api.e-hentai.org/fullimg.php'))).toEqual({})
+      expect(policy.headersForUrl(new URL('https://e-hentai.org/g/123/key/'))).toEqual({})
+      expect(policy.headersForUrl(new URL('https://node.hath.network/om/image'))).toEqual({})
+    }
+  )
+
+  it.each([
     {
       metadata: { parent_gid: '122', parent_key: 'parenttoken' },
       notice: '解析时发现此画廊关联了历史版本，不影响本次归档。'
@@ -118,7 +190,9 @@ describe('EHentaiProvider resolution', () => {
       }),
       text: vi.fn().mockResolvedValue('<a href="https://e-hentai.org/s/pagetoken/123-1">one</a>')
     }
-    const result = await new EHentaiProvider(http as never).resolve('https://e-hentai.org/g/123/gallerytoken/')
+    const result = await new EHentaiProvider(http as never, {
+      getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture'
+    }).resolve('https://e-hentai.org/g/123/gallerytoken/')
     expect(result.warnings).toEqual(notice ? [notice] : [])
     expect(result.externalId).toBe('123')
     expect(result.canonicalUrl).toBe('https://e-hentai.org/g/123/gallerytoken/')
@@ -148,7 +222,9 @@ describe('EHentaiProvider resolution', () => {
       return operation()
     }
 
-    const result = await new EHentaiProvider(http as never).resolve('https://e-hentai.org/g/123/gallerytoken/', {
+    const result = await new EHentaiProvider(http as never, {
+      getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture'
+    }).resolve('https://e-hentai.org/g/123/gallerytoken/', {
       runResolveRequest
     })
 
@@ -178,7 +254,9 @@ describe('EHentaiProvider resolution', () => {
         })
       })
     }
-    const provider = new EHentaiProvider(http as never)
+    const provider = new EHentaiProvider(http as never, {
+      getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture'
+    })
     const resolution = provider.resolve('https://e-hentai.org/g/123/gallerytoken/', { signal: controller.signal })
     await vi.waitFor(() => expect(http.text).toHaveBeenCalledTimes(2))
 
@@ -199,7 +277,9 @@ describe('EHentaiProvider resolution', () => {
       }))
     }
     const phases: string[] = []
-    const provider = new EHentaiProvider(http as never)
+    const provider = new EHentaiProvider(http as never, {
+      getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture'
+    })
 
     const remote = await provider.openMedia(
       {
@@ -249,7 +329,9 @@ describe('EHentaiProvider broken-image recovery', () => {
   it('refreshes once through the request governor and downloads the replacement representation', async () => {
     const http = client()
     const governed = vi.fn((operation: () => Promise<unknown>) => operation())
-    const remote = await new EHentaiProvider(http as never).openMedia(item, {
+    const remote = await new EHentaiProvider(http as never, {
+      getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture'
+    }).openMedia(item, {
       quality: 'DISPLAY',
       reloadMedia: true,
       runDownloadRequest: governed as never
@@ -263,7 +345,9 @@ describe('EHentaiProvider broken-image recovery', () => {
 
   it('preserves original quality after refreshing the page', async () => {
     const http = client()
-    const remote = await new EHentaiProvider(http as never).openMedia(item, { quality: 'ORIGINAL', reloadMedia: true })
+    const remote = await new EHentaiProvider(http as never, {
+      getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture'
+    }).openMedia(item, { quality: 'ORIGINAL', reloadMedia: true })
     expect(http.request).toHaveBeenCalledWith('https://e-hentai.org/fullimg.php?gid=123', expect.any(Object))
     expect(remote.quality).toBe('ORIGINAL')
   })
@@ -272,7 +356,9 @@ describe('EHentaiProvider broken-image recovery', () => {
     'ignores unrecognized remote handlers: %s',
     async (handler) => {
       const http = client(handler)
-      await new EHentaiProvider(http as never).openMedia(item, { quality: 'DISPLAY', reloadMedia: true })
+      await new EHentaiProvider(http as never, {
+        getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture'
+      }).openMedia(item, { quality: 'DISPLAY', reloadMedia: true })
       expect(http.text).toHaveBeenCalledTimes(1)
       expect(http.request).toHaveBeenCalledWith('https://bad.hath.network/image.webp', expect.any(Object))
     }
@@ -286,7 +372,9 @@ describe('EHentaiProvider broken-image recovery', () => {
       stream: Readable.from([]),
       url: 'https://bad.hath.network/image.webp'
     })
-    const remote = await new EHentaiProvider(http as never).openMedia(item, { quality: 'ORIGINAL' })
+    const remote = await new EHentaiProvider(http as never, {
+      getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture'
+    }).openMedia(item, { quality: 'ORIGINAL' })
     expect(remote.quality).toBe('ORIGINAL')
     expect(http.request).toHaveBeenCalledTimes(2)
     expect(http.request).toHaveBeenLastCalledWith('https://e-hentai.org/fullimg.php?gid=123', expect.any(Object))
@@ -302,7 +390,11 @@ describe('EHentaiProvider broken-image recovery', () => {
           `<img id="img" src="${url}">${separateOriginal ? '<a href="/fullimg.php?gid=123">original</a>' : ''}`
         )
       http.request.mockImplementation(async () => ({ status: 403, headers: {}, stream: Readable.from([]), url }))
-      await expect(new EHentaiProvider(http as never).openMedia(item, { quality: 'ORIGINAL' })).rejects.toMatchObject({
+      await expect(
+        new EHentaiProvider(http as never, {
+          getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture'
+        }).openMedia(item, { quality: 'ORIGINAL' })
+      ).rejects.toMatchObject({
         code: 'REMOTE_FORBIDDEN',
         httpStatus: 403,
         pause: true,
@@ -315,7 +407,11 @@ describe('EHentaiProvider broken-image recovery', () => {
   it('preserves quota diagnostics without refreshing or suggesting lower quality', async () => {
     const http = client()
     http.request.mockImplementation(async () => ({ status: 509, headers: {}, stream: Readable.from([]), url }))
-    await expect(new EHentaiProvider(http as never).openMedia(item, { quality: 'ORIGINAL' })).rejects.toMatchObject({
+    await expect(
+      new EHentaiProvider(http as never, {
+        getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture'
+      }).openMedia(item, { quality: 'ORIGINAL' })
+    ).rejects.toMatchObject({
       code: 'REMOTE_QUOTA_EXCEEDED',
       httpStatus: 509,
       pause: true,
@@ -327,7 +423,9 @@ describe('EHentaiProvider broken-image recovery', () => {
 
   it('does not refresh an initial download', async () => {
     const http = client()
-    await new EHentaiProvider(http as never).openMedia(item, { quality: 'DISPLAY' })
+    await new EHentaiProvider(http as never, {
+      getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture'
+    }).openMedia(item, { quality: 'DISPLAY' })
     expect(http.text).toHaveBeenCalledTimes(1)
   })
 
@@ -357,7 +455,9 @@ describe('EHentaiProvider broken-image recovery', () => {
       stream: Readable.from([]),
       url: `https://praogxqcch.hath.network/${pathname}`
     })
-    const remote = await new EHentaiProvider(http as never).openMedia(item, { quality: 'DISPLAY' })
+    const remote = await new EHentaiProvider(http as never, {
+      getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture'
+    }).openMedia(item, { quality: 'DISPLAY' })
     expect(remote.expectedSha1).toBe(expectedSha1)
   })
 
@@ -371,7 +471,9 @@ describe('EHentaiProvider broken-image recovery', () => {
         stream: Readable.from([]),
         url: `${host}/h/${hash}-100-596-900-wbp/image.webp`
       })
-      const remote = await new EHentaiProvider(http as never).openMedia(item, { quality: 'DISPLAY' })
+      const remote = await new EHentaiProvider(http as never, {
+        getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture'
+      }).openMedia(item, { quality: 'DISPLAY' })
       expect(remote.expectedSha1).toBeUndefined()
     }
   )
@@ -413,7 +515,9 @@ describe('EHentaiProvider uploader scan', () => {
         }
       })
     }
-    const provider = new EHentaiProvider(http as never)
+    const provider = new EHentaiProvider(http as never, {
+      getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture'
+    })
     const first = await provider.scanUploader({
       identityKind: 'NAME',
       identityValue: 'Alice',
@@ -455,7 +559,9 @@ describe('EHentaiProvider uploader scan', () => {
       return operation()
     }
 
-    const result = await new EHentaiProvider(http as never).scanUploader(
+    const result = await new EHentaiProvider(http as never, {
+      getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture'
+    }).scanUploader(
       {
         identityKind: 'NAME',
         identityValue: 'alice',
@@ -489,7 +595,9 @@ describe('EHentaiProvider uploader scan', () => {
       }))
     }
 
-    const result = await new EHentaiProvider(http as never).scanUploader({
+    const result = await new EHentaiProvider(http as never, {
+      getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture'
+    }).scanUploader({
       identityKind: 'NAME',
       identityValue: 'alice',
       cursor: null,
@@ -508,7 +616,9 @@ describe('EHentaiProvider uploader scan', () => {
     const http = { text: vi.fn(async () => '<html><body>challenge</body></html>'), json: vi.fn() }
 
     await expect(
-      new EHentaiProvider(http as never).scanUploader({
+      new EHentaiProvider(http as never, {
+        getCookie: async () => 'ipb_member_id=fixture; ipb_pass_hash=fixture'
+      }).scanUploader({
         identityKind: 'UID',
         identityValue: '123',
         cursor: null,

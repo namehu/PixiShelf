@@ -30,6 +30,7 @@
     "maintenance:audit-background-task-retirement": "node maintenance/audit-background-task-retirement.mjs"
   },
   "dependencies": {
+    "@pixishelf/job-contracts": "workspace:*",
     "@prisma/client": "^5.17.0"
   },
   "devDependencies": {

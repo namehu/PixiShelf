@@ -12,7 +12,7 @@ export async function deleteUserWithArtworkDedupProtection(tx: Prisma.Transactio
     Prisma.sql`SELECT "runId" FROM "ArtworkDedupReviewState" WHERE "userId"=${userId} ORDER BY "runId" FOR UPDATE NOWAIT`
   )
   await tx.$queryRaw(Prisma.sql`SELECT count(*) FROM(SELECT a.id FROM "Artwork" a WHERE a.id IN(
-    SELECT "artworkId" FROM "ArtworkLike" WHERE "userId"=${userId} UNION SELECT "artworkId" FROM "MediaMark" WHERE "userId"=${userId} UNION SELECT "artworkId" FROM artwork_reading_summaries WHERE "userId"=${userId}
+    SELECT "artworkId" FROM "ArtworkLike" WHERE "userId"=${userId} UNION SELECT "artworkId" FROM "MediaMark" WHERE "userId"=${userId} UNION SELECT "artworkId" FROM artwork_reading_progress WHERE "userId"=${userId}
   ) ORDER BY a.id FOR UPDATE NOWAIT)locked`)
   // Claims also preserve private protection facts until maintenance has released the artwork.
   const claimed = await tx.$queryRaw<{ id: number }[]>(

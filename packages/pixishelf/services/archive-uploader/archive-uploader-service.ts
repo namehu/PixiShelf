@@ -1,4 +1,5 @@
 import { queryArchiveUploaderIgnoredItems, type IgnoredItemWire } from './archive-uploader-ignored-query'
+import { archiveSourceSizeBytes } from '@/services/archive/archive-source-metadata'
 import { archiveDownloadScopeSchema } from '@pixishelf/job-contracts'
 import { assertCatalogItemsActionable } from './archive-uploader-catalog-actions'
 import { sourceWireSelect, serializeSource, type SourceWire } from './archive-source-wire'
@@ -144,7 +145,7 @@ export const createArchiveUploaderSubmissionAttemptSchema = z
     sourceId: sourceIdSchema,
     itemIds: scanItemIdsSchema,
     downloadMode: z.enum(['AUTO', 'MANUAL']).default('MANUAL'),
-    quality: z.enum(['ORIGINAL', 'DISPLAY']).default('ORIGINAL'),
+    quality: z.enum(['ORIGINAL', 'DISPLAY']).default('DISPLAY'),
     downloadScope: archiveDownloadScopeSchema.default('ALL')
   })
   .strict()
@@ -973,6 +974,7 @@ function serializeCatalogItem(item: ArchiveUploaderCatalogStateRow) {
     changeReasons,
     errorMessage,
     fileCount,
+    fileSize,
     matchTitles,
     comparisonSnapshot,
     matchEvaluation,
@@ -981,6 +983,7 @@ function serializeCatalogItem(item: ArchiveUploaderCatalogStateRow) {
   return {
     ...rest,
     reviewDecision: item.reviewDecision ?? 'AUTO',
+    sourceSizeBytes: archiveSourceSizeBytes({ fileSize }),
     matchEvaluation: archiveTitleEvaluationSchema.safeParse(matchEvaluation).data ?? null,
     matchEvidence: archiveTitleEvidenceFromCatalog({ matchTitles, comparisonSnapshot }),
     ...(typeof fileCount === 'number' && Number.isSafeInteger(fileCount) && fileCount > 0 ? { fileCount } : {}),

@@ -10,6 +10,7 @@ import path from 'node:path'
 import type { Readable } from 'node:stream'
 import { ArchiveError, withArchiveErrorContext } from '../errors.ts'
 import { SafeHttpClient, assertSuccessStatus, remoteHostForUrl } from '../safe-http.ts'
+import { isEhOriginalEndpoint, parseEhDeliveryUrl, parseEhOriginalClaim } from '../eh-quality.ts'
 import type {
   ArchiveDownloadContext,
   ArchiveProviderContext,
@@ -90,7 +91,8 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
       ['e-hentai.org', 'ehgt.org', HATH_NETWORK_SUFFIX],
       process.env,
       [HATH_NETWORK_SUFFIX]
-    )
+    ),
+    private readonly options: { getCookie?: () => Promise<string | null> } = {}
   ) {}
 
   accepts(url: URL): boolean {
@@ -184,8 +186,9 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
       try {
         if (input.cursor.length > MAX_SEARCH_CURSOR_LENGTH * 2) throw new Error('oversized cursor')
         const decoded = JSON.parse(Buffer.from(input.cursor, 'base64url').toString('utf8'))
-        if (decoded.version !== 1 || decoded.binding !== binding || typeof decoded.cursor !== 'string')
-          {throw new Error('invalid cursor')}
+        if (decoded.version !== 1 || decoded.binding !== binding || typeof decoded.cursor !== 'string') {
+          throw new Error('invalid cursor')
+        }
         cursor = decoded.cursor
       } catch {
         throw new ArchiveError('INVALID_URL', '标题搜索游标与当前来源或条件不一致')
@@ -357,13 +360,24 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
         remoteHost: remoteHostForUrl(new URL(item.sourcePageUrl))
       })
     }
-    const originalUrl = findLink(html, /fullimg\.php/i, item.sourcePageUrl)
+    const originalUrl = findAllLinks(html, item.sourcePageUrl).find((url) => isEhOriginalEndpoint(url)) ?? null
+    const originalFilename = extractOriginalFilename(html)
+    const originalAnchor = (html.match(/<a\b[^>]*>[\s\S]*?<\/a>/gi) ?? []).find((tag) => {
+      const href = parseAttributes(tag.match(/^<a\b[^>]*>/i)?.[0] ?? '').href
+      if (!href) return false
+      try {
+        return new URL(decodeHtml(href), item.sourcePageUrl).toString() === originalUrl
+      } catch {
+        return false
+      }
+    })
+    const originalClaim =
+      originalUrl && originalAnchor ? parseEhOriginalClaim(decodeHtml(originalAnchor), originalFilename) : undefined
     const displayUrl = findImageById(html, 'img', item.sourcePageUrl)
     let selectedUrl: string | null = null
     let selectedQuality: 'ORIGINAL' | 'DISPLAY' = context.quality
 
     if (context.quality === 'ORIGINAL') {
-      // 若不存在 fullimg 链接，则 E-Hentai 已在展示原始文件。
       selectedUrl = originalUrl ?? displayUrl
       selectedQuality = 'ORIGINAL'
     } else {
@@ -379,17 +393,50 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
       })
     }
 
+    const originalRequested = context.quality === 'ORIGINAL'
+    const cookie = originalRequested && originalUrl ? await this.options.getCookie?.() : null
+    const loginRequired = (target: URL, httpStatus: number | null = null) =>
+      new ArchiveError(
+        'ORIGINAL_UNAVAILABLE',
+        cookie
+          ? 'EH 未接受当前登录态，请在系统设置中更新 EH Cookie 后重试'
+          : 'EH 要求登录才能下载原图，请在系统设置中配置 EH Cookie 后重试',
+        { recoverable: true, pause: true, httpStatus, stage: 'MEDIA_REQUEST', remoteHost: remoteHostForUrl(target) }
+      )
+
     try {
       context.onPhase?.('WAITING_MEDIA_RESPONSE')
       const response = await runDownloadStreamRequest(context, async () => {
         const opened = await this.http.request(selectedUrl, {
           ...(context.signal ? { signal: context.signal } : {}),
-          headers: { referer: item.sourcePageUrl }
+          headers: { referer: item.sourcePageUrl },
+          ...(originalRequested
+            ? {
+                headersForUrl: (url: URL): Record<string, string> => {
+                  if (isEhLoginEndpoint(url)) throw loginRequired(url)
+                  return cookie && isEhOriginalEndpoint(url) ? { cookie } : {}
+                }
+              }
+            : {})
         })
+        if (originalRequested) {
+          const target = new URL(opened.url)
+          if (opened.status === 401 || (opened.status >= 200 && opened.status < 300 && isEhLoginEndpoint(target))) {
+            opened.stream.resume()
+            throw loginRequired(target, opened.status)
+          }
+        }
         assertSuccessStatus(opened)
         return opened
       })
-      const expectedSha1 = expectedHathSha1(response.url)
+      const expectedSha1 = parseEhDeliveryUrl(response.url).descriptor?.sha1
+      const sourceOriginalClaim =
+        context.quality === 'DISPLAY' &&
+        originalClaim &&
+        (response.url === selectedUrl ||
+          (expectedSha1 && parseEhDeliveryUrl(selectedUrl).descriptor?.sha1 === expectedSha1))
+          ? originalClaim
+          : undefined
       return {
         downloadUrl: response.url,
         ...(expectedSha1 ? { expectedSha1 } : {}),
@@ -397,8 +444,15 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
         stream: response.stream,
         mimeType: headerValue(response.headers['content-type'])?.split(';')[0]?.trim() || null,
         contentLength: parseContentLength(response.headers['content-length']),
-        originalFilename: extractOriginalFilename(html),
+        originalFilename,
         quality: selectedQuality,
+        ehDelivery: {
+          requestedQuality: context.quality,
+          originalResponse: Boolean(originalAnchor && /\bDownload\s+original\b/i.test(decodeHtml(originalAnchor))) &&
+            context.quality === 'ORIGINAL' && isEhOriginalEndpoint(response.url),
+          ...(context.quality === 'ORIGINAL' && originalClaim ? { originalClaim } : {}),
+          ...(sourceOriginalClaim ? { sourceOriginalClaim } : {})
+        },
         remoteHost: remoteHostForUrl(new URL(response.url))
       }
     } catch (error) {
@@ -1045,14 +1099,20 @@ function findAllLinks(html: string, baseUrl: string): string[] {
   return values
 }
 
-function findLink(html: string, pattern: RegExp, baseUrl: string): string | null {
-  return findAllLinks(html, baseUrl).find((value) => pattern.test(value)) ?? null
+function isEhLoginEndpoint(url: URL): boolean {
+  return (
+    (url.origin === 'https://e-hentai.org' && url.pathname === '/bounce_login.php') ||
+    (url.origin === 'https://forums.e-hentai.org' &&
+      url.pathname === '/index.php' &&
+      url.searchParams.get('act')?.toLowerCase() === 'login')
+  )
 }
 
 function brokenImageReloadUrl(html: string, sourcePageUrl: string): string | null {
   const source = new URL(sourcePageUrl)
-  if (source.protocol !== 'https:' || source.hostname !== GALLERY_HOST || source.username || source.password)
-    {return null}
+  if (source.protocol !== 'https:' || source.hostname !== GALLERY_HOST || source.username || source.password) {
+    return null
+  }
   for (const tag of html.match(/<a\b[^>]*>/gi) ?? []) {
     const attributes = parseAttributes(tag)
     if (attributes.id !== 'loadfail') continue
@@ -1067,22 +1127,6 @@ function brokenImageReloadUrl(html: string, sourcePageUrl: string): string | nul
     return source.toString()
   }
   return null
-}
-
-function expectedHathSha1(value: string): string | undefined {
-  const url = new URL(value)
-  if (url.protocol !== 'https:' || !url.hostname.endsWith('.hath.network') || url.username || url.password)
-    {return undefined}
-  const segments = url.pathname.split('/')
-  const descriptorHash = (descriptor: string | undefined) =>
-    descriptor?.match(/^([a-f0-9]{40})-\d+-\d+-\d+-[a-z0-9]+$/i)?.[1]?.toLowerCase()
-  if (segments[1] === 'h' && segments.length > 3) return descriptorHash(segments[2])
-  if (segments[1] !== 'om' || !/^\d+$/.test(segments[2] ?? '') || segments.length <= 5) return undefined
-  const originalHash = descriptorHash(segments[3])
-  if (!originalHash) return undefined
-  // /om/ carries the original descriptor first, followed by the delivered
-  // derivative's descriptor (or "x" when serving the original bytes).
-  return segments[4] === 'x' ? originalHash : descriptorHash(segments[4])
 }
 
 function findImageById(html: string, id: string, baseUrl: string): string | null {

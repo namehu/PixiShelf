@@ -3,7 +3,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { getReadingStatus, type ReadingSummaryDto, type ReadingMarkReadInput, type ReadingContextDto } from '@pixishelf/db/reading-contract'
+import { compareReadingVersion, getReadingStatus, type ReadingSummaryDto, type ReadingContextDto } from '@pixishelf/db/reading-contract'
 import { useAuthUser, useAuthStore } from '@/components/auth/auth-provider'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { ReadingCollector, isRevisionConflict, type ReadingObservation } from './reading-collector'
@@ -44,9 +44,7 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
   const collector = useMemo(() => {
     const engine = new ReadingCollector({
       onPendingChange: () => setPendingVersion((prior) => prior + 1),
-      report: (input, signal) => input.events.some((event) => event.type === 'VIEW' && event.summary)
-        ? trpcClient.reading.summaryGroupRead.mutate(input, { signal })
-        : trpcClient.reading.report.mutate(input, { signal }),
+      report: (input, signal) => trpcClient.reading.report.mutate(input, { signal }),
       onSummary: (summary, expectedUserId, result) => {
         if (useAuthStore.getState().user?.id !== expectedUserId) return
         setErrors((prior) => {
@@ -71,7 +69,7 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
             </span>
           </div>
         ), {
-          id: `reading-completed-${expectedUserId}-${summary.artworkId}-${summary.mediaRevision}`,
+          id: `reading-completed-${expectedUserId}-${summary.artworkId}-${summary.readingLayoutVersion}`,
           position: 'bottom-center',
           duration: 2000
         })
@@ -161,7 +159,7 @@ export function useArtworkReading(artworkId: number, source?: {
   const queryClient = useQueryClient()
   const markingRef = useRef(false)
   const [marking, setMarking] = useState(false)
-  const [manualPending, setManualPending] = useState<{ owner: string; artworkId: number; target: ReadingMarkReadInput['target'] } | null>(null)
+  const [manualPending, setManualPending] = useState<{ owner: string; artworkId: number } | null>(null)
   const [markError, setMarkError] = useState<string | null>(null)
   const contextOptions = trpc.reading.context.queryOptions(
     { artworkId, expectedUserId: ownerUserId ?? '' },
@@ -172,15 +170,11 @@ export function useArtworkReading(artworkId: number, source?: {
   const progressKey = contextOptions.queryKey
   // External initialization still uses the existing versioned confirmation cache.
   const cached = queryClient.getQueryData<ReadingContextDto>(progressKey)
-  const base = cached && confirmed && cached.mediaRevision === confirmed.mediaRevision && cached.summary.stateVersion > confirmed.summary.stateVersion ? cached : confirmed
+  const base = cached && confirmed && compareReadingVersion(cached.summary, confirmed.summary) > 0 ? cached : confirmed
   let context = base ? collector.projectContext(base) : undefined
   if (context && manualPending?.owner === ownerUserId && manualPending.artworkId === artworkId) {
-    const target = manualPending.target
-    const seen = new Set(context.seenMediaIds)
-    context.media.forEach((item) => { if (target.kind === 'ALL' || item.memberMediaIds.includes(target.mediaId)) seen.add(item.mediaId) })
-    context = { ...context, seenMediaIds: [...seen], summary: { ...context.summary, seenCount: seen.size,
-      status: getReadingStatus({ ...context.summary, seenCount: seen.size,
-        viewCount: context.summary.status === 'IN_PROGRESS' ? Math.max(1, context.summary.viewCount) : context.summary.viewCount }) } }
+    context = { ...context, summary: { ...context.summary, completed: true, progressCount: context.summary.totalCount,
+      status: getReadingStatus({ ...context.summary, completed: true }) } }
   }
 
   useEffect(() => {
@@ -203,15 +197,15 @@ export function useArtworkReading(artworkId: number, source?: {
     window.location.reload()
   }, [])
 
-  const markRead = useCallback(async (target: ReadingMarkReadInput['target']) => {
+  const markRead = useCallback(async () => {
     if (!context || !ownerUserId || markingRef.current || invalidated.has(artworkId)) return
     markingRef.current = true
     setMarking(true)
-    setManualPending({ owner: ownerUserId, artworkId, target })
+    setManualPending({ owner: ownerUserId, artworkId })
     setMarkError(null)
     try {
       const result = await trpcClient.reading.markRead.mutate({
-        artworkId, expectedUserId: ownerUserId, mediaRevision: context.mediaRevision, target
+        artworkId, expectedUserId: ownerUserId, readingLayoutVersion: context.readingLayoutVersion
       })
       if (useAuthStore.getState().user?.id !== ownerUserId) return
       patchReadingSummaryInCache(queryClient, result.summary, ownerUserId, result)

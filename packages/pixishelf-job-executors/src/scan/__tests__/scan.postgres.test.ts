@@ -70,11 +70,16 @@ let catalogProbes = 0
 
 describePostgres('scan executor PostgreSQL integration', () => {
   beforeEach(async ({ task }) => {
-    probeCatalog = /marks newly published Pixiv|applies frozen NEW evidence|applies CHANGED evidence|original LOCAL_DIRECTORY proof for OPEN/.test(task.name)
+    probeCatalog =
+      /marks newly published Pixiv|applies frozen NEW evidence|applies CHANGED evidence|original LOCAL_DIRECTORY proof for OPEN/.test(
+        task.name
+      )
     catalogProbes = 0
     await cleanup()
   })
-  afterEach(() => { if (probeCatalog) expect(catalogProbes).toBeGreaterThan(0) })
+  afterEach(() => {
+    if (probeCatalog) expect(catalogProbes).toBeGreaterThan(0)
+  })
 
   afterAll(async () => {
     await cleanup()
@@ -82,95 +87,132 @@ describePostgres('scan executor PostgreSQL integration', () => {
     await Promise.all([prisma?.$disconnect(), concurrentPrisma?.$disconnect()])
   })
 
-  it.each(['HOLD', 'REOPEN'] as const)('rejects %s between discovery proof capture and page commit', async (transition) => {
-    const root = await fixtureRoot()
-    const externalId = nextNumericId()
-    const relativePath = `${externalId}-meta.json`
-    await fs.writeFile(path.join(root, relativePath), JSON.stringify(metadataDocument(externalId)))
-    await fs.writeFile(path.join(root, `${externalId}_p0.jpg`), 'media')
-    const payload: ScanPayload = { mode: 'INCREMENTAL' }
-    const jobId = await seedJob('SCAN', payload, 1)
-    const repository = queue()
-    const execution = context(repository, await claim(repository, `proof-${transition}`), payload)
-    let rejectedCode: unknown
-    const originalMutate = execution.mutateInTransaction
-    let sourceId: string | undefined
-    let injected = false
-    execution.mutateInTransaction = (async (operation: (tx: QueueSqlExecutor) => Promise<unknown>) => {
-      const result = await originalMutate(operation).catch((error: unknown) => {
-        rejectedCode = (error as { code?: unknown }).code
-        throw error
-      })
-      if (!sourceId && Array.isArray(result) && Array.isArray(result[0]) && result[0][0]?.sourceId) {
-        sourceId = result[0].find((proof: { identity: { kind: string } }) => proof.identity.kind === 'PROVIDER').sourceId
-        await injectSourceTransition(sourceId!, transition)
-        injected = true
+  it.each(['HOLD', 'REOPEN'] as const)(
+    'rejects %s between discovery proof capture and page commit',
+    async (transition) => {
+      const root = await fixtureRoot()
+      const externalId = nextNumericId()
+      const relativePath = `${externalId}-meta.json`
+      await fs.writeFile(path.join(root, relativePath), JSON.stringify(metadataDocument(externalId)))
+      await fs.writeFile(path.join(root, `${externalId}_p0.jpg`), 'media')
+      const payload: ScanPayload = { mode: 'INCREMENTAL' }
+      const jobId = await seedJob('SCAN', payload, 1)
+      const repository = queue()
+      const execution = context(repository, await claim(repository, `proof-${transition}`), payload)
+      let rejectedCode: unknown
+      const originalMutate = execution.mutateInTransaction
+      let sourceId: string | undefined
+      let injected = false
+      execution.mutateInTransaction = (async (operation: (tx: QueueSqlExecutor) => Promise<unknown>) => {
+        const result = await originalMutate(operation).catch((error: unknown) => {
+          rejectedCode = (error as { code?: unknown }).code
+          throw error
+        })
+        if (!sourceId && Array.isArray(result) && Array.isArray(result[0]) && result[0][0]?.sourceId) {
+          sourceId = result[0].find(
+            (proof: { identity: { kind: string } }) => proof.identity.kind === 'PROVIDER'
+          ).sourceId
+          await injectSourceTransition(sourceId!, transition)
+          injected = true
+        }
+        return result
+      }) as typeof execution.mutateInTransaction
+      try {
+        await executeScan(execution, dependencies(root))
+        expect(sourceId).toBeDefined()
+        expect(injected).toBe(true)
+        const failed = await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })
+        expect(failed.status).toBe('FAILED')
+        expect(rejectedCode).toBe(transition === 'HOLD' ? 'SOURCE_HELD' : 'SOURCE_GENERATION_CHANGED')
+        expect((await client().scanRun.findUniqueOrThrow({ where: { systemJobId: jobId } })).checkpointStage).toBe(
+          'FAILED'
+        )
+        expect(await client().pixivMetadataInventory.count({ where: { relativePath } })).toBe(0)
+        expect(await client().scanRunMetadataInput.count({ where: { scanRun: { systemJobId: jobId } } })).toBe(0)
+        expect(await client().artworkExternalRef.count({ where: { providerKey: 'pixiv', externalId } })).toBe(0)
+      } finally {
+        if (sourceId)
+          await client().artworkDedupSourceIdentity.update({
+            where: { id: sourceId },
+            data: { status: 'OPEN', ownerOperationId: null }
+          })
       }
-      return result
-    }) as typeof execution.mutateInTransaction
-    try {
-      await executeScan(execution, dependencies(root))
-      expect(sourceId).toBeDefined()
-      expect(injected).toBe(true)
-      const failed = await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })
-      expect(failed.status).toBe('FAILED')
-      expect(rejectedCode).toBe(transition === 'HOLD' ? 'SOURCE_HELD' : 'SOURCE_GENERATION_CHANGED')
-      expect((await client().scanRun.findUniqueOrThrow({ where: { systemJobId: jobId } })).checkpointStage).toBe('FAILED')
-      expect(await client().pixivMetadataInventory.count({ where: { relativePath } })).toBe(0)
-      expect(await client().scanRunMetadataInput.count({ where: { scanRun: { systemJobId: jobId } } })).toBe(0)
-      expect(await client().artworkExternalRef.count({ where: { providerKey: 'pixiv', externalId } })).toBe(0)
-    } finally {
-      if (sourceId) await client().artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { status: 'OPEN', ownerOperationId: null } })
     }
-  })
+  )
 
-  it.each(['HOLD', 'REOPEN', 'NULL'] as const)('keeps frozen proof and permits failure receipts after %s before publication', async (transition) => {
-    const root = await fixtureRoot()
-    const externalId = nextNumericId()
-    const relativePath = `${externalId}-meta.json`
-    await fs.writeFile(path.join(root, relativePath), JSON.stringify(metadataDocument(externalId)))
-    await fs.writeFile(path.join(root, `${externalId}_p0.jpg`), 'media')
-    const payload: ScanPayload = { mode: 'INCREMENTAL' }
-    const jobId = await seedJob('SCAN', payload, 1)
-    const repository = queue()
-    const execution = context(repository, await claim(repository, `frozen-proof-${transition}`), payload)
-    const originalMutate = execution.mutateInTransaction
-    let frozen: Prisma.JsonValue | undefined
-    let sourceId: string | undefined
-    let inputId: string | undefined
-    let injected = false
-    execution.mutateInTransaction = (async (operation: (tx: QueueSqlExecutor) => Promise<unknown>) => {
-      const result = await originalMutate(operation)
-      if (!inputId && result && typeof result === 'object' && 'inputFrozenAt' in result && result.inputFrozenAt) {
-        const row = await client().scanRunMetadataInput.findFirstOrThrow({ where: { scanRun: { systemJobId: jobId } } })
-        inputId = row.id
-        frozen = row.dedupSourceSnapshot
-        sourceId = parseArtworkDedupSourceSnapshot(frozen).sources.find((proof) => proof.identity.kind === 'PROVIDER')!.sourceId
-        if (transition === 'NULL') {
-          await client().scanRunMetadataInput.update({ where: { id: row.id }, data: { dedupSourceSnapshot: Prisma.DbNull } })
-          expect((await client().scanRunMetadataInput.findUniqueOrThrow({ where: { id: row.id } })).dedupSourceSnapshot).toBeNull()
-        } else await injectSourceTransition(sourceId!, transition)
-        injected = true
+  it.each(['HOLD', 'REOPEN', 'NULL'] as const)(
+    'keeps frozen proof and permits failure receipts after %s before publication',
+    async (transition) => {
+      const root = await fixtureRoot()
+      const externalId = nextNumericId()
+      const relativePath = `${externalId}-meta.json`
+      await fs.writeFile(path.join(root, relativePath), JSON.stringify(metadataDocument(externalId)))
+      await fs.writeFile(path.join(root, `${externalId}_p0.jpg`), 'media')
+      const payload: ScanPayload = { mode: 'INCREMENTAL' }
+      const jobId = await seedJob('SCAN', payload, 1)
+      const repository = queue()
+      const execution = context(repository, await claim(repository, `frozen-proof-${transition}`), payload)
+      const originalMutate = execution.mutateInTransaction
+      let frozen: Prisma.JsonValue | undefined
+      let sourceId: string | undefined
+      let inputId: string | undefined
+      let injected = false
+      execution.mutateInTransaction = (async (operation: (tx: QueueSqlExecutor) => Promise<unknown>) => {
+        const result = await originalMutate(operation)
+        if (!inputId && result && typeof result === 'object' && 'inputFrozenAt' in result && result.inputFrozenAt) {
+          const row = await client().scanRunMetadataInput.findFirstOrThrow({
+            where: { scanRun: { systemJobId: jobId } }
+          })
+          inputId = row.id
+          frozen = row.dedupSourceSnapshot
+          sourceId = parseArtworkDedupSourceSnapshot(frozen).sources.find(
+            (proof) => proof.identity.kind === 'PROVIDER'
+          )!.sourceId
+          if (transition === 'NULL') {
+            await client().scanRunMetadataInput.update({
+              where: { id: row.id },
+              data: { dedupSourceSnapshot: Prisma.DbNull }
+            })
+            expect(
+              (await client().scanRunMetadataInput.findUniqueOrThrow({ where: { id: row.id } })).dedupSourceSnapshot
+            ).toBeNull()
+          } else await injectSourceTransition(sourceId!, transition)
+          injected = true
+        }
+        return result
+      }) as typeof execution.mutateInTransaction
+      try {
+        await executeScan(execution, dependencies(root))
+        expect(inputId).toBeDefined()
+        expect(injected).toBe(true)
+        const failed = await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })
+        expect(failed.status).toBe('FAILED')
+        expect(failed.error).toContain(
+          transition === 'NULL'
+            ? 'no matching durable deduplication source proof'
+            : transition === 'HOLD'
+              ? 'SOURCE_HELD'
+              : 'SOURCE_GENERATION_CHANGED'
+        )
+        expect((await client().scanRun.findUniqueOrThrow({ where: { systemJobId: jobId } })).checkpointStage).toBe(
+          'FAILED'
+        )
+        expect(
+          (await client().scanRunMetadataInput.findUniqueOrThrow({ where: { id: inputId! } })).dedupSourceSnapshot
+        ).toEqual(transition === 'NULL' ? null : frozen)
+        expect(await client().artworkExternalRef.count({ where: { providerKey: 'pixiv', externalId } })).toBe(0)
+        const inventory = await client().pixivMetadataInventory.findUniqueOrThrow({ where: { relativePath } })
+        expect(inventory.processedContentHash).toBeNull()
+        expect(inventory.lastErrorCode).toBeNull()
+      } finally {
+        if (sourceId)
+          await client().artworkDedupSourceIdentity.update({
+            where: { id: sourceId },
+            data: { status: 'OPEN', ownerOperationId: null }
+          })
       }
-      return result
-    }) as typeof execution.mutateInTransaction
-    try {
-      await executeScan(execution, dependencies(root))
-      expect(inputId).toBeDefined()
-      expect(injected).toBe(true)
-      const failed = await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })
-      expect(failed.status).toBe('FAILED')
-      expect(failed.error).toContain(transition === 'NULL' ? 'no matching durable deduplication source proof' : transition === 'HOLD' ? 'SOURCE_HELD' : 'SOURCE_GENERATION_CHANGED')
-      expect((await client().scanRun.findUniqueOrThrow({ where: { systemJobId: jobId } })).checkpointStage).toBe('FAILED')
-      expect((await client().scanRunMetadataInput.findUniqueOrThrow({ where: { id: inputId! } })).dedupSourceSnapshot).toEqual(transition === 'NULL' ? null : frozen)
-      expect(await client().artworkExternalRef.count({ where: { providerKey: 'pixiv', externalId } })).toBe(0)
-      const inventory = await client().pixivMetadataInventory.findUniqueOrThrow({ where: { relativePath } })
-      expect(inventory.processedContentHash).toBeNull()
-      expect(inventory.lastErrorCode).toBeNull()
-    } finally {
-      if (sourceId) await client().artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { status: 'OPEN', ownerOperationId: null } })
     }
-  })
+  )
 
   it('rejects an unchanged discovery page when its captured generation changes before counters commit', async () => {
     const root = await fixtureRoot()
@@ -208,42 +250,75 @@ describePostgres('scan executor PostgreSQL integration', () => {
     expect(await client().pixivMetadataInventory.findUniqueOrThrow({ where: { relativePath } })).toEqual(before)
   })
 
-  it.each(['OPEN', 'STALE', 'NULL'] as const)('requires the original LOCAL_DIRECTORY proof for %s local publication', async (state) => {
-    const root = await fixtureRoot()
-    const relativePath = 'local-imports/Artist/Work'
-    await fs.mkdir(path.join(root, relativePath), { recursive: true })
-    await fs.writeFile(path.join(root, relativePath, '1.jpg'), 'media')
-    const artist = await client().artist.create({ data: { name: `${testPrefix}-local-proof` } })
-    const mappings = [{ ordinal: 0, artistDirectory: 'Artist', artistId: artist.id }]
-    const work = { ordinal: 0, kind: 'MEDIA_DIRECTORY' as const, relativePath, fingerprint: null }
-    const payload: LocalDirectoryImportPayload = { defaultTagIds: [], mappingCount: 1, mappingDigest: artistMappingInputDigest(mappings) }
-    const rootIdentity = await resolveScanDedupRootIdentity(await resolveSafeScanRoot(root), rootBindingContext)
-    const jobId = await seedJob('LOCAL_DIRECTORY_IMPORT', payload, 1)
-    const run = await client().$transaction(async (tx) => {
-      const sources = await captureArtworkDedupSources(tx, { identities: [{ kind: 'DIRECTORY', logicalRoot: 'source-media:v1', rootIdentity, canonicalPath: relativePath }] })
-      return tx.scanRun.create({ data: {
-        systemJobId: jobId, type: 'LOCAL_IMPORT', mode: 'LOCAL_DIRECTORY_IMPORT', status: 'PENDING',
-        inputCount: 1, inputDigest: localWorkInputDigest([work]), inputFrozenAt: clock.now(),
-        localWorkInputs: { create: { ...work, dedupSourceSnapshot: state === 'NULL' ? Prisma.DbNull : serializeArtworkDedupSourceSnapshot(sources) } },
-        localArtistMappingInputs: { create: mappings }
-      }, include: { localWorkInputs: true } })
-    })
-    const proof = run.localWorkInputs[0]!.dedupSourceSnapshot
-    if (state === 'STALE') {
-      const source = parseArtworkDedupSourceSnapshot(proof).sources[0]!
-      await client().artworkDedupSourceIdentity.update({ where: { id: source.sourceId }, data: { generation: { increment: 1 } } })
+  it.each(['OPEN', 'STALE', 'NULL'] as const)(
+    'requires the original LOCAL_DIRECTORY proof for %s local publication',
+    async (state) => {
+      const root = await fixtureRoot()
+      const relativePath = 'local-imports/Artist/Work'
+      await fs.mkdir(path.join(root, relativePath), { recursive: true })
+      await fs.writeFile(path.join(root, relativePath, '1.jpg'), 'media')
+      const artist = await client().artist.create({ data: { name: `${testPrefix}-local-proof` } })
+      const mappings = [{ ordinal: 0, artistDirectory: 'Artist', artistId: artist.id }]
+      const work = { ordinal: 0, kind: 'MEDIA_DIRECTORY' as const, relativePath, fingerprint: null }
+      const payload: LocalDirectoryImportPayload = {
+        defaultTagIds: [],
+        mappingCount: 1,
+        mappingDigest: artistMappingInputDigest(mappings)
+      }
+      const rootIdentity = await resolveScanDedupRootIdentity(await resolveSafeScanRoot(root), rootBindingContext)
+      const jobId = await seedJob('LOCAL_DIRECTORY_IMPORT', payload, 1)
+      const run = await client().$transaction(async (tx) => {
+        const sources = await captureArtworkDedupSources(tx, {
+          identities: [{ kind: 'DIRECTORY', logicalRoot: 'source-media:v1', rootIdentity, canonicalPath: relativePath }]
+        })
+        return tx.scanRun.create({
+          data: {
+            systemJobId: jobId,
+            type: 'LOCAL_IMPORT',
+            mode: 'LOCAL_DIRECTORY_IMPORT',
+            status: 'PENDING',
+            inputCount: 1,
+            inputDigest: localWorkInputDigest([work]),
+            inputFrozenAt: clock.now(),
+            localWorkInputs: {
+              create: {
+                ...work,
+                dedupSourceSnapshot: state === 'NULL' ? Prisma.DbNull : serializeArtworkDedupSourceSnapshot(sources)
+              }
+            },
+            localArtistMappingInputs: { create: mappings }
+          },
+          include: { localWorkInputs: true }
+        })
+      })
+      const proof = run.localWorkInputs[0]!.dedupSourceSnapshot
+      if (state === 'STALE') {
+        const source = parseArtworkDedupSourceSnapshot(proof).sources[0]!
+        await client().artworkDedupSourceIdentity.update({
+          where: { id: source.sourceId },
+          data: { generation: { increment: 1 } }
+        })
+      }
+      const repository = queue()
+      await executeLocalDirectoryImport(
+        context(repository, await claim(repository, `local-proof-${state}`), payload),
+        dependencies(root)
+      )
+      expect((await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe(
+        state === 'OPEN' ? 'COMPLETED' : 'FAILED'
+      )
+      const artwork = await client().artwork.findUnique({ where: { storagePath: relativePath } })
+      expect(Boolean(artwork)).toBe(state === 'OPEN')
+      if (artwork) {
+        expect(artwork.createdVia).toBe('LOCAL_DIRECTORY')
+        await client().artwork.delete({ where: { id: artwork.id } })
+      }
+      expect(
+        (await client().scanRunLocalWorkInput.findUniqueOrThrow({ where: { id: run.localWorkInputs[0]!.id } }))
+          .dedupSourceSnapshot
+      ).toEqual(proof)
     }
-    const repository = queue()
-    await executeLocalDirectoryImport(context(repository, await claim(repository, `local-proof-${state}`), payload), dependencies(root))
-    expect((await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe(state === 'OPEN' ? 'COMPLETED' : 'FAILED')
-    const artwork = await client().artwork.findUnique({ where: { storagePath: relativePath } })
-    expect(Boolean(artwork)).toBe(state === 'OPEN')
-    if (artwork) {
-      expect(artwork.createdVia).toBe('LOCAL_DIRECTORY')
-      await client().artwork.delete({ where: { id: artwork.id } })
-    }
-    expect((await client().scanRunLocalWorkInput.findUniqueOrThrow({ where: { id: run.localWorkInputs[0]!.id } })).dedupSourceSnapshot).toEqual(proof)
-  })
+  )
 
   it('marks newly published Pixiv artworks only for opted-in accounts without creating visits', async () => {
     const root = await fixtureRoot()
@@ -259,12 +334,11 @@ describePostgres('scan executor PostgreSQL integration', () => {
       await fs.writeFile(path.join(root, `${id}_p0.jpg`), 'image')
       await executeIncremental(root, 'reading-default')
       const artwork = await client().artwork.findUniqueOrThrow({ where: { externalId: id } })
-      const summaries = await client().artworkReadingSummary.findMany({ where: { artworkId: artwork.id } })
+      const summaries = await client().artworkReadingProgress.findMany({ where: { artworkId: artwork.id } })
       expect(summaries).toHaveLength(1)
       expect(summaries[0]).toMatchObject({
         userId,
-        seenCount: 1,
-        totalCount: 1,
+        completed: true,
         viewCount: 0,
         stateVersion: 1,
         lastViewedAt: null,
@@ -272,11 +346,9 @@ describePostgres('scan executor PostgreSQL integration', () => {
         lastMediaId: null,
         lastMediaIndex: null
       })
-      expect(await client().artworkReadMedia.count({ where: { artworkId: artwork.id, userId } })).toBe(1)
       await executeIncremental(root, 'reading-repeat')
-      expect(await client().artworkReadingSummary.findMany({ where: { artworkId: artwork.id } })).toEqual(summaries)
+      expect(await client().artworkReadingProgress.findMany({ where: { artworkId: artwork.id } })).toEqual(summaries)
       await client().image.create({ data: { artworkId: artwork.id, path: `${id}_p1.jpg`, sortOrder: 1 } })
-      expect(await client().artworkReadMedia.count({ where: { artworkId: artwork.id, userId } })).toBe(1)
     } finally {
       await client().userBA.deleteMany({ where: { id: { in: [userId, otherUserId] } } })
     }
@@ -454,7 +526,11 @@ describePostgres('scan executor PostgreSQL integration', () => {
         media: Array.from({ length: 501 }, (_, index) => media(`pg/${testPrefix}/${externalId}_p${index}.jpg`, index)),
         existingPolicy: 'REFRESH',
         now: clock.now(),
-        checkpointTiming: () => ({ startedAt: clock.now(), finishedAt: new Date(clock.now().getTime() + 37), durationMs: 36 })
+        checkpointTiming: () => ({
+          startedAt: clock.now(),
+          finishedAt: new Date(clock.now().getTime() + 37),
+          durationMs: 36
+        })
       })
 
     await expect(
@@ -486,7 +562,9 @@ describePostgres('scan executor PostgreSQL integration', () => {
     )
     expect(await client().artwork.count({ where: { externalId } })).toBe(1)
     expect(await client().scanRunItem.count({ where: { scanRunId: run.id } })).toBe(1)
-    expect(await client().image.count({ where: { path: { startsWith: `pg/${testPrefix}/${externalId}_p` } } })).toBe(501)
+    expect(await client().image.count({ where: { path: { startsWith: `pg/${testPrefix}/${externalId}_p` } } })).toBe(
+      501
+    )
     expect(await client().scanRunItem.findFirstOrThrow({ where: { scanRunId: run.id } })).toEqual(settledItem)
     expect(settledItem).toMatchObject({ mediaCount: 501, newImageCount: 501, durationMs: 36 })
     expect(settledItem.finishedAt!.getTime()).toBeGreaterThanOrEqual(settledItem.startedAt.getTime())
@@ -758,9 +836,15 @@ describePostgres('scan executor PostgreSQL integration', () => {
     const failedItem = await client().scanRunItem.findFirstOrThrow({ where: { scanRunId: run.id } })
     expect(failedItem.durationMs).toEqual(expect.any(Number))
     expect(failedItem.finishedAt!.getTime()).toBeGreaterThanOrEqual(failedItem.startedAt.getTime())
-    await client().scanRun.update({ where: { id: run.id }, data: {
-      parsedInputs: null, publishedInputs: null, failedInputs: null, publishDurationMs: null
-    } })
+    await client().scanRun.update({
+      where: { id: run.id },
+      data: {
+        parsedInputs: null,
+        publishedInputs: null,
+        failedInputs: null,
+        publishDurationMs: null
+      }
+    })
     expect(await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).toMatchObject({
       status: 'RETRY_WAIT',
       errorCode: 'PRECONDITION_FAILED',
@@ -961,7 +1045,9 @@ describePostgres('scan executor PostgreSQL integration', () => {
           inputFrozenAt: clock.now(),
           inputCount: 1,
           inputDigest: payload.inputDigest,
-          metadataInputs: { create: { ...row, dedupSourceSnapshot: await captureFixturePixivSources(root, row.relativePath) } }
+          metadataInputs: {
+            create: { ...row, dedupSourceSnapshot: await captureFixturePixivSources(root, row.relativePath) }
+          }
         }
       })
       const repository = queue()
@@ -1055,7 +1141,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
       operation: (transaction: QueueSqlExecutor) => Promise<unknown>
     ) => {
       const result = await originalMutate(operation)
-      if (await client().scanRunMetadataInput.count({ where: { scanRunId: interruptedRun.id } }) === 1) {
+      if ((await client().scanRunMetadataInput.count({ where: { scanRunId: interruptedRun.id } })) === 1) {
         throw new Error('crash after partial baseline page')
       }
       return result
@@ -1106,7 +1192,9 @@ describePostgres('scan executor PostgreSQL integration', () => {
         inputFrozenAt: clock.now(),
         inputCount: 1,
         inputDigest: clientPayload.inputDigest,
-        metadataInputs: { create: { ...row, dedupSourceSnapshot: await captureFixturePixivSources(root, row.relativePath) } }
+        metadataInputs: {
+          create: { ...row, dedupSourceSnapshot: await captureFixturePixivSources(root, row.relativePath) }
+        }
       }
     })
     const clientRepository = queue()
@@ -1253,7 +1341,8 @@ describePostgres('scan executor PostgreSQL integration', () => {
     const originalMutate = executionContext.mutateInTransaction
     executionContext.mutateInTransaction = (async (operation: (transaction: QueueSqlExecutor) => Promise<unknown>) => {
       const result = await originalMutate(operation)
-      if (await client().scanRunMetadataInput.count({ where: { scanRunId: run.id } }) === 1) throw new Error('crash after first discovery page')
+      if ((await client().scanRunMetadataInput.count({ where: { scanRunId: run.id } })) === 1)
+        throw new Error('crash after first discovery page')
       return result
     }) as typeof executionContext.mutateInTransaction
     const baseDependencies = dependencies(root)
@@ -1280,7 +1369,8 @@ describePostgres('scan executor PostgreSQL integration', () => {
     expect(await client().scanRunMetadataInput.count({ where: { scanRunId: run.id } })).toBe(1)
     expect((await client().scanRun.findUniqueOrThrow({ where: { id: run.id } })).inputFrozenAt).toBeNull()
 
-    const originalProof = (await client().scanRunMetadataInput.findFirstOrThrow({ where: { scanRunId: run.id } })).dedupSourceSnapshot
+    const originalProof = (await client().scanRunMetadataInput.findFirstOrThrow({ where: { scanRunId: run.id } }))
+      .dedupSourceSnapshot
     executionContext.mutateInTransaction = originalMutate
     await expect(executeScan(executionContext, oneItemPages)).resolves.toEqual(
       TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
@@ -1294,7 +1384,14 @@ describePostgres('scan executor PostgreSQL integration', () => {
       contentChanged: 2,
       publishedInputs: 2
     })
-    expect((await client().scanRunMetadataInput.findFirstOrThrow({ where: { scanRunId: run.id }, orderBy: { ordinal: 'asc' } })).dedupSourceSnapshot).toEqual(originalProof)
+    expect(
+      (
+        await client().scanRunMetadataInput.findFirstOrThrow({
+          where: { scanRunId: run.id },
+          orderBy: { ordinal: 'asc' }
+        })
+      ).dedupSourceSnapshot
+    ).toEqual(originalProof)
   })
 
   it('recovers changed content after a page crash without carrying forward the old permanent failure', async () => {
@@ -2865,7 +2962,9 @@ describePostgres('scan executor PostgreSQL integration', () => {
         inputFrozenAt: clock.now(),
         inputCount: 1,
         inputDigest: metadataInputDigest([row]),
-        metadataInputs: { create: { ...row, dedupSourceSnapshot: await captureFixturePixivSources(root, row.relativePath) } }
+        metadataInputs: {
+          create: { ...row, dedupSourceSnapshot: await captureFixturePixivSources(root, row.relativePath) }
+        }
       }
     })
     const replacementPath = `local-imports/${externalId}`
@@ -2984,7 +3083,9 @@ describePostgres('scan executor PostgreSQL integration', () => {
         inputFrozenAt: clock.now(),
         inputCount: 1,
         inputDigest: metadataInputDigest([row]),
-        metadataInputs: { create: { ...row, dedupSourceSnapshot: await captureFixturePixivSources(root, row.relativePath) } }
+        metadataInputs: {
+          create: { ...row, dedupSourceSnapshot: await captureFixturePixivSources(root, row.relativePath) }
+        }
       }
     })
     const repository = queue()
@@ -3032,7 +3133,9 @@ describePostgres('scan executor PostgreSQL integration', () => {
         inputFrozenAt: clock.now(),
         inputCount: 1,
         inputDigest: payload.inputDigest,
-        metadataInputs: { create: { ...row, dedupSourceSnapshot: await captureFixturePixivSources(root, row.relativePath) } }
+        metadataInputs: {
+          create: { ...row, dedupSourceSnapshot: await captureFixturePixivSources(root, row.relativePath) }
+        }
       }
     })
     const interruption = new Error('worker shutdown during metadata read')
@@ -3222,7 +3325,9 @@ async function frozenArtworkRescanFixture(root: string, source: 'PIXIV_IMPORTED'
       inputFrozenAt: clock.now(),
       inputCount: 1,
       inputDigest: metadataInputDigest([row]),
-      metadataInputs: { create: { ...row, dedupSourceSnapshot: await captureFixturePixivSources(root, row.relativePath) } }
+      metadataInputs: {
+        create: { ...row, dedupSourceSnapshot: await captureFixturePixivSources(root, row.relativePath) }
+      }
     }
   })
   return { artwork, externalId, jobId, payload, relativePath, row, run }
@@ -3333,7 +3438,13 @@ async function seedAuditApplyFixture(options: {
   const freshRoot = await resolveSafeScanRoot(root)
   await client().$transaction((tx) => bindPixivInventoryRoot(tx, freshRoot, clock.now()))
   const sourceRootIdentity = await resolveScanDedupRootIdentity(freshRoot, rootBindingContext)
-  const dedupSourceSnapshot = serializeArtworkDedupSourceSnapshot(await client().$transaction((tx) => captureArtworkDedupSources(tx, { identities: pixivScanSourceIdentities({ rootIdentity: sourceRootIdentity, relativePath }) })))
+  const dedupSourceSnapshot = serializeArtworkDedupSourceSnapshot(
+    await client().$transaction((tx) =>
+      captureArtworkDedupSources(tx, {
+        identities: pixivScanSourceIdentities({ rootIdentity: sourceRootIdentity, relativePath })
+      })
+    )
+  )
   const sourceItem = await client().pixivSourceAuditItem.create({
     data: {
       scanRunId: auditRun.id,
@@ -3424,7 +3535,10 @@ async function seedApplyOperationFromAudit(
           relativePath: source.relativePath,
           contentHash: source.contentHash,
           sourceAuditItemId: source.sourceAuditItemId,
-          dedupSourceSnapshot: parseArtworkDedupSourceSnapshot((await client().pixivSourceAuditItem.findUniqueOrThrow({ where: { id: source.sourceAuditItemId } })).dedupSourceSnapshot),
+          dedupSourceSnapshot: parseArtworkDedupSourceSnapshot(
+            (await client().pixivSourceAuditItem.findUniqueOrThrow({ where: { id: source.sourceAuditItemId } }))
+              .dedupSourceSnapshot
+          ),
           auditDifferenceKind: source.differenceKind,
           expectedExternalId: source.externalId,
           observedExternalId: source.externalId,
@@ -3488,7 +3602,12 @@ function context<TPayload extends ScanPayload | ScanV2Payload | ScanAuditApplyPa
     enqueueChild: vi.fn(async () => {
       throw new Error('not used')
     }),
-    mutateInTransaction: <TTransaction extends QueueSqlExecutor, TResult>(operation: (transaction: TTransaction) => Promise<TResult>) => repository.withFencedMutationTransaction<TTransaction, TResult>(ownedFence, (transaction) => operation(catalogProbe(transaction))),
+    mutateInTransaction: <TTransaction extends QueueSqlExecutor, TResult>(
+      operation: (transaction: TTransaction) => Promise<TResult>
+    ) =>
+      repository.withFencedMutationTransaction<TTransaction, TResult>(ownedFence, (transaction) =>
+        operation(catalogProbe(transaction))
+      ),
     finalizeInTransaction: async (operation) => {
       await repository.withFencedExecutionTransaction(ownedFence, operation)
       return TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
@@ -3607,9 +3726,11 @@ async function captureFixturePixivSources(root: string, relativePath: string) {
   const safeRoot = await resolveSafeScanRoot(root)
   await client().$transaction((tx) => bindPixivInventoryRoot(tx, safeRoot, clock.now()))
   const rootIdentity = await resolveScanDedupRootIdentity(safeRoot, rootBindingContext)
-  return serializeArtworkDedupSourceSnapshot(await client().$transaction((tx) =>
-    captureArtworkDedupSources(tx, { identities: pixivScanSourceIdentities({ rootIdentity, relativePath }) })
-  ))
+  return serializeArtworkDedupSourceSnapshot(
+    await client().$transaction((tx) =>
+      captureArtworkDedupSources(tx, { identities: pixivScanSourceIdentities({ rootIdentity, relativePath }) })
+    )
+  )
 }
 
 async function cleanup() {
@@ -3617,7 +3738,9 @@ async function cleanup() {
   await cleanupFixtureContentDirectories(prisma, roots)
   // Marker mutation tests must also release the binding observed before the UUID changed.
   if (retiredRootIdentities.size) {
-    await prisma.mediaContentPathWrite.deleteMany({ where: { directory: { rootIdentity: { in: [...retiredRootIdentities] } } } })
+    await prisma.mediaContentPathWrite.deleteMany({
+      where: { directory: { rootIdentity: { in: [...retiredRootIdentities] } } }
+    })
     await prisma.mediaContentDirectoryState.deleteMany({ where: { rootIdentity: { in: [...retiredRootIdentities] } } })
     retiredRootIdentities.clear()
   }
@@ -3756,14 +3879,27 @@ function trackAuditItemBatches(
 /** Read back both commits; callers mark injection complete only after every assertion succeeds. */
 async function injectSourceTransition(sourceId: string, transition: 'HOLD' | 'REOPEN') {
   const before = await client().artworkDedupSourceIdentity.findUniqueOrThrow({ where: { id: sourceId } })
-  await client().artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { status: 'HOLD', ownerOperationId: 'synthetic-source-proof-hold' } })
-  expect(await client().artworkDedupSourceIdentity.findUniqueOrThrow({ where: { id: sourceId } })).toMatchObject({ status: 'HOLD', ownerOperationId: 'synthetic-source-proof-hold', generation: before.generation })
+  await client().artworkDedupSourceIdentity.update({
+    where: { id: sourceId },
+    data: { status: 'HOLD', ownerOperationId: 'synthetic-source-proof-hold' }
+  })
+  expect(await client().artworkDedupSourceIdentity.findUniqueOrThrow({ where: { id: sourceId } })).toMatchObject({
+    status: 'HOLD',
+    ownerOperationId: 'synthetic-source-proof-hold',
+    generation: before.generation
+  })
   if (transition === 'REOPEN') {
-    await client().artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { status: 'OPEN', ownerOperationId: null, generation: { increment: 1 } } })
-    expect(await client().artworkDedupSourceIdentity.findUniqueOrThrow({ where: { id: sourceId } })).toMatchObject({ status: 'OPEN', ownerOperationId: null, generation: before.generation + 1n })
+    await client().artworkDedupSourceIdentity.update({
+      where: { id: sourceId },
+      data: { status: 'OPEN', ownerOperationId: null, generation: { increment: 1 } }
+    })
+    expect(await client().artworkDedupSourceIdentity.findUniqueOrThrow({ where: { id: sourceId } })).toMatchObject({
+      status: 'OPEN',
+      ownerOperationId: null,
+      generation: before.generation + 1n
+    })
   }
 }
-
 
 /** Real competing transaction: at the first catalog acquisition the writer must not own the root.
  * The barrier pauses the actual executor before the lock; PostgreSQL lock_timeout detects inversion. */
@@ -3780,7 +3916,9 @@ function catalogProbe<T extends object>(transaction: T): T {
           await concurrentClient().$transaction(async (other) => {
             await other.$queryRawUnsafe('SELECT pg_advisory_xact_lock(7341902118)::text')
             await other.$executeRawUnsafe("SET LOCAL lock_timeout = '200ms'")
-            const roots = await other.$queryRawUnsafe<{ id: string }[]>('SELECT id FROM "MediaContentDirectoryState" WHERE "logicalRoot"=\'source-media:v1\' AND "relativeDirectory"=\'\' FOR UPDATE')
+            const roots = await other.$queryRawUnsafe<{ id: string }[]>(
+              'SELECT id FROM "MediaContentDirectoryState" WHERE "logicalRoot"=\'source-media:v1\' AND "relativeDirectory"=\'\' FOR UPDATE'
+            )
             expect(roots).toHaveLength(1)
           })
           catalogProbes += 1
@@ -3792,5 +3930,6 @@ function catalogProbe<T extends object>(transaction: T): T {
 }
 
 const rootBindingContext = {
-  mutateInTransaction: (operation: (tx: Prisma.TransactionClient) => Promise<unknown>) => client().$transaction(operation)
+  mutateInTransaction: (operation: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
+    client().$transaction(operation)
 } as unknown as Pick<ExecutionContext, 'mutateInTransaction'>

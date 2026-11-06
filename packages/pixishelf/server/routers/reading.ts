@@ -25,10 +25,6 @@ function assertExpectedUser(actualUserId: string, expectedUserId: string) {
 }
 
 export const readingRouter = router({
-  summaryGroupRead: authProcedure.input(ReadingReportInputSchema).mutation(({ ctx, input }) => {
-    assertExpectedUser(ctx.userId, input.expectedUserId)
-    return reportReading(ctx.userId, input)
-  }),
   context: authProcedure.input(ReadingContextInputSchema).query(({ ctx, input }) => {
     assertExpectedUser(ctx.userId, input.expectedUserId)
     return getReadingContext(ctx.userId, input.artworkId)

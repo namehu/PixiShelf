@@ -1,5 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query'
-import { compareReadingVersion, isArtworkReadingComplete, type ReadingSummaryDto, type ReadingReportResult, type ReadingContextDto } from '@pixishelf/db/reading-contract'
+import { compareReadingVersion, type ReadingSummaryDto, type ReadingReportResult, type ReadingContextDto } from '@pixishelf/db/reading-contract'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -35,7 +35,7 @@ function removeFinishedContinueReading(value: unknown): unknown {
     if (!isRecord(item) || !isSummary(item.reading)) return true
     const summary = item.reading
     return summary.viewCount > 0 && summary.lastViewedAt !== null &&
-      summary.totalCount > 0 && !isArtworkReadingComplete(summary.seenCount, summary.totalCount)
+      summary.totalCount > 0 && !summary.completed
   })
   return items.length === value.items.length ? value : { ...value, items }
 }
@@ -53,7 +53,7 @@ function accountSnapshots(client: QueryClient, owner: string) {
 
 function isSummary(value: unknown): value is ReadingSummaryDto {
   return isRecord(value) && typeof value.artworkId === 'number' && typeof value.viewCount === 'number' &&
-    typeof value.stateVersion === 'number' && typeof value.mediaRevision === 'number'
+    typeof value.stateVersion === 'number' && typeof value.readingLayoutVersion === 'number'
 }
 
 const childKeys = new Set(['summary', 'reading', 'readingSummary', 'summaries', 'items', 'pages', 'data'])
@@ -72,12 +72,12 @@ export function reconcileReadingCache(client: QueryClient, owner: string) {
       }
       return
     }
-    if (isSummary(value.summary) && Array.isArray(value.seenMediaIds)) {
+    if (isSummary(value.summary) && typeof value.readingLayoutVersion === 'number') {
       const summary = value.summary
       const prior = records.get(summary.artworkId)
       if (!prior || compareReadingVersion(summary, prior.summary) >= 0) {
         records.set(summary.artworkId, { summary, context: Array.isArray(value.media) ? value as unknown as ReadingContextDto : prior?.context, progress: {
-          summary, mediaRevision: summary.mediaRevision, seenMediaIds: value.seenMediaIds as number[]
+          summary, readingLayoutVersion: summary.readingLayoutVersion
         } })
       }
     }
@@ -94,13 +94,13 @@ export function reconcileReadingCache(client: QueryClient, owner: string) {
       const latest = records.get(value.artworkId)?.summary
       return latest && compareReadingVersion(latest, value) > 0 ? latest : value
     }
-    // A context needs an atomic ID-set + summary snapshot, never a summary-only patch.
-    if (isSummary(value.summary) && Array.isArray(value.seenMediaIds)) {
+    // Keep the displayed index and reading summary on the same layout version.
+    if (isSummary(value.summary) && typeof value.readingLayoutVersion === 'number') {
       const record = records.get(value.summary.artworkId)
-      if (record?.context && record.context.mediaRevision > (value.mediaRevision as number)) return record.context
+      if (record?.context && record.context.readingLayoutVersion > (value.readingLayoutVersion as number)) return record.context
       const latest = record?.progress
-      if (!latest || latest.mediaRevision !== value.mediaRevision || compareReadingVersion(latest.summary, value.summary) <= 0) return value
-      return { ...value, summary: latest.summary, seenMediaIds: latest.seenMediaIds }
+      if (!latest || latest.readingLayoutVersion !== value.readingLayoutVersion || compareReadingVersion(latest.summary, value.summary) <= 0) return value
+      return { ...value, summary: latest.summary }
     }
     let next: Record<string, unknown> | undefined
     for (const [key, item] of Object.entries(value)) {

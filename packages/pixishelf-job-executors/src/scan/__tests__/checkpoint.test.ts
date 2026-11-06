@@ -8,6 +8,14 @@ import type { ScanTransaction } from '../types.js'
 
 vi.mock('@pixishelf/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pixishelf/db')>()),
+  readArtworkReadingLayout: vi.fn(async () => []),
+  refreshArtworkReadingLayout: vi.fn(async () => undefined),
+  lockArtworkForReading: vi.fn(async () => ({
+    id: 42,
+    logicalMediaCount: 0,
+    readingLayoutVersion: 1,
+    mediaRevision: 1
+  })),
   assertArtworkDedupSources: vi.fn(async () => undefined),
   assertArtworkDedupWritable: vi.fn(async () => undefined),
   checkArtworkSummarySource: vi.fn(async () => undefined),
@@ -21,7 +29,7 @@ const mediaDerivedTagIds = { webp: 20, video: 21, image: 22 }
 describe('scan item checkpoints', () => {
   it('does not repeat local domain writes after a successful checkpoint', async () => {
     const transaction = {
-    artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
+      artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
       scanRunItem: { findUnique: vi.fn(async () => ({ status: 'SUCCESS', newImageCount: 4 })) },
       artwork: { findUnique: vi.fn() }
     } as unknown as ScanTransaction & {
@@ -48,7 +56,7 @@ describe('scan item checkpoints', () => {
 
   it('marks an existing pixiv artwork seen and checkpoints SKIP in one transaction', async () => {
     const transaction = {
-    artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
+      artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
       scanRunItem: {
         findUnique: vi.fn(async () => null),
         upsert: vi.fn(async () => ({}))
@@ -107,7 +115,7 @@ describe('scan item checkpoints', () => {
 
   it('publishes local media and frozen default tags in the same checkpoint transaction', async () => {
     const transaction = {
-    artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
+      artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
       scanRunItem: { findUnique: vi.fn(async () => null), upsert: vi.fn(async () => ({})) },
       artwork: {
         findUnique: vi.fn(async () => null),
@@ -192,7 +200,7 @@ describe('scan item checkpoints', () => {
       checkpointOrdinal: 0,
       checkpointKey: 'metadata:0:pixiv',
       metadataRelativePath: '11/42/42-meta.json',
-        dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
+      dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
       metadataContentHash: 'a'.repeat(64),
       metadata: pixivMetadata(),
       media: [pixivMedia('11/42/42_p0.mp4')],
@@ -292,7 +300,7 @@ describe('scan item checkpoints', () => {
       checkpointOrdinal: 0,
       checkpointKey: 'metadata:0:tags',
       metadataRelativePath: '11/42/42-meta.json',
-        dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
+      dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
       metadataContentHash: 'a'.repeat(64),
       metadata: {
         ...pixivMetadata(),
@@ -339,7 +347,7 @@ describe('scan item checkpoints', () => {
       checkpointOrdinal: 0,
       checkpointKey: 'metadata:0:refresh',
       metadataRelativePath: '11/42/42-meta.json',
-        dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
+      dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
       metadataContentHash: 'a'.repeat(64),
       metadata: { ...pixivMetadata(), title: 'Upstream title', description: 'Upstream description' },
       media: [pixivMedia('11/42/42_p0.mp4'), pixivMedia('11/42/42_p1.mp4')],
@@ -384,7 +392,7 @@ describe('scan item checkpoints', () => {
       checkpointOrdinal: 0,
       checkpointKey: 'metadata:0:source-fields',
       metadataRelativePath: '11/42/42-meta.json',
-        dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
+      dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
       metadataContentHash: 'a'.repeat(64),
       metadata: { ...pixivMetadata(), title: 'Upstream title', description: 'Upstream description' },
       media: [],
@@ -449,7 +457,7 @@ describe('scan item checkpoints', () => {
       checkpointOrdinal: 0,
       checkpointKey: 'metadata:0:create',
       metadataRelativePath: '11/42/42-meta.json',
-        dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
+      dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
       metadataContentHash: 'a'.repeat(64),
       metadata: { ...pixivMetadata(), description: 'Source description' },
       media: [],
@@ -505,7 +513,7 @@ describe('scan item checkpoints', () => {
       checkpointOrdinal: 0,
       checkpointKey: 'audit-apply:item-1',
       metadataRelativePath: '11/42/42-meta.json',
-        dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
+      dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
       metadataContentHash: 'a'.repeat(64),
       metadata: pixivMetadata(),
       media: [],
@@ -802,7 +810,7 @@ it('retains a confirmed animation when Pixiv refresh proves the same complete so
     checkpointOrdinal: 0,
     checkpointKey: 'metadata:0:refresh',
     metadataRelativePath: '11/42/42-meta.json',
-        dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
+    dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
     metadataContentHash: 'a'.repeat(64),
     metadata: pixivMetadata(),
     media: [

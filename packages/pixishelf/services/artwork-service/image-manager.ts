@@ -25,6 +25,8 @@ import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
 import {
   invalidateArtworkReadingForRebuild,
   lockArtworkForReading,
+  readArtworkReadingLayout,
+  refreshArtworkReadingLayout,
   type ArtworkReadingInvalidationTransaction
 } from '@pixishelf/db'
 
@@ -211,6 +213,7 @@ export async function updateArtworkImagesWithTransactionClient(
     })
   }
 
+  await refreshArtworkReadingLayout(tx as unknown as Prisma.TransactionClient, artworkId, [], false)
   await syncMediaDerivedTagForArtwork(tx, artworkId)
 
   const appendTagIds = Array.from(new Set((options.appendTagIds ?? []).filter((id) => Number.isInteger(id) && id > 0)))
@@ -278,6 +281,7 @@ export async function reorderArtworkImages(input: {
       )
     }
 
+    const previousLayout = await readArtworkReadingLayout(tx, artworkId)
     for (let sortOrder = 0; sortOrder < imageIds.length; sortOrder += 1) {
       await tx.image.update({
         where: { id: imageIds[sortOrder]! },
@@ -285,6 +289,7 @@ export async function reorderArtworkImages(input: {
       })
     }
 
+    await refreshArtworkReadingLayout(tx, artworkId, previousLayout)
     return { success: true as const, imageIds }
   })
 }
@@ -398,8 +403,12 @@ async function deleteImageContent(input: {
     publish: async (tx, manifest) => {
       const image = JSON.parse(manifest.members) as Awaited<ReturnType<typeof deletionImage>>
       if (input.kind === 'IMAGE') {
+        const previousLayout = image.artworkId ? await readArtworkReadingLayout(tx, image.artworkId) : []
         await tx.image.delete({ where: { id: image.id } })
-        if (image.artworkId) await syncMediaDerivedTagForArtwork(tx, image.artworkId)
+        if (image.artworkId) {
+          await refreshArtworkReadingLayout(tx, image.artworkId, previousLayout)
+          await syncMediaDerivedTagForArtwork(tx, image.artworkId)
+        }
       } else {
         await tx.image.update({
           where: { id: image.id },
@@ -442,8 +451,12 @@ export async function deleteImage(
     }
     const current = await tx.image.findUnique({ where: { id: imageId }, select: deletionImageSelect })
     if (deletionMembers(current) !== deletionMembers(image)) throw new ContentWriteConflict()
+    const previousLayout = image.artworkId ? await readArtworkReadingLayout(tx, image.artworkId) : []
     await tx.image.delete({ where: { id: imageId } })
-    if (image.artworkId) await syncMediaDerivedTagForArtwork(tx, image.artworkId)
+    if (image.artworkId) {
+      await refreshArtworkReadingLayout(tx, image.artworkId, previousLayout)
+      await syncMediaDerivedTagForArtwork(tx, image.artworkId)
+    }
   })
   return true
 }
@@ -458,6 +471,7 @@ export async function addImage(artworkId: number, file: ImageMeta) {
     await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
     await lockArtworkForReading(tx, artworkId)
     await assertArtworkDedupAppWrite(tx, artworkId, 'CONTENT')
+    const previousLayout = await readArtworkReadingLayout(tx, artworkId)
     const image = await tx.image.create({
       data: {
         artworkId,
@@ -471,6 +485,7 @@ export async function addImage(artworkId: number, file: ImageMeta) {
       }
     })
 
+    await refreshArtworkReadingLayout(tx, artworkId, previousLayout)
     await syncMediaDerivedTagForArtwork(tx, artworkId)
 
     return normalizeImageSizeField(image)
@@ -520,6 +535,7 @@ export async function addImageWithChapters(
       if (!expectedDirectory || path.posix.dirname(file.path.replace(/^\/+/, '')) !== expectedDirectory) {
         throw new ContentWriteConflict('上传路径不属于此作品。')
       }
+      const previousLayout = await readArtworkReadingLayout(inner, artworkId)
       const existing = await inner.image.findFirst({
         where: { artworkId, path: { in: [file.path.replace(/^\/+/, ''), `/${file.path.replace(/^\/+/, '')}`] } }
       })
@@ -554,6 +570,7 @@ export async function addImageWithChapters(
         }
       })
       await finishLegacyContentGuards(inner, { sourcePath: file.path })
+      await refreshArtworkReadingLayout(inner, artworkId, previousLayout)
       await syncMediaDerivedTagForArtwork(inner, artworkId)
       return normalizeImageSizeField(image)
     })
@@ -572,16 +589,18 @@ export async function associateChaptersToImage(input: { imageId: number } & Chap
     await assertArtworkDedupAppWrite(tx, image.artworkId, 'CONTENT')
     const current = await tx.image.findUnique({ where: { id: image.id }, select: { artworkId: true } })
     if (current?.artworkId !== image.artworkId) throw new ContentWriteConflict('媒体所属作品已变化。')
-    return normalizeImageSizeField(await tx.image.update({
-      where: { id: image.id },
-      data: {
-        chaptersPath: input.chaptersPath,
-        chaptersCount: input.chaptersCount,
-        chaptersDuration: input.chaptersDuration,
-        chaptersUpdatedAt: new Date(),
-        chaptersHash: input.chaptersHash
-      }
-    }))
+    return normalizeImageSizeField(
+      await tx.image.update({
+        where: { id: image.id },
+        data: {
+          chaptersPath: input.chaptersPath,
+          chaptersCount: input.chaptersCount,
+          chaptersDuration: input.chaptersDuration,
+          chaptersUpdatedAt: new Date(),
+          chaptersHash: input.chaptersHash
+        }
+      })
+    )
   })
 }
 
@@ -650,6 +669,7 @@ export async function reconcileArtworkImages(
   await assertArtworkDedupAppWrite(tx, artworkId, 'CONTENT')
   const source = await tx.artworkContentSource.findUnique({ where: { artworkId }, select: { writeToken: true } })
   if (source?.writeToken) throw new ContentWriteConflict()
+  const previousLayout = await readArtworkReadingLayout(tx, artworkId)
   const existing = await tx.image.findMany({ where: { artworkId }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] })
   const key = (value: string) => value.replace(/^\/+/, '')
   const byPath = new Map(existing.map((image) => [key(image.path), image]))
@@ -694,5 +714,6 @@ export async function reconcileArtworkImages(
   }
   const removedIds = existing.filter((image) => !incoming.has(key(image.path))).map((image) => image.id)
   if (removedIds.length) await tx.image.deleteMany({ where: { id: { in: removedIds }, artworkId } })
+  await refreshArtworkReadingLayout(tx, artworkId, previousLayout)
   await syncMediaDerivedTagForArtwork(tx, artworkId)
 }

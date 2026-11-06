@@ -3,11 +3,11 @@ import type { ReadingContextDto, ReadingReportInput, ReadingReportResult } from 
 import { ReadingCollector } from '../reading-collector'
 
 const summary = {
-  artworkId: 1, mediaRevision: 1, stateVersion: 0,
+  artworkId: 1, readingLayoutVersion: 1, stateVersion: 0,
   viewCount: 1,
-  seenCount: 1,
+  progressCount: 1,
   totalCount: 2,
-  status: 'IN_PROGRESS' as const,
+  status: 'IN_PROGRESS' as const, completed: false, furthestMediaId: null, furthestMediaIndex: null,
   lastViewedAt: '2026-09-24T00:00:00.000Z',
   lastActiveAt: '2026-09-24T00:00:00.000Z',
   lastMediaId: 11,
@@ -16,20 +16,19 @@ const summary = {
 
 const context: ReadingContextDto = {
   artworkId: 1,
-  mediaRevision: 1,
-  seenMediaIds: [],
+  readingLayoutVersion: 1,
   media: [
     { mediaId: 11, memberMediaIds: [11], index: 0 },
     { mediaId: 12, memberMediaIds: [12], index: 1 }
   ],
-  summary: { ...summary, viewCount: 0, seenCount: 0, status: 'UNREAD' },
+  summary: { ...summary, viewCount: 0, progressCount: 0, status: 'UNREAD', completed: false, furthestMediaId: null, furthestMediaIndex: null },
   resume: null
 }
 
 function setup(report = vi.fn(async (input: ReadingReportInput, signal: AbortSignal): Promise<ReadingReportResult> => {
   expect(input.artworkId).toBe(1)
   expect(signal).toBeInstanceOf(AbortSignal)
-  return { mediaRevision: 1, seenMediaIds: [11], summary }
+  return { readingLayoutVersion: 1, summary }
 })) {
   const onSummary = vi.fn()
   const onInvalidated = vi.fn()
@@ -149,13 +148,13 @@ describe('ReadingCollector', () => {
   })
 
   it('notifies completion immediately once, not on acknowledgement or an already completed context', async () => {
-    const completed = { ...summary, seenCount: 2, status: 'COMPLETED' as const }
-    const report = vi.fn(async (): Promise<ReadingReportResult> => ({ mediaRevision: 1, seenMediaIds: [11, 12], summary: completed }))
+    const completed = { ...summary, progressCount: 2, status: 'COMPLETED' as const, completed: true, furthestMediaId: null, furthestMediaIndex: null }
+    const report = vi.fn(async (): Promise<ReadingReportResult> => ({ readingLayoutVersion: 1, summary: completed }))
     const { collector, onCompleted } = setup(report)
-    collector.setContext({ ...context, summary, seenMediaIds: [11] }, 'alice')
+    collector.setContext({ ...context, summary, }, 'alice')
     const observation = { artworkId: 1, mediaId: 12, ready: true, visible: true, automatic: false }
     collector.observe('detail', observation)
-    expect(onCompleted).toHaveBeenCalledExactlyOnceWith(completed, 'alice')
+    expect(onCompleted).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ completed: true, progressCount: 2 }), 'alice')
     expect(report).not.toHaveBeenCalled()
     await collector.flush()
     expect(onCompleted).toHaveBeenCalledTimes(1)
@@ -226,14 +225,14 @@ describe('ReadingCollector', () => {
     collector.observe('reader', { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: true })
     const flushing = collector.flush()
     collector.setAccount('bob')
-    resolveReport({ mediaRevision: 1, seenMediaIds: [11], summary })
+    resolveReport({ readingLayoutVersion: 1, summary })
     await flushing
     expect(onSummary).not.toHaveBeenCalled()
     collector.dispose()
   })
 
   it('drops the old revision queue and requires explicit reopen', async () => {
-    const report = vi.fn(async () => { throw new Error('READING_MEDIA_REVISION_CONFLICT') })
+    const report = vi.fn(async () => { throw new Error('READING_LAYOUT_VERSION_CONFLICT') })
     const { collector, onInvalidated } = setup(report)
     collector.observe('reader', { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: true })
     await collector.flush()
@@ -242,55 +241,23 @@ describe('ReadingCollector', () => {
     collector.observe('reader', { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: true })
     await vi.advanceTimersByTimeAsync(10_000)
     expect(report).toHaveBeenCalledTimes(1)
-    collector.resetArtwork(1, { ...context, mediaRevision: 2 }, 'alice')
+    collector.resetArtwork(1, { ...context, readingLayoutVersion: 2 }, 'alice')
     await vi.advanceTimersByTimeAsync(10_000)
     expect(report).toHaveBeenCalledTimes(1)
     collector.dispose()
   })
 })
 
-describe('summary observation identity', () => {
-  it('records a new group grant when switching the same visible image from complete to summary, and keeps it after expansion', async () => {
+describe('position observations', () => {
+  it('advances a stack to its tail but keeps the actual displayed resume position', async () => {
     const { collector, report } = setup()
-    const observation = { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: false }
-    collector.observe('detail', observation)
+    collector.observe('detail', { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: false,
+      advanceTo: { mediaId: 12, index: 1 } })
+    expect(collector.projectContext(context).summary).toMatchObject({ progressCount: 2, completed: true,
+      lastMediaId: 11, lastMediaIndex: 0, furthestMediaId: 12, furthestMediaIndex: 1 })
     await collector.flush()
-    collector.observe('detail', { ...observation, summary: { generationId: 'snapshot', groupId: '11', mediaIds: [11, 12] } })
-    expect(collector.projectContext(context).seenMediaIds).toEqual([11, 12])
-    collector.observe('detail', observation)
-    expect(collector.projectContext(context).seenMediaIds).toEqual([11, 12])
-    await collector.flush()
-    expect(report.mock.calls[1]?.[0].events).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'VIEW', mediaId: 11, summary: { generationId: 'snapshot', groupId: '11' } })
-    ]))
-    collector.dispose()
-  })
-})
-
-
-describe('stack collector evidence', () => {
-  it('projects all members but sends only the real VIEW and a bounded stack credential', async () => {
-    const { collector, report } = setup()
-    const stack = { ruleVersion: 1 as const, fingerprint: 'a'.repeat(64), groupId: 'stack-v1-11-12', mediaIds: [11, 12] }
-    collector.observe('detail-11', { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: false, stack })
-    expect(collector.projectContext(context).seenMediaIds).toEqual([11, 12])
-    await collector.flush()
-    expect(report.mock.calls[0]![0].events).toEqual([{ type: 'VIEW', mediaId: 11,
-      observedAt: new Date().toISOString(), stack: { ruleVersion: 1, fingerprint: stack.fingerprint, groupId: stack.groupId } }])
-    collector.dispose()
-  })
-  it('does not count a hidden or transitioning slide and invalidates conflicting membership', async () => {
-    const { collector, report, onInvalidated } = setup(vi.fn().mockRejectedValue({ message: 'ARTWORK_STACK_CONFLICT' }))
-    const observation = { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: false,
-      stack: { ruleVersion: 1 as const, fingerprint: 'a'.repeat(64), groupId: 'stack-v1-11-12', mediaIds: [11, 12] } }
-    collector.observe('detail', { ...observation, active: false })
-    collector.observe('neighbor', { ...observation, mediaId: 12, visible: false })
-    await collector.flush()
-    expect(report).not.toHaveBeenCalled()
-    collector.observe('detail', observation)
-    await collector.flush()
-    expect(onInvalidated).toHaveBeenCalledWith(1, 'alice')
-    expect(collector.projectContext(context).seenMediaIds).toEqual([])
+    expect(report.mock.calls[0]![0].events).toEqual([{ type: 'VIEW', mediaId: 11, index: 0,
+      observedAt: new Date().toISOString(), advanceTo: { mediaId: 12, index: 1 } }])
     collector.dispose()
   })
 })
