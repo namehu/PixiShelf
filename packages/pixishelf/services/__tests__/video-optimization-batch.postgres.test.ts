@@ -99,13 +99,24 @@ pg('MP4 batch optimization PostgreSQL', () => {
     await job(rows[2]!.images[1]!, 'RETRY_WAIT')
     await database.artwork.update({ where: { id: rows[3]!.id }, data: { deletedAt: new Date() } })
     await database.artwork.update({ where: { id: rows[4]!.id }, data: { archiveLifecycleState: 'TRASHED' } })
+    await database.image.update({
+      where: { id: rows[0]!.images[1]!.id },
+      data: { path: `${prefix}/${rows[0]!.id}/legacy.Mp4`, mediaType: 'UNKNOWN' }
+    })
+    await database.image.createMany({
+      data: ['video.mp4.bak', 'video.webm'].map((name) => ({
+        artworkId: rows[0]!.id,
+        path: `${prefix}/${rows[0]!.id}/${name}`,
+        mediaType: 'VIDEO' as const
+      }))
+    })
     const first = await listVideoStreamingOptimizationCandidates(listSchema.parse({ filters: filters('page-') }))
     const second = await listVideoStreamingOptimizationCandidates(
       listSchema.parse({ filters: filters('page-'), page: 2 })
     )
     expect(first.total).toBe(19)
     expect(first.items).toHaveLength(19)
-    expect(second.items).toHaveLength(0)
+    expect(second).toEqual({ items: [], total: 19, page: 2, pageSize: 20 })
     expect(first.items.map((row) => row.artworkId)).toEqual(
       [...first.items.map((row) => row.artworkId)].sort((a, b) => b - a)
     )
@@ -129,12 +140,42 @@ pg('MP4 batch optimization PostgreSQL', () => {
     const last = await listVideoStreamingOptimizationCandidates(
       listSchema.parse({ filters: filters('page-', { statuses: ['COMPLETED'] }), page: 2 })
     )
-    expect(last.items).toHaveLength(1)
+    expect(last.total).toBe(21)
+    expect(last.items.map((row) => row.artworkId)).toEqual([rows[0]!.id])
     const active = await listVideoStreamingOptimizationCandidates(
       listSchema.parse({ filters: filters('page-', { statuses: ['ACTIVE'] }) })
     )
     expect(active.total).toBe(2)
     expect(active.items.every((row) => row.actionableMp4Count === 0)).toBe(true)
+    const activePreview = await previewVideoStreamingOptimizationBatch(
+      previewSchema.parse({ filters: filters('page-', { statuses: ['ACTIVE'] }), selection: { mode: 'ALL_MATCHING' } })
+    )
+    expect(activePreview.targets).toEqual([])
+  })
+
+  it('breaks equal timestamps across current and legacy tasks by descending job ID', async () => {
+    const row = await artwork('job-timestamp-tie')
+    const image = row.images[0]!
+    const createdAt = new Date('2026-02-02T03:04:05.000Z')
+    await job(image, 'COMPLETED', { id: `${prefix}-tie-a-current`, createdAt })
+    const legacy = await job(image, 'FAILED', {
+      id: `${prefix}-tie-z-legacy`,
+      createdAt,
+      definitionVersion: 0,
+      payload: {},
+      legacyDisplay: { schemaVersion: 1, targetImageId: image.id, targetPath: image.path, mode: 'REMUX_FASTSTART' }
+    })
+
+    const scope = { artworkId: row.id, statuses: ['FAILED'] }
+    const page = await listVideoStreamingOptimizationCandidates(listSchema.parse({ filters: scope }))
+    expect(page.total).toBe(1)
+    expect(page.items).toEqual([
+      expect.objectContaining({ artworkId: row.id, statusCounts: expect.objectContaining({ FAILED: 1, COMPLETED: 0 }) })
+    ])
+    const preview = await previewVideoStreamingOptimizationBatch(
+      previewSchema.parse({ filters: scope, selection: { mode: 'SELECTED', artworkIds: [row.id] } })
+    )
+    expect(preview.targets).toEqual([{ imageId: image.id, artworkId: row.id, latestJobId: legacy.id, status: 'FAILED' }])
   })
 
   it('uses title only, effective creator aliases, existing OR tag semantics, exclusions and source', async () => {
@@ -181,11 +222,11 @@ pg('MP4 batch optimization PostgreSQL', () => {
         await listVideoStreamingOptimizationCandidates(
           listSchema.parse({ filters: { ...input.filters, artworkId: excluded.id } })
         )
-      ).total
-    ).toBe(0)
+      )
+    ).toEqual({ items: [], total: 0, page: 1, pageSize: 20 })
   })
 
-  it('accepts exactly 1000 fixed MP4 targets, rejects 1001 without writing, and excludes active-only matches', async () => {
+  it('accepts exactly 1000 fixed MP4 targets, rejects 1001 without writing, and honors artwork exclusions', async () => {
     const large = await artwork('limit', 1000)
     const input = previewSchema.parse({
       filters: { artworkId: large.id },

@@ -142,6 +142,7 @@ F03 局部核验日期：2026-10-27。`20261027000200_artwork_dedup_visual_batch
 ## 手写索引与队列约束
 
 - pg_trgm 的 Artwork 标题/描述表达式 GIN 与 Artist 名称 GIN 服务模糊搜索；查询表达式必须与迁移一致，不能假定普通单列索引等价。
+- [MP4 候选索引](./migrations/20261106010000_video_optimization_mp4_candidates/migration.sql)按 `Image(artworkId DESC, id DESC)` 建立部分索引，使用与候选及预览查询相同的 `lower(path) LIKE '%.mp4'` 谓词。普通建索引读取 Image 表并阻塞写入，发布按[一致性检查点](../../../docs/operations/backup-and-recovery.md#发布前一致性检查点)安排停写窗口。应用回退可保留该索引。
 - system_jobs_single_executing_per_lane_idx 是执行态部分唯一索引，限制每 lane 至多一个 RUNNING/PAUSING/CANCELLING。类型与 lane 的 CHECK 随正式迁移更新，精确列表以最新迁移和 job-contracts 为准；本文不复制任务清单。
 - 计划日期唯一约束防止同一天重复物化，活动批次部分唯一索引防止重叠发现批次。租约、事件游标和 GC 索引服务领取与恢复，不替代领域发布检查。
 - 20261011000000_background_task_retirement_contract 在停写审计后移除旧目标列及计划 time/timezone 等字段，availableAt 已为 NOT NULL；中央任务执行态必须有完整 workerId/leaseToken/leaseExpiresAt，非执行态须全空，SKIPPED 和计划字段保持成组约束。definitionVersion=0 仅允许终态历史；legacyDisplay 只作展示，不能重新执行。

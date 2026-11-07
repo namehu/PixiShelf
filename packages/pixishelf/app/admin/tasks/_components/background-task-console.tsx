@@ -98,10 +98,12 @@ export interface VideoOptimizationHistoryRequest {
 
 export function BackgroundTaskConsole({
   videoOptimizationHistoryRequest,
-  refreshVersion = 0
+  refreshVersion = 0,
+  showDock = true
 }: {
   videoOptimizationHistoryRequest?: VideoOptimizationHistoryRequest
   refreshVersion?: number
+  showDock?: boolean
 }) {
   const [activeTab, setActiveTab] = useState<'tasks' | 'failures'>('tasks')
   const [open, setOpen] = useState(false)
@@ -295,14 +297,16 @@ export function BackgroundTaskConsole({
 
   return (
     <>
-      <BackgroundTaskDock
-        dashboard={dashboard}
-        loading={dashboardQuery.isPending}
-        error={dashboardQuery.isError}
-        unreadFailureCount={dashboard?.unacknowledgedFailureCount ?? 0}
-        completedNotice={completedNotice}
-        onOpen={() => handleOpenChange(true)}
-      />
+      {showDock ? (
+        <BackgroundTaskDock
+          dashboard={dashboard}
+          loading={dashboardQuery.isPending}
+          error={dashboardQuery.isError}
+          unreadFailureCount={dashboard?.unacknowledgedFailureCount ?? 0}
+          completedNotice={completedNotice}
+          onOpen={() => handleOpenChange(true)}
+        />
+      ) : null}
       {isDesktop ? (
         <Sheet open={open} onOpenChange={handleOpenChange}>
           <SheetContent className="w-full gap-0 p-0 sm:max-w-xl xl:max-w-2xl">{tabbedPanel}</SheetContent>

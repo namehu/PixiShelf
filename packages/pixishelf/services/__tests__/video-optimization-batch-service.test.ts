@@ -3,7 +3,24 @@ const mocks = vi.hoisted(() => ({ transaction: vi.fn(), enqueue: vi.fn(), retry:
 vi.mock('@/lib/prisma', () => ({ prisma: { $transaction: mocks.transaction } }))
 vi.mock('../video-streaming-optimization-lock', () => ({ lockActiveVideoStreamingOptimization: mocks.lock }))
 vi.mock('../background-task/job-command-service', () => ({ enqueueJob: mocks.enqueue, retryJobCommand: mocks.retry }))
-import { submitVideoStreamingOptimizationBatch } from '../video-optimization-batch-service'
+import { listVideoStreamingOptimizationCandidatesInputSchema } from '@/schemas/video-optimization.dto'
+import {
+  listVideoStreamingOptimizationCandidates,
+  submitVideoStreamingOptimizationBatch
+} from '../video-optimization-batch-service'
+
+it('loads the exact total and candidate page in one statement', async () => {
+  const $queryRaw = vi.fn().mockResolvedValue([{ items: [], total: 7 }])
+  const input = listVideoStreamingOptimizationCandidatesInputSchema.parse({ page: 2 })
+
+  await expect(listVideoStreamingOptimizationCandidates(input, { $queryRaw })).resolves.toEqual({
+    items: [],
+    total: 7,
+    page: 2,
+    pageSize: 20
+  })
+  expect($queryRaw).toHaveBeenCalledOnce()
+})
 
 describe('MP4 batch partial submission', () => {
   beforeEach(() => {

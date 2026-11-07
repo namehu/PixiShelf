@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({ confirm: vi.fn() }))
 vi.mock('@/components/shared/global-confirm', () => ({ confirm: mocks.confirm }))
 vi.mock('@/lib/trpc', () => ({ useTRPC: vi.fn() }))
 vi.mock('../video-keyframe-section', () => ({ VideoKeyframeSection: () => null }))
-vi.mock('../video-streaming-optimization-section', () => ({ VideoStreamingOptimizationSection: () => null }))
 
 import { AnimationScanLiveFeedback } from '../animation-scan-live-feedback'
 import {

@@ -55,7 +55,7 @@ function matchingMediaQuery(filters: Filters, artworkIds?: number[], excludedArt
     clauses.push(Prisma.sql`a.id NOT IN (${Prisma.join([...new Set(excludedArtworkIds)])})`)
   }
   return Prisma.sql`WITH media AS (
-    SELECT a.id AS "artworkId", a.title, a.source, i.id AS "imageId", latest.id AS "latestJobId",
+    SELECT a.id AS "artworkId", i.id AS "imageId", latest.id AS "latestJobId",
       CASE WHEN latest.id IS NULL THEN 'NONE'
         WHEN latest.status::text IN (${Prisma.join([...ACTIVE_JOB_STATUSES])}) THEN 'ACTIVE'
         ELSE latest.status::text END AS status
@@ -84,9 +84,9 @@ export async function listVideoStreamingOptimizationCandidates(
   const { filters, page, pageSize } = input
   const base = matchingMediaQuery(filters)
   const matches = Prisma.sql`status IN (${Prisma.join(filters.statuses)})`
-  const [items, totals] = await Promise.all([
-    client.$queryRaw<VideoOptimizationCandidate[]>(Prisma.sql`${base}
-      SELECT "artworkId", title, source, count(*)::int AS "mp4Count",
+  const [result] = await client.$queryRaw<Array<{ items: VideoOptimizationCandidate[]; total: number }>>(Prisma.sql`${base},
+    matching_artworks AS MATERIALIZED (
+      SELECT "artworkId", count(*)::int AS "mp4Count",
         count(*) FILTER (WHERE ${matches})::int AS "matchingMp4Count",
         count(*) FILTER (WHERE ${matches} AND status <> 'ACTIVE')::int AS "actionableMp4Count",
         jsonb_build_object(
@@ -96,17 +96,25 @@ export async function listVideoStreamingOptimizationCandidates(
           'FAILED', count(*) FILTER (WHERE status = 'FAILED'),
           'CANCELLED', count(*) FILTER (WHERE status = 'CANCELLED'),
           'SKIPPED', count(*) FILTER (WHERE status = 'SKIPPED')
-        ) AS "statusCounts",
-        (SELECT coalesce(jsonb_agg(creators ORDER BY creators.name, creators.id), '[]'::jsonb)
-          FROM (SELECT DISTINCT ca.id, ca.name FROM effective_artwork_creators c
-            JOIN "Artist" ca ON ca.id = c."artistId" WHERE c."artworkId" = media."artworkId") creators) AS artists
-      FROM media GROUP BY "artworkId", title, source
+        ) AS "statusCounts"
+      FROM media GROUP BY "artworkId"
       HAVING count(*) FILTER (WHERE ${matches}) > 0
-      ORDER BY "artworkId" DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`),
-    client.$queryRaw<Array<{ total: number }>>(Prisma.sql`${base}
-      SELECT count(DISTINCT "artworkId")::int AS total FROM media WHERE ${matches}`)
-  ])
-  return { items, total: totals[0]!.total, page, pageSize }
+    ), candidate_page AS (
+      SELECT * FROM matching_artworks
+      ORDER BY "artworkId" DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
+    )
+    SELECT (SELECT count(*)::int FROM matching_artworks) AS total,
+      coalesce((
+        SELECT jsonb_agg(item ORDER BY item."artworkId" DESC)
+        FROM (
+          SELECT p.*, a.title, a.source,
+            (SELECT coalesce(jsonb_agg(creators ORDER BY creators.name, creators.id), '[]'::jsonb)
+              FROM (SELECT DISTINCT ca.id, ca.name FROM effective_artwork_creators c
+                JOIN "Artist" ca ON ca.id = c."artistId" WHERE c."artworkId" = p."artworkId") creators) AS artists
+          FROM candidate_page p JOIN "Artwork" a ON a.id = p."artworkId"
+        ) item
+      ), '[]'::jsonb) AS items`)
+  return { ...result!, page, pageSize }
 }
 
 export async function previewVideoStreamingOptimizationBatch(

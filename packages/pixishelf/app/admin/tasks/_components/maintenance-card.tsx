@@ -7,13 +7,14 @@ import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { useTRPC } from '@/lib/trpc'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Database, Film, ImagePlay, PlayCircle, Tags, Wrench } from 'lucide-react'
+import { ChevronRight, Database, Film, ImagePlay, PlayCircle, Tags, Wrench } from 'lucide-react'
+import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useBackgroundJobEventSubscription } from '../../_components/background-job-event-provider'
 import { AnimationDurationProbeSection } from './animation-duration-probe-section'
 import { AnimationScanLiveFeedback } from './animation-scan-live-feedback'
-import { BackgroundTaskConsole, type VideoOptimizationHistoryRequest } from './background-task-console'
+import { BackgroundTaskConsole } from './background-task-console'
 import {
   collectUnseenLiveEvents,
   mergeLiveJobSnapshot,
@@ -41,7 +42,6 @@ import { useScheduledTaskDrafts } from './use-scheduled-task-drafts'
 import { useTaskPolling } from './use-task-polling'
 import { VideoKeyframeSection } from './video-keyframe-section'
 import { VideoProbeTaskActions, type VideoMediaProbeResult } from './video-probe-task-actions'
-import { VideoStreamingOptimizationSection } from './video-streaming-optimization-section'
 
 interface MediaDerivedTagSyncStats {
   expectedArtworks?: number
@@ -167,9 +167,6 @@ export function MaintenanceCard() {
   const [triggeringTaskKey, setTriggeringTaskKey] = useState<string | null>(null)
   const [videoReprobePath, setVideoReprobePath] = useState('')
   const [trackedWebpJobId, setTrackedWebpJobId] = useState<string>()
-  const [videoOptimizationHistoryRequest, setVideoOptimizationHistoryRequest] =
-    useState<VideoOptimizationHistoryRequest>()
-  const [backgroundRefreshVersion, setBackgroundRefreshVersion] = useState(0)
   const requestedWebpJobId = useRef<string | null>(null)
   const liveEventCursor = useRef<LiveEventCursor>({ resetVersion: 0, eventId: null })
   const scheduledLiveEventCursor = useRef<LiveEventCursor>({ resetVersion: 0, eventId: null })
@@ -997,12 +994,17 @@ export function MaintenanceCard() {
             />
           </TaskSection>
 
-          <VideoStreamingOptimizationSection
-            onViewTasks={(artworkId) =>
-              setVideoOptimizationHistoryRequest((previous) => ({ requestId: (previous?.requestId ?? 0) + 1, artworkId }))
-            }
-            onSubmitted={() => setBackgroundRefreshVersion((value) => value + 1)}
-          />
+          <Link
+            href="/admin/tasks/video-streaming-optimization"
+            className="flex min-w-0 items-center gap-3 rounded-lg border bg-card px-4 py-3.5 transition-colors hover:bg-muted/35 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:px-6"
+          >
+            <Film className="size-9 shrink-0 rounded-md bg-muted p-2.5 text-muted-foreground" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-semibold text-foreground sm:text-base">MP4 无损播放优化</h3>
+              <p className="mt-1 text-sm leading-5 text-muted-foreground">筛选作品并批量提交匹配的 MP4。</p>
+            </div>
+            <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          </Link>
 
           <VideoKeyframeSection
             scheduledTask={keyframeScheduledTask}
@@ -1191,7 +1193,7 @@ export function MaintenanceCard() {
           </TaskGroup>
         ) : null}
       </TaskAccordion>
-      <BackgroundTaskConsole videoOptimizationHistoryRequest={videoOptimizationHistoryRequest} refreshVersion={backgroundRefreshVersion} />
+      <BackgroundTaskConsole />
     </div>
   )
 }

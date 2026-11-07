@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import type { PropsWithChildren, ReactNode } from 'react'
+import { useState, type PropsWithChildren } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { VideoOptimizationCandidate } from '@/types/video-optimization'
-import { VideoStreamingOptimizationSection } from '../video-streaming-optimization-section'
+import { VideoStreamingOptimizationWorkspace } from '../video-streaming-optimization-workspace'
+import type { BackgroundTaskConsole } from '../../../_components/background-task-console'
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
@@ -12,7 +13,8 @@ const mocks = vi.hoisted(() => ({
   tags: vi.fn(),
   confirm: vi.fn(),
   error: vi.fn(),
-  info: vi.fn()
+  info: vi.fn(),
+  history: vi.fn()
 }))
 vi.mock('sonner', () => ({ toast: { error: mocks.error, info: mocks.info } }))
 vi.mock('@/components/shared/global-confirm', () => ({ confirm: mocks.confirm }))
@@ -43,14 +45,20 @@ vi.mock('@/components/shared/multiple-selector', () => ({
     </button>
   )
 }))
-vi.mock('../task-ui', () => ({
-  TaskSection: ({ title, action, children }: PropsWithChildren<{ title: string; action: ReactNode }>) => (
-    <section>
-      <h3>{title}</h3>
-      {action}
-      {children}
-    </section>
-  )
+vi.mock('../../../_components/background-task-console', () => ({
+  BackgroundTaskConsole: (props: Parameters<typeof BackgroundTaskConsole>[0]) => {
+    const [dismissedRequestId, setDismissedRequestId] = useState<number>()
+    mocks.history(props)
+    const request = props.videoOptimizationHistoryRequest
+    if (!request || request.requestId === dismissedRequestId) return null
+    return (
+      <div role="dialog" aria-label="执行动态">
+        <button type="button" onClick={() => setDismissedRequestId(request.requestId)}>
+          关闭执行动态
+        </button>
+      </div>
+    )
+  }
 }))
 vi.mock('@/lib/trpc', () => ({ useTRPC: () => api, useTRPCClient: () => ({ tag: { list: { query: mocks.tags } } }) }))
 const api = {
@@ -74,14 +82,15 @@ const api = {
   }
 }
 const clients: QueryClient[] = []
-function mount(props: Parameters<typeof VideoStreamingOptimizationSection>[0] = {}) {
+function mount(apply = true) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   clients.push(client)
-  return render(
+  render(
     <QueryClientProvider client={client}>
-      <VideoStreamingOptimizationSection {...props} />
+      <VideoStreamingOptimizationWorkspace />
     </QueryClientProvider>
   )
+  if (apply) fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
 }
 function candidate(artworkId: number, patch: Partial<VideoOptimizationCandidate> = {}): VideoOptimizationCandidate {
   return {
@@ -119,17 +128,25 @@ afterEach(() => {
 })
 
 describe('MP4 optimization artwork selection', () => {
-  it('applies only the requested filters, reuses tag names, and resets page and selection', async () => {
-    mount()
+  it('loads only on apply, preserves draft edits until apply, and resets to the unqueried view', async () => {
+    mount(false)
+    expect(screen.getByRole('heading', { name: 'MP4 无损播放优化' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: '返回后台任务' }).getAttribute('href')).toBe('/admin/tasks')
+    expect(screen.getByText('准备筛选作品')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '刷新作品' })).toBeNull()
+    expect(mocks.list).not.toHaveBeenCalled()
+    expect(mocks.history).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
     await screen.findByText('作品 3')
-    expect(mocks.list).toHaveBeenLastCalledWith({
-      filters: { statuses: ['NONE', 'FAILED', 'CANCELLED', 'SKIPPED'] },
+    expect(mocks.list).toHaveBeenCalledExactlyOnceWith({
+      filters: expect.objectContaining({ statuses: ['NONE', 'FAILED', 'CANCELLED', 'SKIPPED'] }),
       page: 1,
       pageSize: 20
     })
     fireEvent.click(screen.getByRole('checkbox', { name: '选择作品 #3' }))
     fireEvent.click(screen.getByRole('button', { name: '下一页' }))
     await screen.findByText('作品 1')
+    expect(mocks.list).toHaveBeenCalledTimes(2)
     fireEvent.change(screen.getByRole('spinbutton', { name: '内部作品 ID' }), { target: { value: '7' } })
     fireEvent.change(screen.getByRole('textbox', { name: '作品标题' }), { target: { value: 'title' } })
     fireEvent.change(screen.getByRole('textbox', { name: '艺术家名' }), { target: { value: 'artist' } })
@@ -138,6 +155,16 @@ describe('MP4 optimization artwork selection', () => {
     fireEvent.click(screen.getByRole('button', { name: '搜索并选择排除标签…' }))
     fireEvent.click(screen.getByRole('button', { name: '选择创建来源…' }))
     await act(async () => {})
+    expect(screen.getByText('已选择 1 部作品')).toBeTruthy()
+    expect(screen.getByText('作品 1')).toBeTruthy()
+    expect(mocks.list).toHaveBeenCalledTimes(2)
+    fireEvent.click(screen.getByRole('button', { name: '刷新作品' }))
+    await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(3))
+    expect(mocks.list).toHaveBeenLastCalledWith({
+      filters: expect.objectContaining({ title: undefined }),
+      page: 2,
+      pageSize: 20
+    })
     fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
     await waitFor(() =>
       expect(mocks.list).toHaveBeenLastCalledWith(
@@ -155,16 +182,14 @@ describe('MP4 optimization artwork selection', () => {
         })
       )
     )
+    expect(mocks.list).toHaveBeenCalledTimes(4)
     expect(screen.getByText('已选择 0 部作品')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '重置' }))
-    await waitFor(() =>
-      expect(mocks.list).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          filters: expect.objectContaining({ artworkId: undefined, title: undefined, tags: [] }),
-          page: 1
-        })
-      )
-    )
+    expect(screen.getByText('准备筛选作品')).toBeTruthy()
+    expect(screen.queryByRole('table')).toBeNull()
+    expect(screen.queryByRole('button', { name: '刷新作品' })).toBeNull()
+    expect((screen.getByRole('textbox', { name: '作品标题' }) as HTMLInputElement).value).toBe('')
+    expect(mocks.list).toHaveBeenCalledTimes(4)
   })
 
   it('keeps manual selections across pages and excludes active-only rows from page selection', async () => {
@@ -188,10 +213,9 @@ describe('MP4 optimization artwork selection', () => {
 
   it('supports all matching results with individual exclusions and confirms frozen media once', async () => {
     mocks.preview.mockResolvedValue({ targets: [target], artworkCount: 5, mp4Count: 8, successRedoCount: 2 })
-    const onSubmitted = vi.fn()
-    mount({ onSubmitted })
+    mount()
     await screen.findByText('作品 3')
-    fireEvent.click(screen.getByRole('button', { name: '全选所有筛选结果' }))
+    fireEvent.click(screen.getByRole('button', { name: '全选可提交作品' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '选择作品 #3' }))
     fireEvent.click(screen.getByRole('button', { name: '预览并提交' }))
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalledTimes(1))
@@ -206,8 +230,37 @@ describe('MP4 optimization artwork selection', () => {
     await act(() => confirmation.onConfirm())
     expect(mocks.submit).toHaveBeenCalledTimes(1)
     expect(mocks.submit.mock.calls[0]![0]).toEqual({ targets: [target] })
-    expect(onSubmitted).toHaveBeenCalledTimes(1)
     expect(screen.getByText('新建 1 · 复用 0 · 跳过 0 · 失败 0')).toBeTruthy()
+    fireEvent.click(screen.getAllByRole('button', { name: '查看优化任务' })[1]!)
+    expect(mocks.history).toHaveBeenLastCalledWith(expect.objectContaining({ refreshVersion: 1, showDock: false }))
+  })
+
+  it('keeps all-matching selection actionable when the exclusion count reaches the displayed total', async () => {
+    mocks.list.mockResolvedValue({ items: [candidate(3)], total: 1, page: 1, pageSize: 20 })
+    mount()
+    await screen.findByText('作品 3')
+    fireEvent.click(screen.getByRole('button', { name: '全选可提交作品' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择作品 #3' }))
+    expect(screen.getByText('已选择所有符合筛选且可提交的作品，排除 1 部作品')).toBeTruthy()
+    expect((screen.getByRole('button', { name: '预览并提交' }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '清空选择' }))
+    expect(screen.getByText('已选择 0 部作品')).toBeTruthy()
+  })
+
+  it('allows viewing active-only candidates and disables all-matching selection', async () => {
+    mocks.list.mockResolvedValue({ items: [candidate(3, { actionableMp4Count: 0 })], total: 1, page: 1, pageSize: 20 })
+    mount(false)
+    fireEvent.click(screen.getByRole('button', { name: '任务状态 · 4' }))
+    for (const label of ['无记录', '最近失败', '最近取消', '最近跳过', '活动中']) {
+      fireEvent.click(screen.getByRole('checkbox', { name: label }))
+    }
+    fireEvent.keyDown(screen.getByRole('checkbox', { name: '活动中' }), { key: 'Escape' })
+    fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
+    await screen.findByText('作品 3')
+    expect(mocks.list).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ filters: expect.objectContaining({ statuses: ['ACTIVE'] }) })
+    )
+    expect((screen.getByRole('button', { name: '全选可提交作品' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('rejects the entire preview above 1000 MP4 without confirmation or submission', async () => {
@@ -282,8 +335,7 @@ describe('MP4 optimization artwork selection', () => {
         { imageId: 12, artworkId: 3, outcome: 'SKIPPED', reason: '历史任务不可重试' }
       ]
     })
-    const onViewTasks = vi.fn()
-    mount({ onViewTasks })
+    mount()
     await screen.findByText('作品 3')
     fireEvent.click(screen.getByRole('checkbox', { name: '选择作品 #3' }))
     fireEvent.click(screen.getByRole('button', { name: '预览并提交' }))
@@ -293,10 +345,35 @@ describe('MP4 optimization artwork selection', () => {
     expect(screen.getByText(/媒体已变更，请刷新后重试/)).toBeTruthy()
     expect(screen.getByText(/跳过：历史任务不可重试/)).toBeTruthy()
     expect(screen.queryByText('近期记录（保留 90 天）')).toBeNull()
-    fireEvent.click(screen.getAllByRole('button', { name: '查看优化任务' })[0]!)
-    expect(onViewTasks).toHaveBeenCalledWith()
-    fireEvent.click(screen.getAllByRole('button', { name: '查看任务' })[0]!)
-    expect(onViewTasks).toHaveBeenLastCalledWith(3)
+  })
+
+  it('opens optimization history on demand and preserves the current selection when it closes', async () => {
+    mount(false)
+    expect(mocks.history).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '查看优化任务' }))
+    expect(screen.getByRole('dialog', { name: '执行动态' })).toBeTruthy()
+    expect(mocks.history).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        videoOptimizationHistoryRequest: { requestId: 1, artworkId: undefined },
+        showDock: false
+      })
+    )
+    fireEvent.click(screen.getByRole('button', { name: '关闭执行动态' }))
+    expect(mocks.list).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
+    await screen.findByText('作品 3')
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择作品 #3' }))
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }))
+    await screen.findByText('作品 1')
+    fireEvent.click(screen.getByRole('button', { name: '查看任务' }))
+    expect(mocks.history).toHaveBeenLastCalledWith(
+      expect.objectContaining({ videoOptimizationHistoryRequest: { requestId: 2, artworkId: 1 } })
+    )
+    fireEvent.click(screen.getByRole('button', { name: '关闭执行动态' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByText('已选择 1 部作品')).toBeTruthy()
+    expect(screen.getByText('作品 1')).toBeTruthy()
+    expect(mocks.list).toHaveBeenCalledTimes(2)
   })
 
   it('retains selection after network submission failure and never retries automatically', async () => {

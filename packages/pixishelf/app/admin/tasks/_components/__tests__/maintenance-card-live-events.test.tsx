@@ -45,7 +45,6 @@ vi.mock('../../../_components/background-job-event-provider', () => ({
   useBackgroundJobEventSubscription: () => mocks.live
 }))
 vi.mock('../video-keyframe-section', () => ({ VideoKeyframeSection: () => null }))
-vi.mock('../video-streaming-optimization-section', () => ({ VideoStreamingOptimizationSection: () => null }))
 vi.mock('../background-task-console', () => ({ BackgroundTaskConsole: () => null }))
 vi.mock('@/components/shared/global-confirm', () => ({ confirm: vi.fn() }))
 

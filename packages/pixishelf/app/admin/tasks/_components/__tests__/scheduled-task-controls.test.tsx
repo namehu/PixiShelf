@@ -47,7 +47,6 @@ vi.mock('next/navigation', () => ({
 vi.mock('../../../_components/background-job-event-provider', () => ({
   useBackgroundJobEventSubscription: () => ({ status: 'connected', items: [], readyVersion: 0, resetVersion: 0 })
 }))
-vi.mock('../video-streaming-optimization-section', () => ({ VideoStreamingOptimizationSection: () => null }))
 vi.mock('../background-task-console', () => ({ BackgroundTaskConsole: () => null }))
 vi.mock('@/components/shared/global-confirm', () => ({ confirm: vi.fn() }))
 vi.mock('sonner', () => ({ toast: { error: mocks.errorToast, success: vi.fn() } }))
@@ -148,6 +147,10 @@ describe('scheduled task controls with shared query state', () => {
     }
     expect(view.container.querySelector('#meta-source')?.querySelector('[role="switch"]')).toBeNull()
     expect(screen.queryByLabelText('优先级')).toBeNull()
+    expect(screen.getByRole('link', { name: /MP4 无损播放优化/ }).getAttribute('href')).toBe(
+      '/admin/tasks/video-streaming-optimization'
+    )
+    expect(screen.queryByRole('button', { name: '应用筛选' })).toBeNull()
 
     fireEvent.click(switchFor('webp_animation_scan'))
     await waitFor(() =>

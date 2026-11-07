@@ -2,7 +2,8 @@
 
 import { useCallback, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Film, RefreshCw, Search } from 'lucide-react'
+import { ArrowLeft, RefreshCw, Search } from 'lucide-react'
+import Link from 'next/link'
 import { toast } from 'sonner'
 import MultipleSelector, { type Option } from '@/components/shared/multiple-selector'
 import { ProTable, type ActionType, type ProColumnDef } from '@/components/shared/pro-table'
@@ -12,6 +13,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -27,7 +29,8 @@ import type {
   VideoOptimizationFilters,
   VideoOptimizationStatus
 } from '@/types/video-optimization'
-import { TaskSection } from './task-ui'
+import { AdminWorkbench } from '../../../_components/admin-workbench'
+import { BackgroundTaskConsole, type VideoOptimizationHistoryRequest } from '../../_components/background-task-console'
 
 const statusLabels: Record<VideoOptimizationStatus, string> = {
   NONE: '无记录',
@@ -50,21 +53,13 @@ function defaultDraft() {
   }
 }
 
-export function VideoStreamingOptimizationSection({
-  onViewTasks,
-  onSubmitted
-}: {
-  onViewTasks?: (artworkId?: number) => void
-  onSubmitted?: () => void
-}) {
+export function VideoStreamingOptimizationWorkspace() {
   const trpc = useTRPC()
   const trpcClient = useTRPCClient()
   const queryClient = useQueryClient()
   const tableRef = useRef<ActionType | undefined>(undefined)
   const [draft, setDraft] = useState(defaultDraft)
-  const [filters, setFilters] = useState<VideoOptimizationFilters>({
-    statuses: [...DEFAULT_VIDEO_OPTIMIZATION_STATUSES]
-  })
+  const [filters, setFilters] = useState<VideoOptimizationFilters>()
   const [page, setPage] = useState(1)
   const currentView = useRef({ filters, page })
   currentView.current = { filters, page }
@@ -75,6 +70,11 @@ export function VideoStreamingOptimizationSection({
   })
   const [confirming, setConfirming] = useState(false)
   const [result, setResult] = useState<VideoOptimizationBatchResult>()
+  const [historyRequest, setHistoryRequest] = useState<VideoOptimizationHistoryRequest>()
+  const [historyRefreshVersion, setHistoryRefreshVersion] = useState(0)
+  const viewTasks = (artworkId?: number) => {
+    setHistoryRequest((previous) => ({ requestId: (previous?.requestId ?? 0) + 1, artworkId }))
+  }
   const request = useCallback(
     async ({ current }: { current: number }) => {
       const data = await queryClient.fetchQuery(
@@ -108,7 +108,7 @@ export function VideoStreamingOptimizationSection({
         void queryClient.invalidateQueries({ queryKey: trpc.job.backgroundDashboard.queryKey() })
         void queryClient.invalidateQueries({ queryKey: trpc.job.backgroundHistory.queryKey() })
         tableRef.current?.reload()
-        onSubmitted?.()
+        setHistoryRefreshVersion((version) => version + 1)
       },
       onError: (error) => toast.error(`提交失败：${error.message}。选择已保留，可刷新后重试。`)
     })
@@ -120,10 +120,7 @@ export function VideoStreamingOptimizationSection({
       ? selection.artworkIds.includes(artworkId)
       : !selection.excludedArtworkIds?.includes(artworkId)
   const selectedOnPage = selectable.filter((item) => isSelected(item.artworkId)).length
-  const selectedCount =
-    selection.mode === 'SELECTED'
-      ? selection.artworkIds.length
-      : Math.max(0, (candidates?.total ?? 0) - (selection.excludedArtworkIds?.length ?? 0))
+  const hasSelection = selection.mode === 'ALL_MATCHING' || selection.artworkIds.length > 0
   const setSelected = (ids: number[], checked: boolean) =>
     setSelection((previous) => {
       if (previous.mode === 'SELECTED') {
@@ -142,17 +139,20 @@ export function VideoStreamingOptimizationSection({
       }
     })
   const applyFilters = (reset = false) => {
-    const next = reset ? defaultDraft() : draft
-    if (reset) setDraft(next)
-    setFilters({
-      artworkId: next.artworkId ? Number(next.artworkId) : undefined,
-      title: next.title.trim() || undefined,
-      artistName: next.artistName.trim() || undefined,
-      tags: next.tags.map((tag) => tag.value),
-      excludeTags: next.excludeTags.map((tag) => tag.value),
-      sources: next.sources.map((source) => source.value as ESource),
-      statuses: next.statuses
-    })
+    if (reset) setDraft(defaultDraft())
+    setFilters(
+      reset
+        ? undefined
+        : {
+            artworkId: draft.artworkId ? Number(draft.artworkId) : undefined,
+            title: draft.title.trim() || undefined,
+            artistName: draft.artistName.trim() || undefined,
+            tags: draft.tags.map((tag) => tag.value),
+            excludeTags: draft.excludeTags.map((tag) => tag.value),
+            sources: draft.sources.map((source) => source.value as ESource),
+            statuses: draft.statuses
+          }
+    )
     setPage(1)
     setCandidates(undefined)
     setSelection({ mode: 'SELECTED', artworkIds: [] })
@@ -235,9 +235,10 @@ export function VideoStreamingOptimizationSection({
     {
       id: 'artwork',
       header: '作品',
+      cellClassName: 'whitespace-normal wrap-anywhere',
       cell: ({ row }) => (
         <div className="flex min-w-40 flex-col gap-1">
-          <PrivacySensitiveText className="break-words font-medium">{row.original.title}</PrivacySensitiveText>
+          <PrivacySensitiveText className="font-medium">{row.original.title}</PrivacySensitiveText>
           <span className="text-xs text-muted-foreground">内部 ID #{row.original.artworkId}</span>
         </div>
       )
@@ -245,8 +246,9 @@ export function VideoStreamingOptimizationSection({
     {
       id: 'artists',
       header: '艺术家',
+      cellClassName: 'min-w-24 whitespace-normal wrap-anywhere',
       cell: ({ row }) => (
-        <PrivacySensitiveText className="break-words">
+        <PrivacySensitiveText>
           {row.original.artists.map((artist) => artist.name).join('、') || '未关联艺术家'}
         </PrivacySensitiveText>
       )
@@ -281,7 +283,13 @@ export function VideoStreamingOptimizationSection({
       id: 'actions',
       header: '操作',
       cell: ({ row }) => (
-        <Button type="button" size="sm" variant="ghost" onClick={() => onViewTasks?.(row.original.artworkId)}>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => viewTasks(row.original.artworkId)}
+        >
           查看任务
         </Button>
       )
@@ -289,18 +297,21 @@ export function VideoStreamingOptimizationSection({
   ]
 
   return (
-    <TaskSection
-      id="video-streaming"
-      category="持久队列"
-      icon={Film}
+    <AdminWorkbench
       title="MP4 无损播放优化"
       description="筛选作品并批量提交匹配的 MP4；活动中任务不会重复创建。"
-      summary={null}
-      action={
-        <Button type="button" variant="outline" onClick={() => onViewTasks?.()}>
+      eyebrow={
+        <Link href="/admin/tasks" className="inline-flex items-center gap-1 hover:underline">
+          <ArrowLeft className="size-3.5" aria-hidden="true" />
+          返回后台任务
+        </Link>
+      }
+      actions={
+        <Button type="button" variant="outline" disabled={busy} onClick={() => viewTasks()}>
           查看优化任务
         </Button>
       }
+      contentClassName="flex flex-col gap-4 pt-4"
     >
       <form
         className="flex flex-col gap-4"
@@ -309,7 +320,7 @@ export function VideoStreamingOptimizationSection({
           if (!busy && draft.statuses.length) applyFilters()
         }}
       >
-        <FieldGroup className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <FieldGroup className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <Field>
             <FieldLabel htmlFor="video-optimization-artwork-id">内部作品 ID</FieldLabel>
             <Input
@@ -437,38 +448,40 @@ export function VideoStreamingOptimizationSection({
       <p className="text-xs text-muted-foreground">
         任务状态按每个 MP4 的最近任务统计。活动中包括排队、执行、暂停、自动重试及取消中；成功项需显式筛选后重做。
       </p>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm tabular-nums" role="status">
-          {selection.mode === 'ALL_MATCHING'
-            ? `已选择所有筛选结果${selection.excludedArtworkIds?.length ? `，排除 ${selection.excludedArtworkIds.length} 部作品` : ''}`
-            : `已选择 ${selectedCount} 部作品`}
-        </span>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={busy || !candidates?.total}
-          onClick={() => setSelection({ mode: 'ALL_MATCHING', excludedArtworkIds: [] })}
-        >
-          全选所有筛选结果
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          disabled={busy || !selectedCount}
-          onClick={() => setSelection({ mode: 'SELECTED', artworkIds: [] })}
-        >
-          清空选择
-        </Button>
-        <Button type="button" size="sm" disabled={busy || !selectedCount} onClick={() => void preview()}>
-          {busy ? <Spinner data-icon="inline-start" aria-hidden="true" /> : null}预览并提交
-        </Button>
-        <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => tableRef.current?.reload()}>
-          <RefreshCw data-icon="inline-start" aria-hidden="true" />
-          刷新作品
-        </Button>
-      </div>
+      {filters ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm tabular-nums" role="status">
+            {selection.mode === 'ALL_MATCHING'
+              ? `已选择所有符合筛选且可提交的作品${selection.excludedArtworkIds?.length ? `，排除 ${selection.excludedArtworkIds.length} 部作品` : ''}`
+              : `已选择 ${selection.artworkIds.length} 部作品`}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={busy || !candidates?.total || !filters.statuses?.some((status) => status !== 'ACTIVE')}
+            onClick={() => setSelection({ mode: 'ALL_MATCHING', excludedArtworkIds: [] })}
+          >
+            全选可提交作品
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={busy || !hasSelection}
+            onClick={() => setSelection({ mode: 'SELECTED', artworkIds: [] })}
+          >
+            清空选择
+          </Button>
+          <Button type="button" size="sm" disabled={busy || !hasSelection} onClick={() => void preview()}>
+            {busy ? <Spinner data-icon="inline-start" aria-hidden="true" /> : null}预览并提交
+          </Button>
+          <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => tableRef.current?.reload()}>
+            <RefreshCw data-icon="inline-start" aria-hidden="true" />
+            刷新作品
+          </Button>
+        </div>
+      ) : null}
       {result ? (
         <Alert variant={result.failed || result.skipped ? 'warning' : 'success'}>
           <AlertTitle>批量提交结果</AlertTitle>
@@ -488,30 +501,46 @@ export function VideoStreamingOptimizationSection({
                   ))}
               </ul>
             ) : null}
-            <Button type="button" size="sm" variant="outline" onClick={() => onViewTasks?.()}>
+            <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => viewTasks()}>
               查看优化任务
             </Button>
           </AlertDescription>
         </Alert>
       ) : null}
-      <ProTable
-        key={`${JSON.stringify(filters)}:${page}`}
-        columns={columns}
-        request={request}
-        actionRef={tableRef}
-        rowKey={(item) => String(item.artworkId)}
-        defaultPageSize={20}
-        pageSizeOptions={[20]}
-        pagination={{ pageIndex: page - 1, pageSize: 20 }}
-        onPaginationChange={(updater) => {
-          if (busy) return
-          const next = typeof updater === 'function' ? updater({ pageIndex: page - 1, pageSize: 20 }) : updater
-          setCandidates(undefined)
-          setPage(next.pageIndex + 1)
-        }}
-        toolBarRender={false}
-        scrollToTopOnPageChange={false}
-      />
-    </TaskSection>
+      {filters ? (
+        <ProTable
+          key={`${JSON.stringify(filters)}:${page}`}
+          columns={columns}
+          request={request}
+          actionRef={tableRef}
+          rowKey={(item) => String(item.artworkId)}
+          defaultPageSize={20}
+          pageSizeOptions={[20]}
+          pagination={{ pageIndex: page - 1, pageSize: 20 }}
+          onPaginationChange={(updater) => {
+            if (busy) return
+            const next = typeof updater === 'function' ? updater({ pageIndex: page - 1, pageSize: 20 }) : updater
+            setCandidates(undefined)
+            setPage(next.pageIndex + 1)
+          }}
+          toolBarRender={false}
+          scrollToTopOnPageChange={false}
+        />
+      ) : (
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyTitle>准备筛选作品</EmptyTitle>
+            <EmptyDescription>点击「应用筛选」加载候选作品。</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      )}
+      {historyRequest ? (
+        <BackgroundTaskConsole
+          videoOptimizationHistoryRequest={historyRequest}
+          refreshVersion={historyRefreshVersion}
+          showDock={false}
+        />
+      ) : null}
+    </AdminWorkbench>
   )
 }
