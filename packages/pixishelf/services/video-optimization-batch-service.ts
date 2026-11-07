@@ -22,6 +22,24 @@ import { lockActiveVideoStreamingOptimization } from './video-streaming-optimiza
 type QueryClient = Pick<Prisma.TransactionClient, '$queryRaw'>
 type Filters = z.output<typeof listVideoStreamingOptimizationCandidatesInputSchema>['filters']
 
+function latestOptimizationJobQuery(successfulOnly = false) {
+  const statusFilter = successfulOnly ? Prisma.sql`AND j.status = 'COMPLETED'` : Prisma.empty
+  return Prisma.sql`SELECT recent.id, recent."createdAt", recent."finishedAt",
+    CASE WHEN recent.status::text IN (${Prisma.join([...ACTIVE_JOB_STATUSES])}) THEN 'ACTIVE'
+      ELSE recent.status::text END AS status
+    FROM (
+      (SELECT j.id, j.status, j."createdAt", j."finishedAt" FROM system_jobs j
+        WHERE j.type = 'VIDEO_STREAMING_OPTIMIZATION' AND j."definitionVersion" > 0
+          AND j.payload #> '{imageId}' = to_jsonb(i.id) ${statusFilter}
+        ORDER BY j."createdAt" DESC, j.id DESC LIMIT 1)
+      UNION ALL
+      (SELECT j.id, j.status, j."createdAt", j."finishedAt" FROM system_jobs j
+        WHERE j.type = 'VIDEO_STREAMING_OPTIMIZATION' AND j."definitionVersion" = 0
+          AND j."legacyDisplay" #> '{targetImageId}' = to_jsonb(i.id) ${statusFilter}
+        ORDER BY j."createdAt" DESC, j.id DESC LIMIT 1)
+    ) recent ORDER BY recent."createdAt" DESC, recent.id DESC LIMIT 1`
+}
+
 function matchingMediaQuery(filters: Filters, artworkIds?: number[], excludedArtworkIds?: number[]) {
   const clauses = [Prisma.sql`a."deletedAt" IS NULL`, Prisma.sql`a."archiveLifecycleState" = 'ACTIVE'`]
   if (filters.artworkId) clauses.push(Prisma.sql`a.id = ${filters.artworkId}`)
@@ -56,23 +74,9 @@ function matchingMediaQuery(filters: Filters, artworkIds?: number[], excludedArt
   }
   return Prisma.sql`WITH media AS (
     SELECT a.id AS "artworkId", i.id AS "imageId", latest.id AS "latestJobId",
-      CASE WHEN latest.id IS NULL THEN 'NONE'
-        WHEN latest.status::text IN (${Prisma.join([...ACTIVE_JOB_STATUSES])}) THEN 'ACTIVE'
-        ELSE latest.status::text END AS status
+      coalesce(latest.status, 'NONE') AS status
     FROM "Artwork" a JOIN "Image" i ON i."artworkId" = a.id
-    LEFT JOIN LATERAL (
-      SELECT recent.id, recent.status FROM (
-        (SELECT j.id, j.status, j."createdAt" FROM system_jobs j
-          WHERE j.type = 'VIDEO_STREAMING_OPTIMIZATION' AND j."definitionVersion" > 0
-            AND j.payload #> '{imageId}' = to_jsonb(i.id)
-          ORDER BY j."createdAt" DESC, j.id DESC LIMIT 1)
-        UNION ALL
-        (SELECT j.id, j.status, j."createdAt" FROM system_jobs j
-          WHERE j.type = 'VIDEO_STREAMING_OPTIMIZATION' AND j."definitionVersion" = 0
-            AND j."legacyDisplay" #> '{targetImageId}' = to_jsonb(i.id)
-          ORDER BY j."createdAt" DESC, j.id DESC LIMIT 1)
-      ) recent ORDER BY recent."createdAt" DESC, recent.id DESC LIMIT 1
-    ) latest ON true
+    LEFT JOIN LATERAL (${latestOptimizationJobQuery()}) latest ON true
     WHERE ${Prisma.join(clauses, ' AND ')} AND lower(i.path) LIKE '%.mp4'
   )`
 }
@@ -110,7 +114,20 @@ export async function listVideoStreamingOptimizationCandidates(
           SELECT p.*, a.title, a.source,
             (SELECT coalesce(jsonb_agg(creators ORDER BY creators.name, creators.id), '[]'::jsonb)
               FROM (SELECT DISTINCT ca.id, ca.name FROM effective_artwork_creators c
-                JOIN "Artist" ca ON ca.id = c."artistId" WHERE c."artworkId" = p."artworkId") creators) AS artists
+                JOIN "Artist" ca ON ca.id = c."artistId" WHERE c."artworkId" = p."artworkId") creators) AS artists,
+            (SELECT coalesce(jsonb_agg(jsonb_build_object(
+                'imageId', i.id,
+                'filename', regexp_replace(replace(i.path, chr(92), '/'), '^.*/', ''),
+                'width', i.width, 'height', i.height, 'size', i.size::text,
+                'latestStatus', coalesce(latest.status, 'NONE'),
+                'latestJobCreatedAt', latest."createdAt" AT TIME ZONE 'UTC',
+                'lastSuccessfulJob', CASE WHEN success.id IS NULL THEN NULL
+                  ELSE jsonb_build_object('finishedAt', success."finishedAt" AT TIME ZONE 'UTC') END
+              ) ORDER BY i.id DESC), '[]'::jsonb)
+              FROM "Image" i
+              LEFT JOIN LATERAL (${latestOptimizationJobQuery()}) latest ON true
+              LEFT JOIN LATERAL (${latestOptimizationJobQuery(true)}) success ON true
+              WHERE i."artworkId" = p."artworkId" AND lower(i.path) LIKE '%.mp4') AS videos
           FROM candidate_page p JOIN "Artwork" a ON a.id = p."artworkId"
         ) item
       ), '[]'::jsonb) AS items`)

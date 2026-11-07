@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, RefreshCw, Search } from 'lucide-react'
+import { ArrowLeft, ExternalLink, RefreshCw, Search } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import MultipleSelector, { type Option } from '@/components/shared/multiple-selector'
@@ -20,6 +20,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Spinner } from '@/components/ui/spinner'
 import { MSource, OSource, type ESource } from '@/enums/e-source'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
+import { formatDate } from '@/lib/utils'
+import { formatFileSize } from '@/utils/media'
 import { DEFAULT_VIDEO_OPTIMIZATION_STATUSES, VIDEO_OPTIMIZATION_STATUSES } from '@/schemas/video-optimization.dto'
 import type {
   PreviewVideoStreamingOptimizationBatchInput,
@@ -40,6 +42,7 @@ const statusLabels: Record<VideoOptimizationStatus, string> = {
   CANCELLED: '最近取消',
   SKIPPED: '最近跳过'
 }
+const timestampOptions = { dateStyle: 'short', timeStyle: 'short' } as const
 
 function defaultDraft() {
   return {
@@ -263,6 +266,9 @@ export function VideoStreamingOptimizationWorkspace() {
             匹配 {row.original.matchingMp4Count} / 共 {row.original.mp4Count}
           </span>
           <span className="text-muted-foreground">可提交 {row.original.actionableMp4Count}</span>
+          <span className="text-muted-foreground">
+            曾优化成功 {row.original.videos.filter((video) => video.lastSuccessfulJob).length} / {row.original.mp4Count}
+          </span>
         </div>
       )
     },
@@ -283,15 +289,24 @@ export function VideoStreamingOptimizationWorkspace() {
       id: 'actions',
       header: '操作',
       cell: ({ row }) => (
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          disabled={busy}
-          onClick={() => viewTasks(row.original.artworkId)}
-        >
-          查看任务
-        </Button>
+        <div className="flex flex-wrap gap-1">
+          <Button size="sm" variant="ghost" asChild>
+            <Link href={`/artworks/${row.original.artworkId}`} target="_blank" rel="noreferrer" prefetch={false}>
+              作品详情
+              <ExternalLink data-icon="inline-end" aria-hidden="true" />
+              <span className="sr-only">（新标签页）</span>
+            </Link>
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => viewTasks(row.original.artworkId)}
+          >
+            查看任务
+          </Button>
+        </div>
       )
     }
   ]
@@ -311,7 +326,7 @@ export function VideoStreamingOptimizationWorkspace() {
           查看优化任务
         </Button>
       }
-      contentClassName="flex flex-col gap-4 pt-4"
+      contentClassName="@container flex flex-col gap-4 pt-4"
     >
       <form
         className="flex flex-col gap-4"
@@ -508,6 +523,11 @@ export function VideoStreamingOptimizationWorkspace() {
         </Alert>
       ) : null}
       {filters ? (
+        <p className="text-xs text-muted-foreground">
+          展开作品查看逐个视频的分辨率、文件大小与优化记录。尺寸取自媒体记录，优化情况按任务记录显示，不重新检测文件。
+        </p>
+      ) : null}
+      {filters ? (
         <ProTable
           key={`${JSON.stringify(filters)}:${page}`}
           columns={columns}
@@ -525,6 +545,66 @@ export function VideoStreamingOptimizationWorkspace() {
           }}
           toolBarRender={false}
           scrollToTopOnPageChange={false}
+          renderExpandedRow={(artwork) => (
+            <ul
+              aria-label={`作品 #${artwork.artworkId} 的 MP4 视频`}
+              className="flex flex-col divide-y px-4 whitespace-normal max-sm:max-w-[calc(100cqw-2px)]"
+            >
+              {artwork.videos.map((video) => (
+                <li key={video.imageId} className="grid min-w-0 gap-3 py-4 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <Link
+                      href={`/artworks/${artwork.artworkId}?mediaId=${video.imageId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      prefetch={false}
+                      className="font-medium text-primary wrap-anywhere underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    >
+                      <PrivacySensitiveText>{video.filename}</PrivacySensitiveText>
+                      <ExternalLink className="ml-1 inline size-3.5 align-text-bottom" aria-hidden="true" />
+                      <span className="sr-only">（新标签页）</span>
+                    </Link>
+                    <span className="text-xs text-muted-foreground">视频 #{video.imageId}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {filters.statuses?.includes(video.latestStatus) ? '本次筛选匹配' : '筛选范围外'}
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-1 text-sm tabular-nums">
+                    <span>
+                      {(video.width ?? 0) > 0 && (video.height ?? 0) > 0
+                        ? `${video.width} × ${video.height}`
+                        : '分辨率未知'}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {video.size === null ? '文件大小未知' : `文件大小 ${formatFileSize(Number(video.size))}`}
+                    </span>
+                  </div>
+                  <div className="flex flex-col items-start gap-1">
+                    <Badge variant={video.lastSuccessfulJob ? 'success' : 'outline'}>
+                      {video.lastSuccessfulJob ? '曾优化成功' : '暂无成功记录'}
+                    </Badge>
+                    {video.lastSuccessfulJob ? (
+                      <span className="text-xs text-muted-foreground">
+                        {video.lastSuccessfulJob.finishedAt
+                          ? `完成于 ${formatDate(video.lastSuccessfulJob.finishedAt, timestampOptions)}`
+                          : '完成时间未知'}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-col items-start gap-1">
+                    <Badge variant="outline">
+                      {video.latestStatus === 'NONE' ? '无任务记录' : statusLabels[video.latestStatus]}
+                    </Badge>
+                    {video.latestJobCreatedAt ? (
+                      <span className="text-xs text-muted-foreground">
+                        创建于 {formatDate(video.latestJobCreatedAt, timestampOptions)}
+                      </span>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         />
       ) : (
         <Empty className="border">

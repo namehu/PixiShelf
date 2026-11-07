@@ -52,6 +52,16 @@ export interface VideoOptimizationCandidate {
   matchingMp4Count: number
   actionableMp4Count: number
   statusCounts: Record<VideoOptimizationStatus, number>
+  videos: Array<{
+    imageId: number
+    filename: string
+    width: number | null
+    height: number | null
+    size: string | null
+    latestStatus: VideoOptimizationStatus
+    latestJobCreatedAt: string | null
+    lastSuccessfulJob: { finishedAt: string | null } | null
+  }>
 }
 export interface VideoOptimizationCandidatePage {
   items: VideoOptimizationCandidate[]

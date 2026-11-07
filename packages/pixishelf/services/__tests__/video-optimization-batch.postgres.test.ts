@@ -175,7 +175,72 @@ pg('MP4 batch optimization PostgreSQL', () => {
     const preview = await previewVideoStreamingOptimizationBatch(
       previewSchema.parse({ filters: scope, selection: { mode: 'SELECTED', artworkIds: [row.id] } })
     )
-    expect(preview.targets).toEqual([{ imageId: image.id, artworkId: row.id, latestJobId: legacy.id, status: 'FAILED' }])
+    expect(preview.targets).toEqual([
+      { imageId: image.id, artworkId: row.id, latestJobId: legacy.id, status: 'FAILED' }
+    ])
+  })
+
+  it('enriches every MP4 on the current artwork page with dimensions, exact sizes and independent success history', async () => {
+    const row = await artwork('video-information', 3)
+    const [first, unknown, legacy] = row.images
+    const finishedAt = new Date('2026-01-01T12:00:00.000Z')
+    await database.image.update({
+      where: { id: first!.id },
+      data: { path: `${prefix}/private/folder/first.MP4`, width: 1920, height: 1080, size: 9007199254740993n }
+    })
+    await database.image.update({ where: { id: unknown!.id }, data: { width: 0, height: 720, size: 0n } })
+    await job(first!, 'COMPLETED', { createdAt: finishedAt, finishedAt })
+    const failed = await job(first!, 'FAILED', { createdAt: new Date('2026-02-01') })
+    const tiedAt = new Date('2026-01-02')
+    await job(legacy!, 'COMPLETED', { id: `${prefix}-success-a-current`, createdAt: tiedAt, finishedAt })
+    await job(legacy!, 'COMPLETED', {
+      id: `${prefix}-success-z-legacy`,
+      definitionVersion: 0,
+      payload: {},
+      createdAt: tiedAt,
+      finishedAt: null,
+      legacyDisplay: { schemaVersion: 1, targetImageId: legacy!.id, targetPath: legacy!.path, mode: 'REMUX_FASTSTART' }
+    })
+    const recent = await job(legacy!, 'FAILED', { createdAt: new Date('2026-02-02') })
+    const page = await listVideoStreamingOptimizationCandidates(listSchema.parse({ filters: { artworkId: row.id } }))
+    expect(page.total).toBe(1)
+    expect(page.items[0]!.videos).toEqual([
+      {
+        imageId: legacy!.id,
+        filename: '2.mp4',
+        width: null,
+        height: null,
+        size: null,
+        latestStatus: 'FAILED',
+        latestJobCreatedAt: expect.any(String),
+        lastSuccessfulJob: { finishedAt: null }
+      },
+      {
+        imageId: unknown!.id,
+        filename: '1.mp4',
+        width: 0,
+        height: 720,
+        size: '0',
+        latestStatus: 'NONE',
+        latestJobCreatedAt: null,
+        lastSuccessfulJob: null
+      },
+      {
+        imageId: first!.id,
+        filename: 'first.MP4',
+        width: 1920,
+        height: 1080,
+        size: '9007199254740993',
+        latestStatus: 'FAILED',
+        latestJobCreatedAt: expect.any(String),
+        lastSuccessfulJob: { finishedAt: expect.any(String) }
+      }
+    ])
+    const videos = page.items[0]!.videos
+    expect(new Date(videos[0]!.latestJobCreatedAt!).getTime()).toBe(recent.createdAt.getTime())
+    expect(new Date(videos[2]!.latestJobCreatedAt!).getTime()).toBe(failed.createdAt.getTime())
+    expect(new Date(videos[2]!.lastSuccessfulJob!.finishedAt!).getTime()).toBe(finishedAt.getTime())
+    expect(videos[0]!.latestJobCreatedAt).toMatch(/(?:Z|[+-]\d{2}:\d{2})$/)
   })
 
   it('uses title only, effective creator aliases, existing OR tag semantics, exclusions and source', async () => {
@@ -218,10 +283,8 @@ pg('MP4 batch optimization PostgreSQL', () => {
       expect.objectContaining({ artworkId: included.id, artists: [{ id: creator.id, name: creator.name }] })
     ])
     expect(
-      (
-        await listVideoStreamingOptimizationCandidates(
-          listSchema.parse({ filters: { ...input.filters, artworkId: excluded.id } })
-        )
+      await listVideoStreamingOptimizationCandidates(
+        listSchema.parse({ filters: { ...input.filters, artworkId: excluded.id } })
       )
     ).toEqual({ items: [], total: 0, page: 1, pageSize: 20 })
   })

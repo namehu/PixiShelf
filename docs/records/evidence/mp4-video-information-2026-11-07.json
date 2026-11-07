@@ -1,0 +1,222 @@
+{
+  "date": "2026-11-07",
+  "baselineCommit": "3c58e20528c043ed49271812e420dde9af497414",
+  "environment": "isolated PostgreSQL 15; synthetic dataset; direct Prisma query round trips, not HTTP",
+  "sample": {
+    "artworks": 21604,
+    "images": 1855523,
+    "mp4": 1601,
+    "jobs": 31225
+  },
+  "iterations": 20,
+  "warmups": 1,
+  "comparison": "same exact total and ordered artwork fields after removing added videos; default, out-of-range, completed filter and failed filter compared",
+  "baseline": {
+    "total": 1601,
+    "items": 20,
+    "samplesMs": [
+      17.245374999999967, 15.494290999999976, 17.535459000000174, 16.693624999999884, 17.275916000000052,
+      15.635416999999961, 17.6701250000001, 17.715083999999933, 16.879249999999956, 15.81141700000012,
+      17.76975000000016, 14.993249999999989, 15.425208999999995, 16.626874999999927, 22.046749999999975,
+      15.647167000000081, 15.712750000000142, 17.936916999999994, 17.027999999999793, 18.445999999999913
+    ],
+    "p50Ms": 16.879249999999956,
+    "p95Ms": 18.445999999999913,
+    "sqlMs": 16.55,
+    "scans": [
+      {
+        "type": "Index Only Scan",
+        "relation": "Image",
+        "index": "Image_mp4_artwork_id_idx",
+        "rows": 1601,
+        "loops": 1,
+        "rowsRemoved": 0,
+        "hits": 15,
+        "reads": 0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "system_jobs",
+        "index": "system_jobs_payload_image_created_idx",
+        "rows": 0,
+        "loops": 1601,
+        "rowsRemoved": 0,
+        "hits": 4853,
+        "reads": 0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "system_jobs",
+        "index": "system_jobs_legacy_image_created_idx",
+        "rows": 0,
+        "loops": 1601,
+        "rowsRemoved": 0,
+        "hits": 1601,
+        "reads": 0
+      }
+    ],
+    "totalSharedHits": 7214,
+    "totalSharedReads": 0
+  },
+  "current": {
+    "total": 1601,
+    "items": 20,
+    "samplesMs": [
+      17.382250000000113, 17.563083000000006, 16.696500000000015, 17.42475000000013, 19.396042000000307,
+      16.981874999999945, 17.19137499999988, 17.870332999999846, 16.15733399999999, 16.633958000000348,
+      17.75170799999978, 22.82845899999984, 16.66274999999996, 18.01566700000012, 18.22945800000025, 17.735749999999825,
+      17.24762499999997, 17.38091600000007, 16.307792000000063, 16.742833000000246
+    ],
+    "p50Ms": 17.38091600000007,
+    "p95Ms": 19.396042000000307,
+    "sqlMs": 18.292,
+    "scans": [
+      {
+        "type": "Index Only Scan",
+        "relation": "Image",
+        "index": "Image_mp4_artwork_id_idx",
+        "rows": 1601,
+        "loops": 1,
+        "rowsRemoved": 0,
+        "hits": 15,
+        "reads": 0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "system_jobs",
+        "index": "system_jobs_payload_image_created_idx",
+        "rows": 0,
+        "loops": 1601,
+        "rowsRemoved": 0,
+        "hits": 4853,
+        "reads": 0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "system_jobs",
+        "index": "system_jobs_legacy_image_created_idx",
+        "rows": 0,
+        "loops": 1601,
+        "rowsRemoved": 0,
+        "hits": 1601,
+        "reads": 0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "Image",
+        "index": "Image_mp4_artwork_id_idx",
+        "rows": 1,
+        "loops": 20,
+        "rowsRemoved": 0,
+        "hits": 60,
+        "reads": 0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "system_jobs",
+        "index": "system_jobs_payload_image_created_idx",
+        "rows": 1,
+        "loops": 20,
+        "rowsRemoved": 0,
+        "hits": 79,
+        "reads": 0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "system_jobs",
+        "index": "system_jobs_legacy_image_created_idx",
+        "rows": 0,
+        "loops": 20,
+        "rowsRemoved": 0,
+        "hits": 20,
+        "reads": 0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "system_jobs",
+        "index": "system_jobs_payload_image_created_idx",
+        "rows": 1,
+        "loops": 20,
+        "rowsRemoved": 1,
+        "hits": 98,
+        "reads": 0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "system_jobs",
+        "index": "system_jobs_legacy_image_created_idx",
+        "rows": 0,
+        "loops": 20,
+        "rowsRemoved": 0,
+        "hits": 20,
+        "reads": 0
+      }
+    ],
+    "totalSharedHits": 7491,
+    "totalSharedReads": 0
+  },
+  "browser": {
+    "fixture": "real workspace components and Tailwind with mocked tRPC, Next Link, and navigation; no backend or real detail page",
+    "assertions": [
+      "initial-zero-fixture-calls",
+      "draft-edit-zero-candidate-calls",
+      "expand-existing-data-without-request",
+      "successful-history-visible-after-latest-failure",
+      "registered-resolution-and-size-visible",
+      "utc-timestamp-renders-in-browser-timezone",
+      "unknown-metadata-and-history-remain-unknown",
+      "legacy-success-without-finish-time",
+      "zero-bytes-not-unknown",
+      "nonmatching-completed-video-still-inspectable",
+      "video-opens-exact-media-new-tab-preserves-selection",
+      "artwork-detail-new-tab-link",
+      "narrow-expanded-width-contained",
+      "long-filename-wraps-visible-area",
+      "narrow-document-contained",
+      "responsive-expansion-no-extra-candidate-call"
+    ],
+    "geometry": {
+      "viewport": 390,
+      "document": 390,
+      "listWidth": 356,
+      "tableClient": 356,
+      "tableScroll": 791,
+      "longLinkRects": [
+        {
+          "left": 33,
+          "right": 354.453125,
+          "width": 321.453125
+        },
+        {
+          "left": 33,
+          "right": 335.09375,
+          "width": 302.09375
+        }
+      ],
+      "tableLeft": 17,
+      "tableRight": 373
+    },
+    "metrics": {
+      "calls": [
+        {
+          "name": "listVideoStreamingOptimizationCandidates",
+          "input": {
+            "filters": {
+              "title": "synthetic",
+              "tags": [],
+              "excludeTags": [],
+              "sources": [],
+              "statuses": ["NONE", "FAILED", "CANCELLED", "SKIPPED"]
+            },
+            "page": 1,
+            "pageSize": 20
+          }
+        }
+      ],
+      "candidates": 1,
+      "preview": 0,
+      "submit": 0
+    },
+    "errors": []
+  }
+}

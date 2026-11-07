@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState, type PropsWithChildren } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { VideoOptimizationCandidate } from '@/types/video-optimization'
@@ -102,6 +102,7 @@ function candidate(artworkId: number, patch: Partial<VideoOptimizationCandidate>
     matchingMp4Count: 2,
     actionableMp4Count: 2,
     statusCounts: { NONE: 1, ACTIVE: 1, COMPLETED: 0, FAILED: 1, CANCELLED: 0, SKIPPED: 0 },
+    videos: [],
     ...patch
   }
 }
@@ -128,6 +129,82 @@ afterEach(() => {
 })
 
 describe('MP4 optimization artwork selection', () => {
+  it('shows each video and its success history separately from the latest task, with detail links that preserve the list', async () => {
+    mocks.list.mockResolvedValue({
+      items: [
+        candidate(3, {
+          videos: [
+            {
+              imageId: 31,
+              filename: 'first.mp4',
+              width: 1920,
+              height: 1080,
+              size: '7340032',
+              latestStatus: 'FAILED',
+              latestJobCreatedAt: '2026-11-02T12:00:00Z',
+              lastSuccessfulJob: { finishedAt: '2026-11-01T12:00:00Z' }
+            },
+            {
+              imageId: 32,
+              filename: 'unknown.mp4',
+              width: 0,
+              height: 720,
+              size: null,
+              latestStatus: 'NONE',
+              latestJobCreatedAt: null,
+              lastSuccessfulJob: null
+            },
+            {
+              imageId: 33,
+              filename: 'legacy.mp4',
+              width: null,
+              height: null,
+              size: '0',
+              latestStatus: 'COMPLETED',
+              latestJobCreatedAt: '2025-11-01T12:00:00Z',
+              lastSuccessfulJob: { finishedAt: null }
+            }
+          ]
+        })
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 20
+    })
+    mount()
+    await screen.findByText('作品 3')
+    expect(screen.getByText('曾优化成功 2 / 3')).toBeTruthy()
+    const artworkLink = screen.getByRole('link', { name: /作品详情/ })
+    expect(artworkLink.getAttribute('href')).toBe('/artworks/3')
+    expect(artworkLink.getAttribute('target')).toBe('_blank')
+    expect(artworkLink.getAttribute('rel')).toBe('noreferrer')
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择作品 #3' }))
+    fireEvent.click(screen.getByRole('button', { name: '展开预览' }))
+    const videos = within(screen.getByRole('list', { name: '作品 #3 的 MP4 视频' })).getAllByRole('listitem')
+    expect(videos).toHaveLength(3)
+    const first = within(videos[0]!)
+    expect(first.getByText('曾优化成功')).toBeTruthy()
+    expect(first.getByText('最近失败')).toBeTruthy()
+    expect(first.getByText('1920 × 1080')).toBeTruthy()
+    expect(first.getByText('文件大小 7 MB')).toBeTruthy()
+    expect(first.getByText(/完成于 2026/)).toBeTruthy()
+    const videoLink = first.getByRole('link', { name: /first.mp4/ })
+    expect(videoLink.getAttribute('href')).toBe('/artworks/3?mediaId=31')
+    expect(videoLink.getAttribute('target')).toBe('_blank')
+    expect(videoLink.getAttribute('rel')).toBe('noreferrer')
+    const unknown = within(videos[1]!)
+    expect(unknown.getByText('分辨率未知')).toBeTruthy()
+    expect(unknown.getByText('文件大小未知')).toBeTruthy()
+    expect(unknown.getByText('暂无成功记录')).toBeTruthy()
+    expect(unknown.getByText('无任务记录')).toBeTruthy()
+    expect(within(videos[2]!).getByText('完成时间未知')).toBeTruthy()
+    expect(within(videos[2]!).getByText('文件大小 0 B')).toBeTruthy()
+    expect(within(videos[2]!).getByText('筛选范围外')).toBeTruthy()
+    expect(screen.queryByText('未优化')).toBeNull()
+    expect(screen.getByText('已选择 1 部作品')).toBeTruthy()
+    expect(mocks.list).toHaveBeenCalledOnce()
+  })
+
   it('loads only on apply, preserves draft edits until apply, and resets to the unqueried view', async () => {
     mount(false)
     expect(screen.getByRole('heading', { name: 'MP4 无损播放优化' })).toBeTruthy()
