@@ -106,7 +106,7 @@ docker compose --env-file build/.env.example -f build/docker-compose.deploy.yml 
 - migration 用旧 schema fixture，不在业务库加回旧列。破坏性退役验证拒绝无副作用、历史/确认保留、普通启动阻断及恢复；至少 7 天生产观察不能用开发测试替代。
 - 全量处理验证不截断、重试幂等、人工修改 CAS；只读扫描必须证明不写领域，空根/截断/取消不得误报 MISSING。
 - 共享 lane/advisory lock 的非竞争 PostgreSQL 套件串行或分库，专门竞争用例仍运行真实并发；时间/lease 使用可控 clock。
-- SSE 验证认证、脱敏、持久游标追赶/reset、断线清理、轮询降级；事件保留先 dry-run，并覆盖分批清理和重连。
+- SSE 验证认证、脱敏、持久游标追赶/reset、断线清理，以及各功能约定的断线提示／重连同步或轮询降级；事件保留先 dry-run，并覆盖分批清理和重连。
 - 阅读/隐私真实浏览器使用 `entry=direct` 或 `entry=privacy`，核对登录保留参数、消费后清理、双标签/账户切换、关闭重开和过期；jsdom 不记作浏览器验收。
 - WebP 延迟注入须在首帧且 playing 后，以实际播放状态为依据；性能门槛单独运行，不能与其他重负载任务争用资源。历史根因见[CI 270 记录](../records/operations/webp-ci-regression-2026-10-17.md)。
 

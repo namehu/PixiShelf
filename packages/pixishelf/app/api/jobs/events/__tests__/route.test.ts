@@ -61,6 +61,48 @@ describe('job event SSE response', () => {
     expect(await response.json()).toEqual({ error: 'Unauthorized' })
   })
 
+  it('initializes invalidation tracking before ready and sends notifications without changing the job cursor', async () => {
+    const abort = new AbortController()
+    const order: string[] = []
+    const source = {
+      watermark: async () => '42',
+      readAfter: vi.fn().mockResolvedValue({ version: 1, cursor: '42', items: [] })
+    }
+    const realtime = {
+      readChanges: vi
+        .fn()
+        .mockImplementationOnce(async () => {
+          order.push('baseline')
+          return []
+        })
+        .mockResolvedValue(['archiveInbox']),
+      readWorkers: vi.fn().mockResolvedValue({ version: 1, sampledAt: '2026-11-11T00:00:00Z', workers: [] })
+    }
+    const response = createJobEventStreamResponse(
+      new Request('http://localhost/api/jobs/events', {
+        signal: abort.signal
+      }),
+      source,
+      null,
+      realtime as never
+    )
+    const reader = response.body!.getReader()
+    const decoder = new TextDecoder()
+    const ready = decoder.decode((await reader.read()).value)
+    expect(order).toEqual(['baseline'])
+    expect(ready).toContain('id: 42')
+    const workers = decoder.decode((await reader.read()).value)
+    expect(workers).toContain('event: workers.snapshot')
+    expect(workers).not.toMatch(/^id:/m)
+    const invalidation = decoder.decode((await reader.read()).value)
+    expect(invalidation).toContain('event: admin.invalidate')
+    expect(invalidation).toContain('archiveInbox')
+    expect(invalidation).not.toMatch(/^id:/m)
+    expect(source.readAfter).toHaveBeenCalledWith('42', 200)
+    abort.abort()
+    await reader.cancel()
+  })
+
   it('rejects an invalid cursor before opening a database stream', async () => {
     const response = await getJobEvents(new Request('http://localhost/api/jobs/events?afterEventId=not-a-cursor'))
 

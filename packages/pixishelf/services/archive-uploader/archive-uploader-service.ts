@@ -894,11 +894,12 @@ function assertAllDispositionItemsFound(items: DispositionCatalogItem[], itemIds
 
 async function lockDispositionItems(transaction: Prisma.TransactionClient, items: DispositionCatalogItem[]) {
   const keys = [...new Set(items.map(dispositionKey))].sort()
-  for (const key of keys) {
-    await transaction.$queryRaw<{ lock: string }[]>(
-      Prisma.sql`SELECT pg_advisory_xact_lock(${ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE}::integer, hashtext(${key}::text))::text AS "lock"`
-    )
-  }
+  // Preserve the caller's lock order while avoiding one database round trip per gallery.
+  await transaction.$queryRaw<{ lock: string }[]>(Prisma.sql`
+    SELECT pg_advisory_xact_lock(${ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE}::integer, hashtext(key))::text AS "lock"
+    FROM unnest(${keys}::text[]) WITH ORDINALITY AS identities(key, ordinal)
+    ORDER BY ordinal
+  `)
 }
 
 function dispositionKey(item: Pick<DispositionCatalogItem, 'providerKey' | 'externalId'>) {

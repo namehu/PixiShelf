@@ -2,48 +2,19 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type { JobDto, JobEventDto, JobStatus } from '@pixishelf/job-contracts'
-import { useEffect, useMemo, useReducer, useRef } from 'react'
+import { useEffect, useMemo, useReducer } from 'react'
 import { toast } from 'sonner'
 import { useTRPC } from '@/lib/trpc'
 import { ACTIVE_JOB_STATUSES, mergeJobEvents } from './background-task-format'
 import { useOptionalBackgroundJobEventSubscription as useLiveJobEvents } from '../../_components/background-job-event-provider'
-import { collectUnseenLiveEvents, mergeLiveJobSnapshot, type LiveEventCursor } from './live-event-reconciliation'
+import { mergeLiveJobSnapshot } from './live-event-reconciliation'
+import { adminRealtimeQueryOptions } from '../../_components/admin-realtime-sync'
 
-export function useBackgroundDashboard(watchFailures = false) {
+export function useBackgroundDashboard() {
   const trpc = useTRPC()
   const live = useLiveJobEvents()
-  const liveEventCursor = useRef<LiveEventCursor>({ resetVersion: 0, eventId: null })
-  const query = useQuery(
-    trpc.job.backgroundDashboard.queryOptions(undefined, {
-      refetchInterval: (query) => {
-        if (live.status === 'connected') return watchFailures ? 30_000 : false
-        const dashboard = query.state.data
-        return dashboard && (dashboard.activeCount > 0 || dashboard.queuedCount > 0) ? 3_000 : 30_000
-      }
-    })
-  )
-  useEffect(() => {
-    if (live.readyVersion > 0 || live.resetVersion > 0) void query.refetch()
-  }, [live.readyVersion, live.resetVersion, query.refetch])
-  useEffect(() => {
-    if (!query.data) return
-    const unseen = collectUnseenLiveEvents(live.items, live.resetVersion, liveEventCursor.current)
-    liveEventCursor.current = unseen.cursor
-    if (unseen.items.length === 0) return
-    const knownJobIds = new Set([
-      ...query.data.recentJobs.map((job) => job.id),
-      ...query.data.runningJobs.map((job) => job.id),
-      ...(query.data.runningJob ? [query.data.runningJob.id] : [])
-    ])
-    const needsSnapshot = unseen.items.some(
-      ({ event, job }) =>
-        !knownJobIds.has(job.id) ||
-        TERMINAL_JOB_STATUSES.includes(job.status) ||
-        !['job.progress', 'job.stage_changed'].includes(event.type)
-    )
-    if (needsSnapshot) void query.refetch()
-  }, [live.items, live.resetVersion, query.data, query.refetch])
-  const data = useMemo(() => patchDashboardJobs(query.data, live.items), [live.items, query.data])
+  const query = useQuery(trpc.job.backgroundDashboard.queryOptions(undefined, adminRealtimeQueryOptions))
+  const data = useMemo(() => patchDashboardJobs(query.data, live.items), [query.data, live.items])
   return { ...query, data }
 }
 

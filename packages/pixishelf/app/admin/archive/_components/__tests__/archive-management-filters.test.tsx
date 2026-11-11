@@ -21,7 +21,7 @@ interface TaskListInput {
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), warning: vi.fn(), error: vi.fn() } }))
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), replace: vi.fn(), actionMany: vi.fn() }))
+const mocks = vi.hoisted(() => ({ list: vi.fn(), replace: vi.fn(), actionMany: vi.fn(), singleOptions: vi.fn() }))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: mocks.replace }),
   useSearchParams: () => new URLSearchParams()
@@ -29,13 +29,20 @@ vi.mock('next/navigation', () => ({
 vi.mock('next/link', () => ({ default: ({ children, ...props }: ComponentProps<'a'>) => <a {...props}>{children}</a> }))
 vi.mock('../archive-add-dialog', () => ({ ArchiveAddDialog: () => null }))
 vi.mock('../archive-item-drawer', () => ({ ArchiveItemDrawer: () => null }))
-vi.mock('../archive-bulk-result-dialog', () => ({ ArchiveBulkResultDialog: ({ operation }: { operation: { id: string } | null }) => operation ? <div role="dialog" aria-label="批量操作结果">{operation.id}</div> : null }))
+vi.mock('../archive-bulk-result-dialog', () => ({
+  ArchiveBulkResultDialog: ({ operation }: { operation: { id: string } | null }) =>
+    operation ? (
+      <div role="dialog" aria-label="批量操作结果">
+        {operation.id}
+      </div>
+    ) : null
+}))
 vi.mock('@/components/privacy/privacy-sensitive-text', () => ({
   PrivacySensitiveText: ({ children }: { children: React.ReactNode }) => <span>{children}</span>
 }))
 vi.mock('../../../_components/background-job-event-provider', () => {
   const stream = { status: 'connected', items: [], readyVersion: 0, resetVersion: 0 }
-  return { useBackgroundJobEventSubscription: () => stream }
+  return { useBackgroundJobEventSubscription: () => stream, useOptionalBackgroundJobEventSubscription: () => stream }
 })
 vi.mock('@/lib/trpc', () => ({
   useTRPC: () => ({
@@ -47,7 +54,12 @@ vi.mock('@/lib/trpc', () => ({
           ...options
         })
       },
-      action: { mutationOptions: (options: object) => options },
+      action: {
+        mutationOptions: (options: object) => {
+          mocks.singleOptions(options)
+          return options
+        }
+      },
       actionMany: { mutationOptions: (options: object) => ({ ...options, mutationFn: mocks.actionMany }) }
     },
     job: {
@@ -88,6 +100,7 @@ beforeEach(() => {
   }))
   mocks.replace.mockReset()
   mocks.actionMany.mockReset()
+  mocks.singleOptions.mockClear()
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
   vi.stubGlobal(
     'ResizeObserver',
@@ -140,6 +153,18 @@ function withCursors(search: string, cursors: string[]) {
   return params.toString()
 }
 
+it('refreshes dashboard after a single task action without depending on SSE', async () => {
+  mountPage()
+  await waitFor(() => expect(client.getQueryData(['dashboard'])).toBeTruthy())
+  const query = client.getQueryCache().find({ queryKey: ['dashboard'] })!
+  const fetch = vi.spyOn(query, 'fetch')
+  const options = mocks.singleOptions.mock.calls.at(-1)![0] as { onSuccess(): Promise<void> }
+  await act(async () => {
+    await options.onSuccess()
+  })
+  expect(fetch).toHaveBeenCalledOnce()
+})
+
 describe('archive task URL filters', () => {
   it('submits mixed selections independently and presents queued downloads while the other group waits', async () => {
     const download = {
@@ -188,7 +213,10 @@ describe('archive task URL filters', () => {
       finishDownload(operation)
     })
     expect(screen.queryByLabelText('下载任务批量结果')).toBeNull()
-    expect(toast.success).toHaveBeenCalledWith('下载任务已入队：1 项', expect.objectContaining({ action: expect.objectContaining({ label: '查看结果' }) }))
+    expect(toast.success).toHaveBeenCalledWith(
+      '下载任务已入队：1 项',
+      expect.objectContaining({ action: expect.objectContaining({ label: '查看结果' }) })
+    )
     expect(screen.getByRole('button', { name: '最近下载结果' })).toBeTruthy()
     expect(within(screen.getByLabelText('其他任务批量结果')).getByText('正在提交…')).toBeTruthy()
     expect(mocks.list.mock.calls.length).toBeGreaterThan(1)
@@ -198,13 +226,24 @@ describe('archive task URL filters', () => {
   })
 
   it('keeps partial conflicts in the one-time toast and recent result entry after the success card is removed', async () => {
-    mocks.list.mockResolvedValue({ items: [{ ...task, phase: 'DOWNLOAD', status: 'FAILED', systemJobStatus: 'FAILED' }], nextCursor: null })
-    mocks.actionMany.mockResolvedValue({ id: 'partial-result', commandType: 'RETRY', counts: { created: 0, applied: 1, reused: 0, skipped: 2, conflict: 3, failed: 1 }, items: [] })
+    mocks.list.mockResolvedValue({
+      items: [{ ...task, phase: 'DOWNLOAD', status: 'FAILED', systemJobStatus: 'FAILED' }],
+      nextCursor: null
+    })
+    mocks.actionMany.mockResolvedValue({
+      id: 'partial-result',
+      commandType: 'RETRY',
+      counts: { created: 0, applied: 1, reused: 0, skipped: 2, conflict: 3, failed: 1 },
+      items: []
+    })
     mountPage()
     fireEvent.click(await screen.findByRole('checkbox', { name: '选择 测试作品' }))
     fireEvent.click(screen.getByRole('button', { name: '重试 1 项' }))
     await screen.findByRole('button', { name: '最近下载结果（有未完成项）' })
-    expect(toast.warning).toHaveBeenCalledExactlyOnceWith('下载任务已入队：1 项', expect.objectContaining({ description: '跳过 2 项，冲突 3 项，失败 1 项' }))
+    expect(toast.warning).toHaveBeenCalledExactlyOnceWith(
+      '下载任务已入队：1 项',
+      expect.objectContaining({ description: '跳过 2 项，冲突 3 项，失败 1 项' })
+    )
     expect(screen.queryByLabelText('下载任务批量结果')).toBeNull()
     const action = vi.mocked(toast.warning).mock.calls[0]![1]!.action as Action
     act(() => action.onClick({} as never))

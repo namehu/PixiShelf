@@ -1,11 +1,15 @@
-import { randomUUID } from 'node:crypto'
+import { randomInt, randomUUID } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import sharp from 'sharp'
 import type { Prisma, PrismaClient } from '@pixishelf/db'
-import type { ArchiveImportV2Payload, ArchiveResolveItemPayload } from '@pixishelf/job-contracts'
+import {
+  ARCHIVE_COVERAGE_DEFINITION_VERSION,
+  type ArchiveImportV2Payload,
+  type ArchiveResolveItemPayload
+} from '@pixishelf/job-contracts'
 import {
   PostgresQueueRepository,
   TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME,
@@ -23,6 +27,7 @@ import {
 } from '@pixishelf/job-executors'
 import { expect, vi } from 'vitest'
 import { createArchiveIntakeSubmission } from '../archive-intake-service'
+import { resolveMediaContentRoots } from '@pixishelf/job-executors/media-content'
 
 // Real executors, transactions, queue fencing and media storage; only the remote Provider is controlled.
 export async function runConcurrentArchiveTasks(
@@ -42,8 +47,8 @@ export async function runConcurrentArchiveTasks(
   const picture = await sharp({ create: { width: 2, height: 2, channels: 3, background: '#5588aa' } })
     .png()
     .toBuffer()
-  const downloadIdentity = randomUUID()
-  const resolveIdentity = randomUUID()
+  const downloadIdentity = String(randomInt(1_000_000_000, 2_000_000_000))
+  const resolveIdentity = String(randomInt(2_000_000_000, 3_000_000_000))
   const title = `intake-worker-${downloadIdentity}`
   let armed = false
   const provider: ArchiveProvider = {
@@ -95,7 +100,11 @@ export async function runConcurrentArchiveTasks(
       data: { queuePriority: 0, effectivePriority: 0 }
     })
     const claimed = await repository.claim(`fixture-${identity}`, [
-      { jobType: 'ARCHIVE_RESOLVE_ITEM', executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [1] }
+      {
+        jobType: 'ARCHIVE_RESOLVE_ITEM',
+        executionLane: 'ARCHIVE_RESOLVE',
+        definitionVersions: [ARCHIVE_COVERAGE_DEFINITION_VERSION]
+      }
     ])
     expect(claimed?.id).toBe(item.currentSystemJobId)
     return { item, claimed: claimed! }
@@ -112,7 +121,11 @@ export async function runConcurrentArchiveTasks(
     expect(intake.status).toBe('ENQUEUED')
     const archive = await database.archiveImport.findUniqueOrThrow({ where: { id: intake.archiveImportId! } })
     const download = await repository.claim(`download-${downloadIdentity}`, 'ARCHIVE_DOWNLOAD', [
-      { jobType: 'ARCHIVE_DOWNLOAD', executionLane: 'ARCHIVE_DOWNLOAD', definitionVersions: [1] }
+      {
+        jobType: 'ARCHIVE_DOWNLOAD',
+        executionLane: 'ARCHIVE_DOWNLOAD',
+        definitionVersions: [ARCHIVE_COVERAGE_DEFINITION_VERSION]
+      }
     ])
     expect(download?.id).toBe(archive.systemJobId)
     const resolving = await seed(resolveIdentity)
@@ -128,7 +141,11 @@ export async function runConcurrentArchiveTasks(
         result: { outcome: 'HANDOFF', successorJobId: current.systemJobId }
       })
       const publish = await repository.claim(`publish-${downloadIdentity}`, 'BACKGROUND_WRITER', [
-        { jobType: 'ARCHIVE_PUBLISH', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
+        {
+          jobType: 'ARCHIVE_PUBLISH',
+          executionLane: 'BACKGROUND_WRITER',
+          definitionVersions: [ARCHIVE_COVERAGE_DEFINITION_VERSION]
+        }
       ])
       expect(publish?.id).toBe(current.systemJobId)
       return publish!
@@ -253,6 +270,14 @@ export async function runConcurrentArchiveTasks(
       where: { providerKey: 'e-hentai', externalId: { in: [downloadIdentity, resolveIdentity] } }
     })
     await database.artwork.deleteMany({ where: { title } })
+    // The next case uses a new temporary root; remove this root's durable claims after all executors stop.
+    const { source } = await resolveMediaContentRoots({
+      sourceRoot: root,
+      archiveRoot: root,
+      expectedPixivRootIdentity: null
+    })
+    await database.mediaContentPathWrite.deleteMany({ where: { directory: { rootIdentity: source.rootIdentity } } })
+    await database.mediaContentDirectoryState.deleteMany({ where: { rootIdentity: source.rootIdentity } })
     await removeFixtureDirectory(root)
   }
 }

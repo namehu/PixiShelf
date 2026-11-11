@@ -1,6 +1,8 @@
-import { randomUUID } from 'node:crypto'
+import { randomInt, randomUUID } from 'node:crypto'
 import { createDatabaseClient, disconnectDatabase, Prisma } from '@pixishelf/db'
+import { ARCHIVE_COVERAGE_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { readyItemData, archiveImportData, sourceProof } from './archive-intake-fixture'
 import { ArchiveError } from '@/services/archive/errors'
 import { archiveModule } from '@/services/archive/archive-module'
 import {
@@ -92,7 +94,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
   it('freezes mode and quality in idempotency, retry and corrected-link lineage', async () => {
     const input = {
       idempotencyKey: suitePrefix + '-intent',
-      urls: ['https://e-hentai.org/g/intent/token/'],
+      urls: ['https://e-hentai.org/g/1001/token/'],
       downloadMode: 'AUTO' as const,
       quality: 'DISPLAY' as const
     }
@@ -125,7 +127,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       {
         idempotencyKey: suitePrefix + '-intent-replace',
         itemId,
-        url: 'https://e-hentai.org/g/intent-corrected/token/'
+        url: 'https://e-hentai.org/g/1002/token/'
       },
       requestedByUserId,
       { database, validateUrl }
@@ -136,7 +138,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       supersedesItemId: itemId
     })
     const legacy = await createArchiveIntakeSubmission(
-      { idempotencyKey: suitePrefix + '-legacy-intent', urls: ['https://e-hentai.org/g/legacy-intent/token/'] },
+      { idempotencyKey: suitePrefix + '-legacy-intent', urls: ['https://e-hentai.org/g/1003/token/'] },
       requestedByUserId,
       { database, validateUrl }
     )
@@ -155,7 +157,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
         items: {
           createMany: {
             data: Array.from({ length: 999 }, (_, index) => ({
-              submittedUrl: `https://e-hentai.org/g/capacity-${index}/token/`,
+              submittedUrl: `https://e-hentai.org/g/${2000 + index}/token/`,
               normalizedUrlHash: index.toString(16).padStart(64, '0'),
               status: 'QUEUED' as const
             }))
@@ -166,12 +168,12 @@ describePostgres('archive intake PostgreSQL transactions', () => {
 
     const [first, second] = await Promise.all([
       createArchiveIntakeSubmission(
-        { idempotencyKey: `${suitePrefix}-capacity-a`, urls: ['https://e-hentai.org/g/capacity-a/token/'] },
+        { idempotencyKey: `${suitePrefix}-capacity-a`, urls: ['https://e-hentai.org/g/3001/token/'] },
         requestedByUserId,
         { database, validateUrl }
       ),
       createArchiveIntakeSubmission(
-        { idempotencyKey: `${suitePrefix}-capacity-b`, urls: ['https://e-hentai.org/g/capacity-b/token/'] },
+        { idempotencyKey: `${suitePrefix}-capacity-b`, urls: ['https://e-hentai.org/g/3002/token/'] },
         requestedByUserId,
         { database, validateUrl }
       )
@@ -187,7 +189,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     const failedItem = await database.archiveIntakeItem.create({
       data: {
         submissionId: seededSubmissionId,
-        submittedUrl: 'https://e-hentai.org/g/retry-at-capacity/token/',
+        submittedUrl: 'https://e-hentai.org/g/3003/token/',
         normalizedUrlHash: 'f'.repeat(64),
         status: 'FAILED',
         finishedAt: new Date(),
@@ -198,7 +200,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       {
         idempotencyKey: `${suitePrefix}-replace-at-capacity`,
         itemId: failedItem.id,
-        url: 'https://e-hentai.org/g/replace-at-capacity/corrected-token/'
+        url: 'https://e-hentai.org/g/3004/correctedtoken/'
       },
       requestedByUserId,
       { database, validateUrl }
@@ -214,7 +216,8 @@ describePostgres('archive intake PostgreSQL transactions', () => {
         status: 'FAILED',
         supersedesItemId: failedItem.id,
         errorCode: 'CAPACITY_EXCEEDED',
-        retryable: true,
+        retryable: false,
+        sourceIntentValid: false,
         currentSystemJobId: null
       })
     ])
@@ -241,7 +244,15 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     })
     await database.archiveIntakeItem.update({
       where: { id: expiredReady.id },
-      data: { status: 'READY', expiresAt: new Date('2026-08-17T00:00:00.000Z') }
+      data: {
+        status: 'READY',
+        expiresAt: new Date('2026-08-17T00:00:00.000Z'),
+        dedupSourceSnapshot: await sourceProof(
+          database,
+          new URL(expiredReady.submittedUrl).pathname.split('/')[2]!,
+          'e-hentai'
+        )
+      }
     })
     const staleRetry = await retryArchiveIntakeMany(
       { idempotencyKey: `${suitePrefix}-retry-stale-at-capacity`, itemIds: [expiredReady.id] },
@@ -290,7 +301,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
         acceptedCount: 1,
         items: {
           create: {
-            submittedUrl: 'https://e-hentai.org/g/replace-source/old-token/',
+            submittedUrl: 'https://e-hentai.org/g/4001/oldtoken/',
             normalizedUrlHash: '9'.repeat(64),
             status: 'FAILED',
             errorCode: 'REMOTE_NOT_FOUND',
@@ -310,7 +321,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     const input = {
       idempotencyKey: `${suitePrefix}-replace-operation`,
       itemId: original.id,
-      url: 'https://e-hentai.org/g/replace-source/new-token/'
+      url: 'https://e-hentai.org/g/4001/newtoken/'
     }
 
     const [first, replay] = await Promise.all([
@@ -345,11 +356,10 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     })
 
     await expect(
-      replaceArchiveIntakeItem(
-        { ...input, url: 'https://e-hentai.org/g/replace-source/changed-again/' },
-        requestedByUserId,
-        { database, validateUrl }
-      )
+      replaceArchiveIntakeItem({ ...input, url: 'https://e-hentai.org/g/4001/changedagain/' }, requestedByUserId, {
+        database,
+        validateUrl
+      })
     ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
     await expect(
       replaceArchiveIntakeItem(
@@ -368,7 +378,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     const active = await createArchiveIntakeSubmission(
       {
         idempotencyKey: `${suitePrefix}-replace-duplicate-active`,
-        urls: ['https://e-hentai.org/g/replace-duplicate/active-token/']
+        urls: ['https://e-hentai.org/g/4002/activetoken/']
       },
       requestedByUserId,
       { database, validateUrl }
@@ -383,7 +393,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
         acceptedCount: 1,
         items: {
           create: {
-            submittedUrl: 'https://e-hentai.org/g/replace-duplicate/broken-token/',
+            submittedUrl: 'https://e-hentai.org/g/4002/brokentoken/',
             normalizedUrlHash: 'b'.repeat(64),
             status: 'FAILED',
             retryable: false,
@@ -398,7 +408,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       {
         idempotencyKey: `${suitePrefix}-replace-duplicate-operation`,
         itemId: original.id,
-        url: 'https://e-hentai.org/g/replace-duplicate/active-token/'
+        url: 'https://e-hentai.org/g/4002/activetoken/'
       },
       requestedByUserId,
       { database, validateUrl }
@@ -430,7 +440,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
         acceptedCount: 1,
         items: {
           create: {
-            submittedUrl: 'https://e-hentai.org/g/permanent-retry/token/',
+            submittedUrl: 'https://e-hentai.org/g/5001/token/',
             normalizedUrlHash: 'd'.repeat(64),
             status: 'FAILED',
             retryable: false,
@@ -460,7 +470,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     const cancellable = await createArchiveIntakeSubmission(
       {
         idempotencyKey: `${suitePrefix}-cancelled-retry-source`,
-        urls: ['https://e-hentai.org/g/cancelled-retry/token/']
+        urls: ['https://e-hentai.org/g/5002/token/']
       },
       requestedByUserId,
       { database, validateUrl }
@@ -491,13 +501,13 @@ describePostgres('archive intake PostgreSQL transactions', () => {
         acceptedCount: 2,
         items: {
           create: [
-            readyItemData('retry-identity', now),
+            await readyItemData(database, '5003', now),
             {
-              submittedUrl: 'https://e-hentai.org/g/retry-identity/another-token/',
+              submittedUrl: 'https://e-hentai.org/g/5003/anothertoken/',
               normalizedUrlHash: '7'.repeat(64),
               status: 'FAILED',
               providerKey: 'test-provider',
-              externalId: 'retry-identity',
+              externalId: '5003',
               finishedAt: now,
               retryable: true
             }
@@ -529,7 +539,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
   })
 
   it('classifies invalid and exact duplicate strings without changing token semantics', async () => {
-    const url = 'https://e-hentai.org/g/duplicate/private-token/?b=2&a=1'
+    const url = 'https://e-hentai.org/g/6001/privatetoken/?b=2&a=1'
     const first = await createArchiveIntakeSubmission(
       { idempotencyKey: `${suitePrefix}-duplicates-a`, urls: [url, url, 'invalid'] },
       requestedByUserId,
@@ -556,13 +566,13 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     const created = await createArchiveIntakeSubmission(
       {
         idempotencyKey: `${suitePrefix}-cancel-source`,
-        urls: ['https://e-hentai.org/g/cancel/token/']
+        urls: ['https://e-hentai.org/g/7001/token/']
       },
       requestedByUserId,
       { database, validateUrl }
     )
     const itemId = created.items[0]!.id
-    const catalogId = await seedCatalogItem(itemId, 'cancel', new Date('2026-08-18T00:00:00.000Z'))
+    const catalogId = await seedCatalogItem(itemId, '7001', new Date('2026-08-18T00:00:00.000Z'))
     const input = { idempotencyKey: `${suitePrefix}-cancel-bulk`, itemIds: [itemId, `${suitePrefix}-missing`] }
     const [first, concurrent] = await Promise.all([
       cancelArchiveIntakeMany(input, requestedByUserId, {
@@ -613,7 +623,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     const created = await createArchiveIntakeSubmission(
       {
         idempotencyKey: `${suitePrefix}-running-cancel-source`,
-        urls: ['https://e-hentai.org/g/running-cancel/token/']
+        urls: ['https://e-hentai.org/g/7002/token/']
       },
       requestedByUserId,
       { database, validateUrl }
@@ -673,7 +683,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       }
     })
     await database.archiveImport.create({
-      data: archiveImportData(activeImportId, activeJobId, 'active-identity')
+      data: await archiveImportData(database, activeImportId, activeJobId, '8001')
     })
     const readyItems = await database.archiveIntakeSubmission.create({
       data: {
@@ -684,13 +694,13 @@ describePostgres('archive intake PostgreSQL transactions', () => {
         rawCount: 2,
         acceptedCount: 2,
         items: {
-          create: [readyItemData('active-identity', now), readyItemData('new-identity', now)]
+          create: [await readyItemData(database, '8001', now), await readyItemData(database, '8002', now)]
         }
       },
       include: { items: { orderBy: { queueOrder: 'asc' } } }
     })
-    const activeCatalogId = await seedCatalogItem(readyItems.items[0]!.id, 'active-identity', now)
-    const newCatalogId = await seedCatalogItem(readyItems.items[1]!.id, 'new-identity', now)
+    const activeCatalogId = await seedCatalogItem(readyItems.items[0]!.id, '8001', now)
+    const newCatalogId = await seedCatalogItem(readyItems.items[1]!.id, '8002', now)
     await database.archiveIntakeItem.update({
       where: { id: readyItems.items[1]!.id },
       data: { resolutionKind: 'UNCHANGED' }
@@ -720,18 +730,18 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     await expect(
       database.archiveImport.count({ where: { providerKey: 'test-provider', status: 'PENDING' } })
     ).resolves.toBe(2)
-    await expect(
-      database.archiveImportItem.count({ where: { archiveImport: { externalId: 'new-identity' } } })
-    ).resolves.toBe(1)
+    await expect(database.archiveImportItem.count({ where: { archiveImport: { externalId: '8002' } } })).resolves.toBe(
+      1
+    )
     const createdImport = await database.archiveImport.findFirstOrThrow({
-      where: { providerKey: 'test-provider', externalId: 'new-identity' },
+      where: { providerKey: 'test-provider', externalId: '8002' },
       include: { systemJob: true }
     })
     expect(createdImport).toMatchObject({ phase: 'DOWNLOAD', origin: 'MANUAL' })
     expect(createdImport.systemJob).toMatchObject({
       type: 'ARCHIVE_DOWNLOAD',
       executionLane: 'ARCHIVE_DOWNLOAD',
-      definitionVersion: 1,
+      definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
       payload: { archiveImportId: createdImport.id, defaultTagIds: [2, 9] }
     })
     await expect(
@@ -796,7 +806,9 @@ describePostgres('archive intake PostgreSQL transactions', () => {
         payload: { archiveImportId: activeImportId }
       }
     })
-    await database.archiveImport.create({ data: archiveImportData(activeImportId, activeJobId, 'reuse-only') })
+    await database.archiveImport.create({
+      data: await archiveImportData(database, activeImportId, activeJobId, '8003')
+    })
     const submission = await database.archiveIntakeSubmission.create({
       data: {
         id: `${suitePrefix}-reuse-only-submission`,
@@ -805,7 +817,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
         requestedByUserId,
         rawCount: 1,
         acceptedCount: 1,
-        items: { create: readyItemData('reuse-only', now) }
+        items: { create: await readyItemData(database, '8003', now) }
       },
       include: { items: true }
     })
@@ -848,7 +860,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       }
     })
     await database.archiveImport.create({
-      data: archiveImportData(activeImportId, activeJobId, 'partial-storage-reuse')
+      data: await archiveImportData(database, activeImportId, activeJobId, '8004')
     })
     const submission = await database.archiveIntakeSubmission.create({
       data: {
@@ -859,7 +871,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
         rawCount: 2,
         acceptedCount: 2,
         items: {
-          create: [readyItemData('partial-storage-reuse', now), readyItemData('partial-storage-create', now)]
+          create: [await readyItemData(database, '8004', now), await readyItemData(database, '8005', now)]
         }
       },
       include: { items: { orderBy: { queueOrder: 'asc' } } }
@@ -900,7 +912,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
         requestedByUserId,
         rawCount: 1,
         acceptedCount: 1,
-        items: { create: readyItemData('quality-race', now) }
+        items: { create: await readyItemData(database, '8006', now) }
       },
       include: { items: { orderBy: { queueOrder: 'asc' } } }
     })
@@ -924,7 +936,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     ])
     expect([originalRequest?.items[0]?.result, displayRequest?.items[0]?.result].sort()).toEqual(['CREATED', 'REUSED'])
     const archiveImport = await database.archiveImport.findFirstOrThrow({
-      where: { providerKey: 'test-provider', externalId: 'quality-race' }
+      where: { providerKey: 'test-provider', externalId: '8006' }
     })
     await expect(
       database.archiveIntakeItem.findUniqueOrThrow({ where: { id: submission.items[0]!.id } })
@@ -939,7 +951,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
   it('serializes intake enqueue against trash intent under the shared publish lock', async () => {
     vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
     const now = new Date('2026-08-18T06:00:00.000Z')
-    const externalId = `enqueue-trash-race-${randomUUID()}`
+    const externalId = String(randomInt(1_000_000_000, 2_000_000_000))
     const originalJobId = `${suitePrefix}-enqueue-trash-original-job`
     const originalImportId = `${suitePrefix}-enqueue-trash-original-import`
     const triggerName = `archive_enqueue_delay_${randomUUID().replaceAll('-', '')}`
@@ -957,7 +969,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
         artworkId: artwork.id,
         providerKey: 'test-provider',
         externalId,
-        canonicalUrl: `https://e-hentai.org/g/${externalId}/private-token/`,
+        canonicalUrl: `https://e-hentai.org/g/${externalId}/privatetoken/`,
         locator: {}
       }
     })
@@ -977,7 +989,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     })
     await database.archiveImport.create({
       data: {
-        ...archiveImportData(originalImportId, originalJobId, externalId),
+        ...(await archiveImportData(database, originalImportId, originalJobId, externalId)),
         status: 'COMPLETED',
         externalRefId: externalRef.id,
         publishedArtworkId: artwork.id,
@@ -1005,7 +1017,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
         requestedByUserId,
         rawCount: 1,
         acceptedCount: 1,
-        items: { create: readyItemData(externalId, now) }
+        items: { create: await readyItemData(database, externalId, now) }
       },
       include: { items: true }
     })
@@ -1110,7 +1122,7 @@ async function seedCatalogItem(intakeItemId: string, externalId: string, timesta
       sourceId,
       providerKey: 'test-provider',
       externalId,
-      canonicalUrl: `https://e-hentai.org/g/${externalId}/private-token/`,
+      canonicalUrl: `https://e-hentai.org/g/${externalId}/privatetoken/`,
       title: `Gallery ${externalId}`,
       relationships: [],
       classification: 'NEW',
@@ -1123,78 +1135,4 @@ async function seedCatalogItem(intakeItemId: string, externalId: string, timesta
     }
   })
   return catalogId
-}
-
-function readyItemData(externalId: string, now: Date): Prisma.ArchiveIntakeItemCreateWithoutSubmissionInput {
-  const resolved = resolvedArchive(externalId)
-  return {
-    submittedUrl: `https://e-hentai.org/g/${externalId}/private-token/`,
-    normalizedUrlHash: randomUUID().replaceAll('-', '').padEnd(64, '0'),
-    status: 'READY',
-    providerKey: resolved.providerKey,
-    externalId,
-    canonicalUrl: resolved.canonicalUrl,
-    resolvedTitle: resolved.title,
-    pageCount: 1,
-    resolvedSnapshot: JSON.parse(JSON.stringify(resolved)) as Prisma.InputJsonValue,
-    metadataHash: 'a'.repeat(64),
-    resolutionKind: 'NEW',
-    resolvedAt: now,
-    expiresAt: new Date(now.getTime() + 60_000)
-  }
-}
-
-function resolvedArchive(externalId: string) {
-  return {
-    providerKey: 'test-provider',
-    externalId,
-    canonicalUrl: `https://e-hentai.org/g/${externalId}/private-token/`,
-    locator: { token: 'private-token' },
-    title: `Gallery ${externalId}`,
-    titleAliases: [],
-    description: null,
-    category: null,
-    uploader: null,
-    thumbnailUrl: null,
-    postedAt: null,
-    tags: [],
-    relationships: [],
-    media: [
-      {
-        index: 0,
-        sourcePageUrl: `https://e-hentai.org/s/private-page/${externalId}-1`,
-        locator: { token: 'private-page' },
-        expectedFilename: '0001'
-      }
-    ],
-    normalizedMetadata: { titles: { display: `Gallery ${externalId}` } },
-    rawMetadata: { token: 'private-token' },
-    warnings: [],
-    creatorBucket: 'test-creator'
-  }
-}
-
-function archiveImportData(
-  importId: string,
-  jobId: string,
-  externalId: string
-): Prisma.ArchiveImportUncheckedCreateInput {
-  const resolved = resolvedArchive(externalId)
-  return {
-    id: importId,
-    systemJobId: jobId,
-    providerKey: resolved.providerKey,
-    externalId,
-    submittedUrl: resolved.canonicalUrl,
-    canonicalUrl: resolved.canonicalUrl,
-    locator: resolved.locator,
-    requestedQuality: 'ORIGINAL',
-    selectedQuality: 'ORIGINAL',
-    normalizedMetadata: resolved.normalizedMetadata,
-    rawMetadata: resolved.rawMetadata,
-    metadataHash: 'a'.repeat(64),
-    creatorBucket: resolved.creatorBucket,
-    stagingPath: `.archive-staging/${importId}`,
-    totalItems: 1
-  }
 }

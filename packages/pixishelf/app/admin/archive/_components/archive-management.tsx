@@ -1,4 +1,6 @@
 'use client'
+
+import { useBackgroundDashboard } from '../../tasks/_components/use-background-dashboard'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -180,17 +182,7 @@ function ArchiveTaskManagement() {
       }
     )
   )
-  const dashboardQuery = useQuery(
-    trpc.job.backgroundDashboard.queryOptions(undefined, {
-      refetchInterval: (query) => {
-        const dashboard = query.state.data
-        if (realtimeConnected) {
-          return dashboard && (dashboard.activeCount > 0 || dashboard.queuedCount > 0) ? 30_000 : 60_000
-        }
-        return dashboard && (dashboard.activeCount > 0 || dashboard.queuedCount > 0) ? 1_500 : 8_000
-      }
-    })
-  )
+  const dashboardQuery = useBackgroundDashboard()
   const liveTransferEntry = useMemo(
     () => [...liveJobById.values()].find((value) => value.transfer !== null) ?? null,
     [liveJobById]
@@ -264,7 +256,9 @@ function ArchiveTaskManagement() {
     if (!isActiveArchiveDownloadStatus(authoritativeStatus)) return null
     const transfer =
       cachedLive?.transfer ??
-      (task.systemJobId === liveTransferEntry?.item.job.id && task.id === liveTransferEntry?.transfer?.archiveImportId ? liveTransferEntry.transfer : null)
+      (task.systemJobId === liveTransferEntry?.item.job.id && task.id === liveTransferEntry?.transfer?.archiveImportId
+        ? liveTransferEntry.transfer
+        : null)
     return {
       ...task,
       ...(live
@@ -310,11 +304,11 @@ function ArchiveTaskManagement() {
     await Promise.all([tasksQuery.refetch(), dashboardQuery.refetch()])
   }
   useEffect(() => {
-    if (liveEvents.lifecycleVersion > 0) void refreshPage()
+    if (liveEvents.lifecycleVersion > 0) void tasksQuery.refetch()
   }, [liveEvents.lifecycleVersion])
   useEffect(() => {
     if (liveEvents.readyVersion > 0) {
-      void Promise.all([refreshPage(), requestedTaskId ? deepLinkedTaskQuery.refetch() : null])
+      void Promise.all([tasksQuery.refetch(), requestedTaskId ? deepLinkedTaskQuery.refetch() : null])
     }
   }, [liveEvents.readyVersion])
   const applyFilters = (next: TaskFilters) => {
@@ -367,7 +361,9 @@ function ArchiveTaskManagement() {
         operation.counts.skipped > 0 ? `跳过 ${operation.counts.skipped} 项` : null,
         operation.counts.conflict > 0 ? `冲突 ${operation.counts.conflict} 项` : null,
         operation.counts.failed > 0 ? `失败 ${operation.counts.failed} 项` : null
-      ].filter(Boolean).join('，')
+      ]
+        .filter(Boolean)
+        .join('，')
       const notify = operation.counts.conflict > 0 || operation.counts.failed > 0 ? toast.warning : toast.success
       notify(group === 'DOWNLOAD' ? `下载任务已入队：${changed} 项` : `批量操作完成：已处理 ${changed} 项`, {
         description: summary || undefined,
@@ -470,12 +466,14 @@ function ArchiveTaskManagement() {
             onViewItems={() => setDetailTask(activeTask)}
             onViewTask={setDetailTask}
             onPause={() =>
-              activeTask && requestSingleTaskAction(activeTask, 'PAUSE', (action) =>
+              activeTask &&
+              requestSingleTaskAction(activeTask, 'PAUSE', (action) =>
                 singleActionMutation.mutate({ taskId: activeTask.id, action })
               )
             }
             onCancel={() =>
-              activeTask && requestSingleTaskAction(activeTask, 'CANCEL', (action) =>
+              activeTask &&
+              requestSingleTaskAction(activeTask, 'CANCEL', (action) =>
                 singleActionMutation.mutate({ taskId: activeTask.id, action })
               )
             }
@@ -491,15 +489,19 @@ function ArchiveTaskManagement() {
         onSubmit={() => applyFilters(draftFilters)}
         onReset={clearFilters}
       />
-      {Object.values(bulkOperations).some(Boolean) && <div className="flex flex-wrap justify-end gap-2" aria-label="最近批量结果">
-        {(['DOWNLOAD', 'OTHER'] as const).map((group) => {
-          const operation = bulkOperations[group]
-          return operation ? <Button key={group} variant="link" size="sm" onClick={() => setBulkOperation(operation)}>
-            {group === 'DOWNLOAD' ? '最近下载结果' : '最近其他任务结果'}
-            {operation.counts.conflict + operation.counts.failed > 0 ? '（有未完成项）' : ''}
-          </Button> : null
-        })}
-      </div>}
+      {Object.values(bulkOperations).some(Boolean) && (
+        <div className="flex flex-wrap justify-end gap-2" aria-label="最近批量结果">
+          {(['DOWNLOAD', 'OTHER'] as const).map((group) => {
+            const operation = bulkOperations[group]
+            return operation ? (
+              <Button key={group} variant="link" size="sm" onClick={() => setBulkOperation(operation)}>
+                {group === 'DOWNLOAD' ? '最近下载结果' : '最近其他任务结果'}
+                {operation.counts.conflict + operation.counts.failed > 0 ? '（有未完成项）' : ''}
+              </Button>
+            ) : null
+          })}
+        </div>
+      )}
       {(['DOWNLOAD', 'OTHER'] as const).map((group) => {
         const error = bulkErrors[group]
         const mutation = group === 'DOWNLOAD' ? downloadActionMutation : bulkActionMutation

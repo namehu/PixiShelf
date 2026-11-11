@@ -1,10 +1,27 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render as renderUI, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 import type { JobEventStreamItem } from '@pixishelf/job-contracts'
 
 const mocks = vi.hoisted(() => ({ fetchEventSource: vi.fn() }))
 
 vi.mock('@microsoft/fetch-event-source', () => ({ fetchEventSource: mocks.fetchEventSource }))
+
+vi.mock('@/lib/trpc', () => {
+  const procedure = (name: string) => ({ queryKey: () => [name] })
+  const trpc = {
+    archiveInbox: { summary: procedure('summary'), list: procedure('list') },
+    job: { backgroundDashboard: procedure('dashboard'), getAnimationDurationProbeStatus: procedure('duration') }
+  }
+  return { useTRPC: () => trpc }
+})
+function render(ui: ReactNode) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return renderUI(ui, {
+    wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  })
+}
 
 import { BackgroundJobEventProvider, mergeRecentEvents, useBackgroundJobEvents } from '../background-job-event-provider'
 
@@ -63,7 +80,7 @@ describe('BackgroundJobEventProvider', () => {
     await waitFor(() => expect(screen.getByTestId('versions').textContent).toBe('connected ready:2 reset:1'))
   })
 
-  it('enters polling fallback and requests snapshot recovery for an invalid event batch', async () => {
+  it('rejects an invalid batch and shows one unavailable notice until ready', async () => {
     mocks.fetchEventSource.mockReturnValue(new Promise(() => undefined))
     render(
       <BackgroundJobEventProvider>
@@ -72,9 +89,17 @@ describe('BackgroundJobEventProvider', () => {
     )
     const options = mocks.fetchEventSource.mock.calls[0]?.[1]
 
-    act(() => options.onmessage({ data: '{"version":2}', event: 'jobs.events', id: '5', retry: undefined }))
+    act(() => {
+      expect(() =>
+        options.onmessage({ data: '{"version":2}', event: 'jobs.events', id: '5', retry: undefined })
+      ).toThrow('数据格式无效')
+      options.onerror(new Error('invalid batch'))
+    })
 
     await waitFor(() => expect(screen.getByTestId('versions').textContent).toBe('disconnected ready:0 reset:1'))
+    expect(screen.getAllByText('实时更新不可用，当前状态可能已过期')).toHaveLength(1)
+    act(() => options.onmessage({ data: '{}', event: 'jobs.ready', id: '', retry: undefined }))
+    expect(screen.queryByText('实时更新不可用，当前状态可能已过期')).toBeNull()
   })
 })
 

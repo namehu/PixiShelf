@@ -62,7 +62,9 @@ PC 任务列表使用紧凑表格，移动端使用精简卡片，默认展示�
 
 ## 任务进度与实时更新
 
-归档任务页通过 admin layout 中唯一的通用 Worker SSE 连接接收生命周期与 `archive.transfer@v1` 遥测。速度由 Worker 在媒体流写盘时累计 chunk 长度并按最近 5 秒采样，不保存 chunk、也不回读磁盘。遥测还携带当前最多 8 个媒体 worker 的页码、预期文件名、尝试次数、阶段、已接收字节和可用时的 `Content-Length`，不携带图片页、CDN 地址或 provider token。浮层的当前页签只为当前 `ARCHIVE_DOWNLOAD` 展示聚合进度和逐文件活动槽位；任务行仅运行时显示稳定总进度，完成后显示状态与图片数量，完整图片历史仍从任务详情按 PostgreSQL 分页读取。待完成数量由既有 `job.backgroundDashboard.archiveUnfinishedCount` 返回，复用原 dashboard 查询、生命周期与连接就绪刷新，不新增轮询或 SSE 连接；旧执行事件不能覆盖任务的当前执行。SSE 正常时列表只做 30/60 秒一致性校准，图片明细在计数或状态变化时定向刷新；连接异常自动回退原有高频轮询。
+归档任务页通过 admin layout 中唯一的通用 Worker SSE 连接接收生命周期与 `archive.transfer@v1` 遥测。速度由 Worker 在媒体流写盘时累计 chunk 长度并按最近 5 秒采样，不保存 chunk、也不回读磁盘。遥测还携带当前最多 8 个媒体 worker 的页码、预期文件名、尝试次数、阶段、已接收字节和可用时的 `Content-Length`，不携带图片页、CDN 地址或 provider token。浮层的当前页签只为当前 `ARCHIVE_DOWNLOAD` 展示聚合进度和逐文件活动槽位；任务行仅运行时显示稳定总进度，完成后显示状态与图片数量，完整图片历史仍从任务详情按 PostgreSQL 分页读取。待完成数量由既有 `job.backgroundDashboard.archiveUnfinishedCount` 返回，复用原 dashboard 查询、生命周期与连接就绪刷新，不新增轮询或 SSE 连接；旧执行事件不能覆盖任务的当前执行。SSE 正常时归档任务列表只做 30/60 秒一致性校准，图片明细在计数或状态变化时定向刷新；连接异常自动回退原有高频轮询。
+
+收件箱的 `archiveInbox.summary/list` 及后台导航失败徽标使用同一 SSE 失效通知，取消定时校准和断线轮询。删除、暂停／恢复、关联来源变化及自然到期均由通知覆盖；手动操作后仍立即刷新，筛选和分页保持不变。具体协议、恢复与迁移规则统一见[事件刷新](./background-job-live-progress.md#任务总览与收件箱的事件刷新)。归档任务列表、图片明细和来源发现等其他查询保持各自刷新策略；归档页的 `job.backgroundDashboard` 同样采用事件刷新。
 
 ## 批量收件的事务预算与诊断
 
@@ -82,6 +84,7 @@ FIFO 使用数据库序列按原输入处理顺序显式分配；发现结果仍
 因此不同作品也可能在创建解析任务时等待。提交、修正链接和收件控制先获取同一创作者目录锁，
 再获取作品身份及容量锁；来源入箱先锁来源，再遵循这个顺序。任务插入前复用该锁用于计时，
 不移除触发器保护，也不要求暂停后台任务。成功新提交在同一事务移除对应的[稍后决定](./archive-discovery.md#稍后决定)，旧请求重放不改变新决定。
+所选来源目录的身份锁按原有去重排序一次发送到数据库，锁的范围、获取顺序和事务生命周期不变。
 数据库不可用、锁持续占用超过预算或真实业务冲突仍可能失败；失败不提交部分收件。
 
 App 输出 `Archive intake submission completed` / `Archive intake submission failed`，

@@ -234,8 +234,7 @@ describe('background dashboard query hooks', () => {
       mocks.live.status = connectionStatus
       rerender()
       await act(async () => {
-        if (connectionStatus === 'disconnected') await vi.advanceTimersByTimeAsync(3_001)
-        else await result.current.refetch()
+        await result.current.refetch()
       })
       await flushQueries()
 
@@ -309,40 +308,15 @@ describe('background dashboard query hooks', () => {
     expect(mocks.successToast).not.toHaveBeenCalled()
   })
 
-  it('refetches once when any unseen event in a connected batch changes dashboard membership', async () => {
-    const runningA = createJob('A', 'RUNNING')
-    const runningB = createJob('B', 'RUNNING')
-    const completedA = createJob('A', 'COMPLETED', '2026-08-17T02:02:00.000Z')
-    mocks.fetchDashboard
-      .mockResolvedValueOnce({
-        activeCount: 2,
-        queuedCount: 0,
-        recentJobs: [runningA, runningB],
-        runningJobs: [runningA, runningB],
-        runningJob: runningA
-      })
-      .mockResolvedValue({
-        activeCount: 1,
-        queuedCount: 0,
-        recentJobs: [completedA, runningB],
-        runningJobs: [runningB],
-        runningJob: runningB
-      })
-    const { result, rerender } = renderHook(() => useBackgroundDashboard(), { wrapper: createWrapper() })
+  it.each(['connected', 'disconnected'] as const)('does not poll the dashboard while %s', async (status) => {
+    mocks.live.status = status
+    mocks.fetchDashboard.mockResolvedValue({ recentJobs: [], runningJobs: [], runningJob: null, activeCount: 0 })
+    renderHook(() => useBackgroundDashboard(), { wrapper: createWrapper() })
     await flushQueries()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000)
+    })
     expect(mocks.fetchDashboard).toHaveBeenCalledOnce()
-
-    mocks.live.status = 'connected'
-    mocks.live.items = [
-      createStreamItem(completedA, { ...createEvent('A', 10), type: 'job.completed', progress: 100 }),
-      createStreamItem(runningB, createEvent('B', 11))
-    ]
-    rerender()
-    await flushQueries()
-
-    expect(mocks.fetchDashboard).toHaveBeenCalledTimes(2)
-    expect(result.current.data?.runningJobs.map((job) => job.id)).toEqual(['B'])
-    expect(result.current.data?.activeCount).toBe(1)
   })
 
   it('isolates events and cursors through A → B → A → B, ignoring a late A response', async () => {

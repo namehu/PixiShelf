@@ -22,7 +22,7 @@ vi.mock('../archive-task-creators', () => ({
 }))
 vi.mock('../../../_components/background-job-event-provider', () => {
   const stream = { status: 'connected', items: [], readyVersion: 0, resetVersion: 0 }
-  return { useBackgroundJobEventSubscription: () => stream }
+  return { useBackgroundJobEventSubscription: () => stream, useOptionalBackgroundJobEventSubscription: () => stream }
 })
 vi.mock('@/lib/trpc', () => ({
   useTRPC: () => ({

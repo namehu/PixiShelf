@@ -3,6 +3,7 @@ import {
   getJobEventPollIntervalMs,
   type JobEventStreamSource
 } from '@/services/background-task/job-event-stream-service'
+import type { AdminRealtimeSource } from '@/services/background-task/admin-realtime-source'
 
 const encoder = new TextEncoder()
 const HEARTBEAT_INTERVAL_MS = 15_000
@@ -10,7 +11,8 @@ const HEARTBEAT_INTERVAL_MS = 15_000
 export function createJobEventStreamResponse(
   request: Request,
   source: JobEventStreamSource,
-  requestedCursor: string | null
+  requestedCursor: string | null,
+  realtime?: AdminRealtimeSource
 ): Response {
   const pollIntervalMs = getJobEventPollIntervalMs()
   const connection = new AbortController()
@@ -20,9 +22,11 @@ export function createJobEventStreamResponse(
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      void runEventLoop(controller, source, requestedCursor, connection.signal, pollIntervalMs).finally(() => {
-        request.signal.removeEventListener('abort', abort)
-      })
+      void runEventLoop(controller, source, requestedCursor, connection.signal, { pollIntervalMs, realtime }).finally(
+        () => {
+          request.signal.removeEventListener('abort', abort)
+        }
+      )
     },
     cancel() {
       connection.abort()
@@ -45,10 +49,12 @@ async function runEventLoop(
   source: JobEventStreamSource,
   requestedCursor: string | null,
   signal: AbortSignal,
-  pollIntervalMs: number
+  { pollIntervalMs, realtime }: { pollIntervalMs: number; realtime?: AdminRealtimeSource }
 ): Promise<void> {
   try {
     const watermark = await source.watermark()
+    // Establish the revision baseline before ready causes clients to load their snapshots.
+    await realtime?.readChanges(new Date())
     let cursor = requestedCursor ?? watermark
     if (BigInt(cursor) > BigInt(watermark)) {
       cursor = watermark
@@ -56,8 +62,11 @@ async function runEventLoop(
     }
     enqueue(controller, 'jobs.ready', { version: 1, cursor }, cursor)
     let lastHeartbeatAt = Date.now()
+    if (realtime) enqueue(controller, 'workers.snapshot', await realtime.readWorkers(new Date()))
 
     while (!signal.aborted) {
+      const resources = await realtime?.readChanges(new Date())
+      if (resources?.length) enqueue(controller, 'admin.invalidate', { version: 1, resources })
       const batch = await source.readAfter(cursor, JOB_EVENT_STREAM_BATCH_LIMIT)
       if (batch.items.length > 0) {
         cursor = batch.cursor
@@ -66,6 +75,7 @@ async function runEventLoop(
       }
       const now = Date.now()
       if (now - lastHeartbeatAt >= HEARTBEAT_INTERVAL_MS) {
+        if (realtime) enqueue(controller, 'workers.snapshot', await realtime.readWorkers(new Date(now)))
         enqueue(controller, 'ping', { sampledAt: new Date(now).toISOString() })
         lastHeartbeatAt = now
       }

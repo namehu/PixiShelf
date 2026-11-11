@@ -1,4 +1,7 @@
 'use client'
+
+import { useBackgroundDashboard } from '../../../tasks/_components/use-background-dashboard'
+import { adminRealtimeQueryOptions } from '../../../_components/admin-realtime-sync'
 import { formatArchiveSourceSize } from '@/lib/archive-source-size'
 
 import { InboxLoading } from './archive-inbox-loading'
@@ -43,7 +46,6 @@ import {
   ArchiveIntakeStatusBadge as StatusBadge
 } from './archive-intake-badges'
 import {
-  archiveIntakePollingInterval,
   archiveIntakeItemHref,
   archiveTaskHref,
   clearArchiveIntakeItemHref,
@@ -103,8 +105,6 @@ const createEmptySelection = (): ArchiveIntakeSelectionState => ({
   qualityById: new Map()
 })
 
-const ACTIVE_STATUSES = new Set(['QUEUED', 'RESOLVING', 'RETRY_WAIT', 'READY', 'STALE'])
-
 export function ArchiveInbox() {
   const trpc = useTRPC()
   const queryClient = useQueryClient()
@@ -137,29 +137,23 @@ export function ArchiveInbox() {
         providerKey: providerKey === 'ALL' ? undefined : providerKey
       },
       {
-        refetchInterval: (query) =>
-          query.state.data?.items.some((item) => ACTIVE_STATUSES.has(item.status)) ? 3_000 : 8_000
+        ...adminRealtimeQueryOptions
       }
     )
   )
   const summaryQuery = useQuery(
     trpc.archiveInbox.summary.queryOptions(undefined, {
-      refetchInterval: (query) => archiveIntakePollingInterval(query.state.data?.activeCount ?? 0)
+      ...adminRealtimeQueryOptions
     })
   )
-  const dashboardQuery = useQuery(
-    trpc.job.backgroundDashboard.queryOptions(undefined, {
-      refetchInterval: (query) => archiveIntakePollingInterval(query.state.data?.activeCount ?? 0)
-    })
-  )
+  const dashboardQuery = useBackgroundDashboard()
   const locatedItemQuery = useQuery(
     trpc.archiveInbox.list.queryOptions(
       { itemId: locatedItemId ?? undefined, view: 'ACTIVE', limit: 1 },
       {
         enabled: Boolean(locatedItemId),
         retry: false,
-        refetchInterval: (query) =>
-          query.state.data?.items.some((item) => ACTIVE_STATUSES.has(item.status)) ? 3_000 : 8_000
+        ...adminRealtimeQueryOptions
       }
     )
   )

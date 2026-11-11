@@ -78,7 +78,25 @@ WebP/GIF 的 Sharp 探测运行在任务私有的有界子进程池中。先用 
 
 任务计划页“执行动态”的历史列表使用独立游标查询与虚拟滚动；筛选、搜索、可见记录快照补偿及位置保持规则见[后台任务执行记录](./background-job-history.md)。Dashboard 的 recentJobs 仍只作为概览和完成提示快照，不承担历史浏览。
 
-admin layout 每标签页只有一个 `BackgroundJobEventProvider`。任务卡、后台 dashboard、详情和事件历史合并同一事件源；mutation 使用返回的准确 job ID。归档按 `archiveImportId` 跟随当前 `activeExecutionId`，服务端只传当前执行摘要，下载 HANDOFF 的旧阶段完成不会作为整项成功通知。详情收到后继事件刷新当前执行；历史行以当前执行更新进度，后继进入视口后仍参与断线快速补偿。`ready/reset` 触发快照恢复。SSE 正常时停止任务状态高频轮询；断线时活动任务每 3 秒、空闲页每 30 秒兜底。
+admin layout 每标签页只有一个 `BackgroundJobEventProvider`。任务卡、后台 dashboard、详情和事件历史合并同一事件源；mutation 使用返回的准确 job ID。归档按 `archiveImportId` 跟随当前 `activeExecutionId`，服务端只传当前执行摘要，下载 HANDOFF 的旧阶段完成不会作为整项成功通知。详情收到后继事件刷新当前执行；历史行以当前执行更新进度，后继进入视口后仍参与断线快速补偿。`ready/reset` 触发快照恢复。动图时长状态、后台总览、收件箱摘要与列表采用下述事件驱动规则；其他任务状态查询保留既有断线轮询策略。
+
+### 任务总览与收件箱的事件刷新
+
+2026-11-11 局部核验：本节描述任务总览、动图时长和收件箱的刷新规则，不改变其他任务详情、历史或来源发现查询。
+
+`job.getAnimationDurationProbeStatus`、`job.backgroundDashboard`、`archiveInbox.summary` 与 `archiveInbox.list` 停止定时查询和断线轮询，关闭窗口聚焦、网络恢复触发的重复查询。首次加载、操作成功、手动刷新和 SSE `jobs.ready` 后仍读取数据库快照；连接重置由后续 ready 统一恢复。其他查询不受此范围约束。
+
+后台 layout 只保留一个连接和一个缓存刷新协调器。`admin.invalidate@v1` 携带 `resources: ['archiveInbox' | 'jobDashboard']`，不携带业务明细，不设置 SSE `id`，不改变 `jobs.events@v1` 的持久游标。收件箱事件刷新摘要与当前活动列表查询，保留筛选、分页及仍有效的选择。通知按固定 250ms 窗口合并；在途查询完成后若有新变化，合并补查一次；未挂载查询仅失效。动图时长进度直接合并任务摘要，新任务和终态查询完整结果，较旧事件不能覆盖较新快照。
+
+`AdminRealtimeRevision` 保存 `archiveInbox`、`jobDashboard` 两个资源的版本。语句级触发器与领域写入同事务更新版本，覆盖收件增删改、解析队列暂停／恢复、关联目录的来源摘要和排序变化、失败提醒确认，以及影响归档未完成数的状态／删除标记。空写入不增加版本；批量写入每条语句增加一次。SSE 检查循环读取小型版本表，变化时才通知浏览器，循环内不执行完整摘要统计。
+
+`READY` 到期与失败记录退出最近 24 小时统计由 SSE 服务端计算下一时间边界，到期通知一次并重新计算，不修改收件状态、不新增 Worker 任务。边界只在连接初始化、收件版本变化或到期时查询。
+
+`workers.snapshot@v1` 在连接就绪和既有 15 秒心跳节奏中发送脱敏 Worker 快照，同样不设置 SSE `id`。浏览器直接更新 Worker 信息，仅在线状态、状态或能力变化时刷新总览，沿用 90 秒心跳过期判断；普通 Worker 心跳不触发总览 HTTP 查询。
+
+断线保留页面数据，后台布局显示一次“实时更新不可用，当前状态可能已过期”及“刷新状态”按钮；首次连接中不显示断线警告。保留 fetch-event-source 自带重连，无效消息进入不可用状态并重连，恢复 ready 后同步一次，不启动本次范围内的轮询。
+
+升级先按[备份基线](../operations/backup-and-recovery.md)记录恢复依据，再 deploy `20261111000000_admin_realtime_revisions` 并升级 App。新增表和索引通过正式 migration 管理，不使用 db:push。触发器覆盖既有 Worker 写入，任务 payload 与 Worker 调度不变；旧前端忽略新事件，回退 App 可保留表和触发器。验证证据见[本次记录](../records/features/admin-realtime-sse-2026-11-11.md)。
 
 Web 的 SSE 连接内部仍轮询 PostgreSQL 事件表，每个连接各自读取。服务端启动环境变量 `JOB_EVENT_POLL_INTERVAL_MS` 可设置查询间隔，单位毫秒，允许 500–15000 的整数；未设置或无效时，开发环境默认 3000，其他环境默认 500。开发时可在 `packages/pixishelf/.env.local` 设置 `JOB_EVENT_POLL_INTERVAL_MS=5000` 后重启 Web；容器运行时需将变量传入 Web 容器，仅修改 Compose 的 `.env` 不会自动传入。间隔越长，实时进度出现的延迟越大；满 200 条的积压事件仍连续追赶，15 秒心跳在后续轮询时发送。此设置不改变 Worker 调度、事件写入或断线兜底频率，不需要 Worker 重启或数据库迁移。开发环境的 Prisma query 日志会逐条输出这些查询，多开后台标签页会增加查询数量；这与 Next.js 编译本身是不同路径，不能仅凭日志认定构建变慢的原因。
 

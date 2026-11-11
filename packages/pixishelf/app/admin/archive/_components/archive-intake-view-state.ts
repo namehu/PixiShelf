@@ -202,10 +202,6 @@ export function countArchiveIntakeActions(
   )
 }
 
-export function archiveIntakePollingInterval(activeCount: number): number {
-  return activeCount > 0 ? 1_500 : 8_000
-}
-
 export function archiveReplacementNotice(result: ArchiveReplacementResult): ArchiveReplacementNotice {
   if (result.acceptedCount > 0) {
     return {

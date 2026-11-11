@@ -315,10 +315,9 @@ suite('100 item intake transactions', () => {
 async function seedBatch() {
   const sourceId = `${prefix}-${fixtureIndex++}`
   const now = new Date()
-  const externalIds = Array.from(
-    { length: 100 },
-    (_, index) => `${Date.now()}${fixtureIndex}${index.toString().padStart(3, '0')}`
-  )
+  // Keep numeric gallery IDs within Number.MAX_SAFE_INTEGER, as required by the real URL parser.
+  const firstExternalId = Date.now() * 1_000
+  const externalIds = Array.from({ length: 100 }, (_, index) => String(firstExternalId + index))
   const urls = externalIds.map((id) => `https://e-hentai.org/g/${id}/batchtest/`)
   const itemIds = externalIds.map((_, index) => `${sourceId}-${index.toString().padStart(3, '0')}`)
   await db.archiveUploaderSource.create({

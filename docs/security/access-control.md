@@ -41,17 +41,17 @@ PixiShelf 当前是**单一管理员信任域**。可以创建多个账户，但
 4. tRPC context、敏感 HTTP Route 和 `authActionClient` 重新取得服务端 Session。页面位于 `/admin` 不代替授权。`actionClient` 不自带会话校验。
 5. 服务层继续核对账户、资源归属、状态/版本、路径和事务证据；操作者始终取 Session，客户端不能提交权威身份或冻结证据。
 
-| 边界                                    | 当前校验及能力                                                                                     |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| 普通页面与 `/admin/*`                   | Session；无额外角色判断                                                                            |
-| tRPC `publicProcedure`                  | 本身只做进程内 IP 限流；标准 HTTP transport 仍受代理 Session 保护（包括 `series.list/get`）        |
-| tRPC `authProcedure` / `adminProcedure` | 限流 + Session/User；两者目前等权，新增 transport 不能假设代理仍存在                               |
-| 登录/初始化 Action                      | 公共入口；登录限流；初始化在表锁后的事务内复核无账户，原子创建账户/凭据/Session，提交后设置 Cookie |
-| 上传、替换、章节删除、扫描、迁移 Route  | 代理 + Route 独立 `requireAdminRequest`，再校验资源与文件边界                                      |
-| 媒体/manifest 读取                      | 原媒体、Pixiv 图片、章节/关键帧等标准 Route 依赖代理 Session，并使用相应根路径/类型检查            |
-| `/api/jobs/events`                      | 独立 Session 门禁；只传脱敏任务摘要/事件，不传 payload、原始错误、URL、路径或租约 token            |
-| Webhook 与 scheduler                    | 公共 transport + 各自 Token；GET/HEAD 不执行扫描，POST 才入队/物化                                 |
-| 原站跳转                                | 独立 Session + 服务端查询 + provider/HTTPS/主机/端口/凭据/路径/归属校验；忽略 query 目的地         |
+| 边界                                    | 当前校验及能力                                                                                                     |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| 普通页面与 `/admin/*`                   | Session；无额外角色判断                                                                                            |
+| tRPC `publicProcedure`                  | 本身只做进程内 IP 限流；标准 HTTP transport 仍受代理 Session 保护（包括 `series.list/get`）                        |
+| tRPC `authProcedure` / `adminProcedure` | 限流 + Session/User；两者目前等权，新增 transport 不能假设代理仍存在                                               |
+| 登录/初始化 Action                      | 公共入口；登录限流；初始化在表锁后的事务内复核无账户，原子创建账户/凭据/Session，提交后设置 Cookie                 |
+| 上传、替换、章节删除、扫描、迁移 Route  | 代理 + Route 独立 `requireAdminRequest`，再校验资源与文件边界                                                      |
+| 媒体/manifest 读取                      | 原媒体、Pixiv 图片、章节/关键帧等标准 Route 依赖代理 Session，并使用相应根路径/类型检查                            |
+| `/api/jobs/events`                      | 独立 Session 门禁；只传脱敏任务摘要/事件、Worker 快照及资源失效通知，不传 payload、原始错误、URL、路径或租约 token |
+| Webhook 与 scheduler                    | 公共 transport + 各自 Token；GET/HEAD 不执行扫描，POST 才入队/物化                                                 |
+| 原站跳转                                | 独立 Session + 服务端查询 + provider/HTTPS/主机/端口/凭据/路径/归属校验；忽略 query 目的地                         |
 
 媒体 HTTP 路由禁止读取隐藏目录中的恢复证据（包括 `.pixishelf-upload-recovery`）：URL 解码和路径归一化后的每个路径段均检查隐藏前缀，解析后的实际根内路径再次检查，防止编码分隔符或可见符号链接别名绕过。恢复操作的账户和原 operationId 校验仍由服务层执行。
 

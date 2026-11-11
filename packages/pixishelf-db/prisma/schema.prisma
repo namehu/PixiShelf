@@ -1052,6 +1052,13 @@ model SystemJobFailureAcknowledgement {
   @@map("system_job_failure_acknowledgements")
 }
 
+model AdminRealtimeRevision {
+  resource String @id
+  revision BigInt @default(0)
+
+  @@map("admin_realtime_revisions")
+}
+
 model SystemJobEvent {
   id        BigInt        @id @default(autoincrement())
   jobId     String
@@ -1303,6 +1310,8 @@ model ArchiveIntakeItem {
 
   @@index([upgradeBaseRevisionId], map: "archive_intake_items_upgrade_base_idx")
   @@index([status, queueOrder])
+  @@index([status, expiresAt])
+  @@index([status, updatedAt])
   @@index([submissionId, createdAt])
   @@index([normalizedUrlHash, status])
   @@index([submittedUrl], type: Hash, map: "archive_intake_items_submitted_url_hash_idx")

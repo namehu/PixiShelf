@@ -1,0 +1,155 @@
+{
+  "date": "2026-11-11",
+  "environment": "isolated local Web on 127.0.0.1:5435 and PostgreSQL ssebrowser; synthetic data only",
+  "evidence": {
+    "tasks-requests.json": [],
+    "inbox-requests.json": [],
+    "disconnect.json": {
+      "count": 1,
+      "requests": [
+        {
+          "time": "2026-11-11T09:57:54.663Z",
+          "url": "http://127.0.0.1:5435/api/jobs/events"
+        },
+        {
+          "time": "2026-11-11T09:57:54.772Z",
+          "url": "http://127.0.0.1:5435/api/trpc/job.getRefillMetaSourceStatus,job.getMediaDerivedTagSyncStatus,job.getPixivAiDerivedTagSyncStatus,job.getWebpAnimationScanStatus,job.getVideoMediaProbeStatus,job.getVideoChapterPreviewGenerationStatus,job.listScheduledTasks?batch=1&input=%7B%7D"
+        },
+        {
+          "time": "2026-11-11T09:57:54.970Z",
+          "url": "http://127.0.0.1:5435/api/trpc/archiveInbox.summary,job.backgroundDashboard,job.getAnimationDurationProbeStatus?batch=1&input=%7B%7D"
+        }
+      ]
+    },
+    "mutation.json": [
+      "http://127.0.0.1:5435/api/trpc/archiveInbox.summary,archiveInbox.list?batch=1&input=%7B%221%22%3A%7B%22view%22%3A%22ACTIVE%22%2C%22limit%22%3A50%7D%7D"
+    ],
+    "pause-result.json": {
+      "paused": [
+        "http://127.0.0.1:5435/api/trpc/archiveInbox.summary,archiveInbox.list?batch=1&input=%7B%221%22%3A%7B%22view%22%3A%22ACTIVE%22%2C%22limit%22%3A50%7D%7D"
+      ],
+      "resumed": [
+        "http://127.0.0.1:5435/api/trpc/archiveInbox.summary,archiveInbox.list?batch=1&input=%7B%221%22%3A%7B%22view%22%3A%22ACTIVE%22%2C%22limit%22%3A50%7D%7D"
+      ]
+    },
+    "expiry-result.json": {
+      "before": "跳到主要内容\nPixiShelf\n首页\n作品\n沉浸浏览\n最近阅读\n艺术家\n标签\n系列\n管理\nS\nssebrowser\n\n概览\n\n管理概览\n状态管理\n\n内容档案\n\n作品管理\n艺术家管理\n系列管理\n标签管理\n归档收件箱\n归档任务\n\n系统工具\n\n用户管理\n扫描管理\n扫描历史\n任务计划\n归档收件箱\n保存来源并扫描发现内容，或直接添加作品链接。\n发现来源\n收件队列\n处理状态\n通道异常\n处理通道出现异常，请展开运行详情检查。\n运行详情\n等待\n0\n待确认\n1\n24h 失败\n0\n活动容量\n1 / 1000\n收件队列\n\n新作品可自动下载；需要确认的更新和仅解析项目会保留在这里。\n\n添加链接\n待处理\n失败\n已入队\n已跳过 / 取消 / 重复\n标题或链接\n来源\n全部来源\n全部来源\n画廊来源\n批次 ID\n应用筛选\n已选择当前页 0 项\n统一质量\n统一下载范围\n确认下载 0\n重试 0\n取消 0\n选择\t队列\t作品\t判断\t状态 / 耗时\t质量 / 关联\n\t\n#2\n\t\n\n等待解析标题\n\nhttps://e-hentai.org/g/222222/abc123/\n\n等待识别来源 · 原站整部大小未知 · 仅解析 · 展示图\n\n本次加入 browser-…\n\t待判断\t\n待确认下载\n1s\n\t\n打开原站\n\n每页最多 50 项；选择只作用于当前页。\n\n上一页\n下一页",
+      "after": "跳到主要内容\nPixiShelf\n首页\n作品\n沉浸浏览\n最近阅读\n艺术家\n标签\n系列\n管理\nS\nssebrowser\n\n概览\n\n管理概览\n状态管理\n\n内容档案\n\n作品管理\n艺术家管理\n系列管理\n标签管理\n归档收件箱\n归档任务\n\n系统工具\n\n用户管理\n扫描管理\n扫描历史\n任务计划\n归档收件箱\n保存来源并扫描发现内容，或直接添加作品链接。\n发现来源\n收件队列\n处理状态\n通道异常\n处理通道出现异常，请展开运行详情检查。\n运行详情\n等待\n0\n待确认\n0\n24h 失败\n0\n活动容量\n1 / 1000\n收件队列\n\n新作品可自动下载；需要确认的更新和仅解析项目会保留在这里。\n\n添加链接\n待处理\n失败\n已入队\n已跳过 / 取消 / 重复\n标题或链接\n来源\n全部来源\n全部来源\n画廊来源\n批次 ID\n应用筛选\n已选择当前页 0 项\n统一质量\n统一下载范围\n确认下载 0\n重试 0\n取消 0\n选择\t队列\t作品\t判断\t状态 / 耗时\t质量 / 关联\n\t\n#2\n\t\n\n等待解析标题\n\nhttps://e-hentai.org/g/222222/abc123/\n\n等待识别来源 · 原站整部大小未知 · 仅解析 · 展示图\n\n本次加入 browser-…\n\t待判断\t\n快照过期\n23s\n\t\n打开原站\n\n每页最多 50 项；选择只作用于当前页。\n\n上一页\n下一页",
+      "req": [
+        {
+          "time": "2026-11-11T10:04:54.419Z",
+          "url": "http://127.0.0.1:5435/api/trpc/archiveInbox.summary,archiveInbox.list?batch=1&input=%7B%221%22%3A%7B%22view%22%3A%22ACTIVE%22%2C%22limit%22%3A50%7D%7D"
+        }
+      ]
+    },
+    "failure-result.json": {
+      "hidden": true,
+      "requests": ["http://127.0.0.1:5435/api/trpc/job.backgroundDashboard?batch=1&input=%7B%7D"]
+    },
+    "worker-long-result.json": {
+      "heartbeat": {
+        "requests": [],
+        "sse": [
+          "event: workers.snapshot\ndata: {\"version\":1,\"sampledAt\":\"2026-11-11T10:07:18.304Z\",\"workers\":[{\"workerId\":\"browser-worker\",\"status\":\"READY\",\"serviceVersion\":\"test\",\"hostname\":\"test\",\"processId\":123,\"capabilities\":[],\"startedAt\":\"2026-11-11T10:02:25.512Z\",\"heartbeatAt\":\"2026-11-11T10:07:09.467Z\",\"lastError\":null,\"updatedAt\":\"2026-11-11T10:07:09.467Z\"}]}\n\nevent: ping\ndata: {\"sampledAt\":\"2026-11-11T10:07:18.304Z\"}\n\n"
+        ]
+      },
+      "stale": {
+        "requests": ["http://127.0.0.1:5435/api/trpc/job.backgroundDashboard?batch=1&input=%7B%7D"],
+        "sse": [
+          "event: workers.snapshot\ndata: {\"version\":1,\"sampledAt\":\"2026-11-11T10:07:33.355Z\",\"workers\":[{\"workerId\":\"browser-worker\",\"status\":\"READY\",\"serviceVersion\":\"test\",\"hostname\":\"test\",\"processId\":123,\"capabilities\":[],\"startedAt\":\"2026-11-11T10:02:25.512Z\",\"heartbeatAt\":\"2026-11-11T10:05:49.661Z\",\"lastError\":null,\"updatedAt\":\"2026-11-11T10:07:29.661Z\"}]}\n\nevent: ping\ndata: {\"sampledAt\":\"2026-11-11T10:07:33.355Z\"}\n\n",
+          "event: workers.snapshot\ndata: {\"version\":1,\"sampledAt\":\"2026-11-11T10:07:48.401Z\",\"workers\":[{\"workerId\":\"browser-worker\",\"status\":\"READY\",\"serviceVersion\":\"test\",\"hostname\":\"test\",\"processId\":123,\"capabilities\":[],\"startedAt\":\"2026-11-11T10:02:25.512Z\",\"heartbeatAt\":\"2026-11-11T10:05:49.661Z\",\"lastError\":null,\"updatedAt\":\"2026-11-11T10:07:29.661Z\"}]}\n\nevent: ping\ndata: {\"sampledAt\":\"2026-11-11T10:07:48.401Z\"}\n\n"
+        ]
+      },
+      "recovered": {
+        "requests": ["http://127.0.0.1:5435/api/trpc/job.backgroundDashboard?batch=1&input=%7B%7D"],
+        "sse": [
+          "id: 1\nevent: jobs.events\ndata: {\"version\":1,\"cursor\":\"1\",\"items\":[{\"event\":{\"id\":\"1\",\"jobId\":\"browser-progress\",\"type\":\"job.progress\",\"level\":\"INFO\",\"attempt\":0,\"workerId\":null,\"stage\":null,\"progress\":63,\"message\":null,\"data\":null,\"createdAt\":\"2026-11-11T10:07:54.000Z\"},\"job\":{\"id\":\"browser-progress\",\"type\":\"ANIMATION_DURATION_PROBE\",\"executionLane\":\"BACKGROUND_WRITER\",\"status\":\"RUNNING\",\"hasPartialFailure\":false,\"progress\":63,\"progressData\":null,\"stage\":null,\"message\":null,\"errorCode\":null,\"attempt\":0,\"parentJobId\":null,\"heartbeatAt\":null,\"startedAt\":\"2026-11-11T10:07:28.412Z\",\"finishedAt\":null,\"updatedAt\":\"2026-11-11T10:07:54.000Z\"}}]}\n\n",
+          "event: workers.snapshot\ndata: {\"version\":1,\"sampledAt\":\"2026-11-11T10:08:03.451Z\",\"workers\":[{\"workerId\":\"browser-worker\",\"status\":\"READY\",\"serviceVersion\":\"test\",\"hostname\":\"test\",\"processId\":123,\"capabilities\":[],\"startedAt\":\"2026-11-11T10:02:25.512Z\",\"heartbeatAt\":\"2026-11-11T10:07:49.840Z\",\"lastError\":null,\"updatedAt\":\"2026-11-11T10:07:49.840Z\"}]}\n\nevent: ping\ndata: {\"sampledAt\":\"2026-11-11T10:08:03.451Z\"}\n\n"
+        ]
+      }
+    },
+    "progress-result.json": {
+      "before": "动图时长探测\n可定时\n\n只探测已识别为动画的 WebP，并持久保存单周期时长；失败文件可手动重试。\n\n正在执行 · 63%\n自动计划：已关闭",
+      "after": "动图时长探测\n可定时\n\n只探测已识别为动画的 WebP，并持久保存单周期时长；失败文件可手动重试。\n\n正在执行 · 82%\n自动计划：已关闭",
+      "req": []
+    }
+  },
+  "intakeFixtureRegression": {
+    "testFilesPassed": 2,
+    "testsPassed": 35,
+    "testsSkipped": 0,
+    "previouslyFailingTests": 33,
+    "relatedUnitTestsPassed": 28,
+    "appRegression": {
+      "testFilesPassed": 516,
+      "testFilesSkipped": 55,
+      "testsPassed": 3823,
+      "testsSkipped": 396,
+      "testsFailed": 0
+    },
+    "database": "fresh disposable PostgreSQL 15 with all 142 migrations",
+    "benchmarks": [
+      {
+        "benchmark": "intake-100",
+        "phase": "idle",
+        "queries": 141,
+        "durationMs": 299
+      },
+      {
+        "benchmark": "intake-100",
+        "phase": "transfer-1",
+        "queries": 141,
+        "durationMs": 259
+      },
+      {
+        "benchmark": "intake-100",
+        "phase": "checkpoint-1",
+        "queries": 141,
+        "durationMs": 250
+      },
+      {
+        "benchmark": "intake-100",
+        "phase": "publication-1",
+        "queries": 141,
+        "durationMs": 255
+      },
+      {
+        "benchmark": "intake-100",
+        "phase": "transfer-2",
+        "queries": 141,
+        "durationMs": 229
+      },
+      {
+        "benchmark": "intake-100",
+        "phase": "checkpoint-2",
+        "queries": 141,
+        "durationMs": 235
+      },
+      {
+        "benchmark": "intake-100",
+        "phase": "publication-2",
+        "queries": 141,
+        "durationMs": 258
+      },
+      {
+        "benchmark": "intake-100",
+        "phase": "transfer-3",
+        "queries": 141,
+        "durationMs": 240
+      },
+      {
+        "benchmark": "intake-100",
+        "phase": "checkpoint-3",
+        "queries": 141,
+        "durationMs": 256
+      },
+      {
+        "benchmark": "intake-100",
+        "phase": "publication-3",
+        "queries": 141,
+        "durationMs": 248
+      }
+    ]
+  },
+  "browserValidationAgent": "gpt-6.1-terra"
+}

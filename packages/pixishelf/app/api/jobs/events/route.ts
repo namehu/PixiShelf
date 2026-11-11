@@ -1,6 +1,7 @@
 import { bigintStringSchema } from '@pixishelf/job-contracts'
 import { ApiError } from '@/lib/api-handler'
 import { PostgresJobEventStreamSource } from '@/services/background-task/job-event-stream-service'
+import { PostgresAdminRealtimeSource } from '@/services/background-task/admin-realtime-source'
 import { requireAdminRequest } from '@/services/background-task/request-auth'
 import { createJobEventStreamResponse } from './stream-response'
 
@@ -22,7 +23,12 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: 'Invalid event cursor' }, { status: 400 })
   }
 
-  return createJobEventStreamResponse(request, new PostgresJobEventStreamSource(), requestedCursor)
+  return createJobEventStreamResponse(
+    request,
+    new PostgresJobEventStreamSource(),
+    requestedCursor,
+    new PostgresAdminRealtimeSource()
+  )
 }
 
 function isApiError(error: unknown): error is { message: string; statusCode: number } {

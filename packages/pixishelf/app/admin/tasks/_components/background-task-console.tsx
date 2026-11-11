@@ -107,7 +107,7 @@ export function BackgroundTaskConsole({
 }) {
   const [activeTab, setActiveTab] = useState<'tasks' | 'failures'>('tasks')
   const [open, setOpen] = useState(false)
-  const dashboardQuery = useBackgroundDashboard(open && activeTab === 'failures')
+  const dashboardQuery = useBackgroundDashboard()
   const dashboard = dashboardQuery.data as BackgroundDashboardView | undefined
   const isDesktop = useMediaQuery('(min-width: 768px)')
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
@@ -120,7 +120,10 @@ export function BackgroundTaskConsole({
   }, [])
   const scrollRef = useRef<HTMLDivElement>(null)
   const [historyRefreshVersion, setHistoryRefreshVersion] = useState(0)
-  const history = useBackgroundHistory(open && activeTab === 'tasks' && !selectedJobId, historyRefreshVersion + refreshVersion)
+  const history = useBackgroundHistory(
+    open && activeTab === 'tasks' && !selectedJobId,
+    historyRefreshVersion + refreshVersion
+  )
   const failures = useBackgroundFailures(
     open && activeTab === 'failures' && !selectedJobId,
     dashboard?.unacknowledgedFailureCount ?? 0,

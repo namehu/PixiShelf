@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { adminRealtimeQueryOptions } from './admin-realtime-sync'
 import { usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Badge } from '@/components/ui/badge'
@@ -19,7 +20,7 @@ export function AdminNav({ className, onNavigate }: AdminNavProps) {
   const archiveSummaryQuery = useQuery(
     trpc.archiveInbox.summary.queryOptions(undefined, {
       retry: false,
-      refetchInterval: (query) => ((query.state.data?.activeCount ?? 0) > 0 ? 1_500 : 8_000)
+      ...adminRealtimeQueryOptions
     })
   )
   const failedCount = archiveSummaryQuery.data?.counts.FAILED ?? 0
