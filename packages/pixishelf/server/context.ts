@@ -1,9 +1,8 @@
 import { auth } from '@/lib/auth'
+import { measureArchiveReadPhase } from '@/lib/archive-read-timing'
 
 export async function createTRPCContext(opts: { headers: Headers }) {
-  const session = await auth.api.getSession({
-    headers: opts.headers
-  })
+  const session = await measureArchiveReadPhase('session', () => auth.api.getSession({ headers: opts.headers }))
 
   return {
     session: session?.session,

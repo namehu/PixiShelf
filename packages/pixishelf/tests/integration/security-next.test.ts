@@ -49,6 +49,7 @@ describe('production Next authorization and error transport', () => {
         'lib/mobile/path.ts',
         'lib/mobile/http.ts',
         'lib/logger.ts',
+        'lib/archive-read-timing.ts',
         'lib/api-handler.ts',
         'lib/constants.ts',
         'lib/rate-limit.ts',
@@ -112,7 +113,14 @@ describe('production Next authorization and error transport', () => {
       )
       await put(
         'server/index.ts',
-        `import { router, authProcedure } from './trpc'; export const appRouter = router({ fail: authProcedure.query(() => { console.log('FIXTURE_TRPC_CALLED'); throw new Error(${JSON.stringify(failure)}); }) });`
+        `import { router, authProcedure } from './trpc';
+        import { measureArchiveReadPhase } from '@/lib/archive-read-timing';
+        export const appRouter = router({
+          fail: authProcedure.query(() => { console.log('FIXTURE_TRPC_CALLED'); throw new Error(${JSON.stringify(failure)}); }),
+          archive: router({ listTasks: authProcedure.query(() => measureArchiveReadPhase('tasks.records', () => {
+            console.log('FIXTURE_ARCHIVE_READ_CALLED'); throw new Error(${JSON.stringify(failure)});
+          })) })
+        });`
       )
       build = spawn(process.execPath, [nextBin, 'build', '--webpack'], { cwd: directory, env: environment })
       build.stdout!.on('data', (chunk) => {
@@ -148,7 +156,7 @@ describe('production Next authorization and error transport', () => {
       const request = (cookie: string, path = '/api/artwork/media-chapters/1', method = 'DELETE') =>
         fetch(`${base}${path}?entry=direct`, {
           method,
-          headers: { cookie, 'x-user-session': '{"userId":"forged"}' }
+          headers: { cookie, 'x-user-session': '{"userId":"forged"}', 'x-request-id': 'forged-request-id' }
         })
       for (const cookie of [
         '',
@@ -185,12 +193,31 @@ describe('production Next authorization and error transport', () => {
       expect(trpc.status).toBe(500)
       const trpcBody = await trpc.text()
       expect(trpcBody).toContain('Internal Server Error')
+      expect((await request('', '/api/trpc/archive.listTasks', 'GET')).status).toBe(401)
+      expect(output).not.toContain('FIXTURE_ARCHIVE_READ_CALLED')
+      const archiveRead = await request('fixture-valid', '/api/trpc/archive.listTasks', 'GET')
+      expect(archiveRead.status).toBe(500)
+      const archiveReadBody = await archiveRead.text()
+      expect(archiveReadBody).toContain('Internal Server Error')
+      expect(archiveRead.headers.get('x-request-id')).toMatch(/^[a-f0-9-]{36}$/)
       await stop(server)
+      const timing = JSON.parse(output.split('\n').find((line) => line.includes('"message":"archive.read-timing"'))!)
+      expect(timing).toMatchObject({
+        requestId: archiveRead.headers.get('x-request-id'),
+        operations: ['archive.listTasks'],
+        status: 500,
+        success: false,
+        phases: [
+          expect.objectContaining({ phase: 'session', success: true }),
+          expect.objectContaining({ phase: 'tasks.records', success: false })
+        ]
+      })
       expect(output).toContain('FIXTURE_BUSINESS_CALLED')
       expect(output).toContain('FIXTURE_TRPC_CALLED')
       expect(output).toContain('[REDACTED]')
       for (const secret of secrets) {
         expect(trpcBody).not.toContain(secret)
+        expect(archiveReadBody).not.toContain(secret)
         expect(output).not.toContain(secret)
       }
     } finally {

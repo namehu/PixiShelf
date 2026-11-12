@@ -13,8 +13,10 @@ import {
   archiveDownloadScopeSchema
 } from '@pixishelf/job-contracts'
 import { Prisma, type PrismaClient, lockCreatorCatalog } from '@pixishelf/db'
+import { ArchiveIntakeStatus } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
+import { measureArchiveReadPhase } from '@/lib/archive-read-timing'
 import {
   archiveRequestFingerprint,
   runArchiveBulkOperation,
@@ -38,19 +40,6 @@ const BULK_TARGET_LIMIT = 100
 const INTAKE_CAPACITY_LOCK_NAMESPACE = 20_260_820
 const INTAKE_IDEMPOTENCY_LOCK_NAMESPACE = 20_260_821
 const RESOLVE_QUEUE_ID = 'archive-resolve'
-
-const intakeStatusSchema = z.enum([
-  'QUEUED',
-  'RESOLVING',
-  'RETRY_WAIT',
-  'READY',
-  'STALE',
-  'FAILED',
-  'ENQUEUED',
-  'CANCELLED',
-  'DUPLICATE',
-  'SKIPPED'
-])
 
 export const createArchiveIntakeSchema = z
   .object({
@@ -689,7 +678,10 @@ export async function listArchiveIntakeItems(
   const hasMore = rows.length > parsed.limit
   const visible = hasMore ? rows.slice(0, parsed.limit) : rows
   const last = visible.at(-1)
-  const sourceFacts = await readIntakeSourceFacts(database, visible.map((item) => item.id))
+  const sourceFacts = await readIntakeSourceFacts(
+    database,
+    visible.map((item) => item.id)
+  )
   return {
     items: visible.map((item) => serializeIntakeItem(item, now, sourceFacts.get(item.id))),
     nextCursor:
@@ -703,44 +695,60 @@ export async function getArchiveIntakeSummary(dependencies: ArchiveIntakeService
   const database = getDatabase(dependencies)
   const now = (dependencies.now ?? (() => new Date()))()
   const [groups, expiredReadyCount, current, oldest, recentFailedCount, control] = await Promise.all([
-    database.archiveIntakeItem.groupBy({ by: ['status'], _count: { _all: true } }),
-    database.archiveIntakeItem.count({ where: { status: 'READY', expiresAt: { lte: now } } }),
-    database.archiveIntakeItem.findFirst({
-      where: { status: 'RESOLVING' },
-      orderBy: { queueOrder: 'asc' },
-      select: intakeItemWireSelect
-    }),
-    database.archiveIntakeItem.findFirst({
-      where: { status: { in: ['QUEUED', 'RETRY_WAIT'] } },
-      orderBy: { queueOrder: 'asc' },
-      select: { createdAt: true }
-    }),
-    database.archiveIntakeItem.count({
-      where: { status: 'FAILED', updatedAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1_000) } }
-    }),
-    database.archiveResolveQueueControl.findUnique({ where: { id: RESOLVE_QUEUE_ID } })
+    measureArchiveReadPhase('summary.statusCounts', () =>
+      database.archiveIntakeItem.groupBy({ by: ['status'], _count: { _all: true } })
+    ),
+    measureArchiveReadPhase('summary.expiredReadyCount', () =>
+      database.archiveIntakeItem.count({ where: { status: 'READY', expiresAt: { lte: now } } })
+    ),
+    measureArchiveReadPhase('summary.current', () =>
+      database.archiveIntakeItem.findFirst({
+        where: { status: 'RESOLVING' },
+        orderBy: { queueOrder: 'asc' },
+        select: intakeItemWireSelect
+      })
+    ),
+    measureArchiveReadPhase('summary.oldest', () =>
+      database.archiveIntakeItem.findFirst({
+        where: { status: { in: ['QUEUED', 'RETRY_WAIT'] } },
+        orderBy: { queueOrder: 'asc' },
+        select: { createdAt: true }
+      })
+    ),
+    measureArchiveReadPhase('summary.recentFailedCount', () =>
+      database.archiveIntakeItem.count({
+        where: { status: 'FAILED', updatedAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1_000) } }
+      })
+    ),
+    measureArchiveReadPhase('summary.control', () =>
+      database.archiveResolveQueueControl.findUnique({ where: { id: RESOLVE_QUEUE_ID } })
+    )
   ])
-  const counts = Object.fromEntries(intakeStatusSchema.options.map((status) => [status, 0])) as Record<
-    z.infer<typeof intakeStatusSchema>,
-    number
-  >
-  for (const group of groups) counts[group.status] = group._count._all
-  counts.READY -= expiredReadyCount
-  counts.STALE += expiredReadyCount
-  const activeCount = ACTIVE_INTAKE_STATUSES.reduce((total, status) => total + counts[status], 0)
-  const sourceFacts = await readIntakeSourceFacts(database, current ? [current.id] : [])
-  return {
-    counts,
-    activeCount,
-    capacity: INTAKE_CAPACITY,
-    remainingCapacity: Math.max(0, INTAKE_CAPACITY - activeCount),
-    queuedCount: counts.QUEUED + counts.RETRY_WAIT,
-    recentFailedCount,
-    oldestWaitingAt: oldest?.createdAt ?? null,
-    currentItem: current ? serializeIntakeItem(current, now, sourceFacts.get(current.id)) : null,
-    paused: control?.paused ?? false,
-    pausedAt: control?.pausedAt ?? null
-  }
+  const sourceFacts = await measureArchiveReadPhase('summary.sourceFacts', () =>
+    readIntakeSourceFacts(database, current ? [current.id] : [])
+  )
+  return measureArchiveReadPhase('summary.serialize', () => {
+    const counts = Object.fromEntries(Object.values(ArchiveIntakeStatus).map((status) => [status, 0])) as Record<
+      ArchiveIntakeStatus,
+      number
+    >
+    for (const group of groups) counts[group.status] = group._count._all
+    counts.READY -= expiredReadyCount
+    counts.STALE += expiredReadyCount
+    const activeCount = ACTIVE_INTAKE_STATUSES.reduce((total, status) => total + counts[status], 0)
+    return {
+      counts,
+      activeCount,
+      capacity: INTAKE_CAPACITY,
+      remainingCapacity: Math.max(0, INTAKE_CAPACITY - activeCount),
+      queuedCount: counts.QUEUED + counts.RETRY_WAIT,
+      recentFailedCount,
+      oldestWaitingAt: oldest?.createdAt ?? null,
+      currentItem: current ? serializeIntakeItem(current, now, sourceFacts.get(current.id)) : null,
+      paused: control?.paused ?? false,
+      pausedAt: control?.pausedAt ?? null
+    }
+  })
 }
 
 export async function setArchiveIntakePaused(
@@ -955,7 +963,9 @@ async function retryIntakeItem(
       id: jobId,
       type: 'ARCHIVE_RESOLVE_ITEM',
       executionLane: 'ARCHIVE_RESOLVE',
-      definitionVersion: item.upgradeBaseRevisionId ? ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION : ARCHIVE_COVERAGE_DEFINITION_VERSION,
+      definitionVersion: item.upgradeBaseRevisionId
+        ? ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION
+        : ARCHIVE_COVERAGE_DEFINITION_VERSION,
       status: 'PENDING',
       triggerSource: 'RETRY',
       requestedByUserId,
@@ -1080,7 +1090,10 @@ async function serializeSubmission(transaction: Prisma.TransactionClient, submis
     include: { items: { orderBy: [{ queueOrder: 'asc' }, { id: 'asc' }], select: intakeItemWireSelect } }
   })
   const now = new Date()
-  const sourceFacts = await readIntakeSourceFacts(transaction, submission.items.map((item) => item.id))
+  const sourceFacts = await readIntakeSourceFacts(
+    transaction,
+    submission.items.map((item) => item.id)
+  )
   return {
     id: submission.id,
     rawCount: submission.rawCount,
@@ -1097,9 +1110,7 @@ function effectiveStatus(item: { status: string; expiresAt: Date | null }, now: 
   return item.status === 'READY' && item.expiresAt && item.expiresAt <= now ? 'STALE' : item.status
 }
 
-function statusesForView(
-  view: z.infer<typeof archiveIntakeListSchema>['view']
-): Array<z.infer<typeof intakeStatusSchema>> {
+function statusesForView(view: z.infer<typeof archiveIntakeListSchema>['view']): ArchiveIntakeStatus[] {
   switch (view) {
     case 'ACTIVE':
       return [...ACTIVE_INTAKE_STATUSES]

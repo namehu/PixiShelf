@@ -3,6 +3,7 @@ import {
   archiveIntakeListSchema,
   archiveIntakeManySchema,
   createArchiveIntakeSchema,
+  getArchiveIntakeSummary,
   hashSubmittedUrl,
   listArchiveIntakeItems,
   replaceArchiveIntakeItem,
@@ -12,6 +13,43 @@ import { enqueueArchiveIntakeManySchema } from '../archive-intake-enqueue-servic
 import { redactArchiveUrl } from '@/services/archive/archive-redaction'
 
 describe('archive intake input and wire safety', () => {
+  it('keeps every intake status in the summary and moves expired ready items to stale', async () => {
+    const oldest = new Date('2026-11-12T00:00:00.000Z')
+    const database = {
+      archiveIntakeItem: {
+        groupBy: vi.fn().mockResolvedValue([
+          { status: 'READY', _count: { _all: 3 } },
+          { status: 'FAILED', _count: { _all: 2 } }
+        ]),
+        count: vi.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(2),
+        findFirst: vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({ createdAt: oldest })
+      },
+      archiveResolveQueueControl: { findUnique: vi.fn().mockResolvedValue({ paused: true, pausedAt: oldest }) }
+    }
+    const result = await getArchiveIntakeSummary({ database: database as never })
+    expect(result).toMatchObject({
+      counts: {
+        QUEUED: 0,
+        RESOLVING: 0,
+        RETRY_WAIT: 0,
+        READY: 2,
+        STALE: 1,
+        FAILED: 2,
+        ENQUEUED: 0,
+        CANCELLED: 0,
+        DUPLICATE: 0,
+        SKIPPED: 0
+      },
+      activeCount: 3,
+      remainingCapacity: 997,
+      recentFailedCount: 2,
+      oldestWaitingAt: oldest,
+      currentItem: null,
+      paused: true,
+      pausedAt: oldest
+    })
+  })
+
   it.each(['QUEUED', 'RESOLVING'])('shows discovered whole-gallery facts immediately while %s without loading a media plan', async (status) => {
     const item = intakeRecord({ status, pageCount: null })
     const findMany = vi.fn<(input: { select: Record<string, unknown> }) => Promise<typeof item[]>>().mockResolvedValue([item])

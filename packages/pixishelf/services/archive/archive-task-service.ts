@@ -21,6 +21,7 @@ import {
 import { Prisma, type PrismaClient } from '@pixishelf/db'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
+import { measureArchiveReadPhase } from '@/lib/archive-read-timing'
 import {
   getArchiveBulkOperation,
   runArchiveBulkOperation,
@@ -97,58 +98,63 @@ export async function listArchiveTasks(
   }
   const attributionWhere: Prisma.ArchiveIntakeItemWhereInput =
     parsed.kind || parsed.submissionId ? requestedAttribution : {}
-  const unboundIds = parsed.unboundOnly && !parsed.taskId ? await unboundArchiveTaskIds(database, parsed, cursor) : null
-  const records = await database.archiveImport.findMany({
-    where: parsed.taskId
-      ? { id: parsed.taskId }
-      : {
-          publishedArtworkDeletedAt: null,
-          ...(unboundIds ? { id: { in: unboundIds } } : {}),
-          ...(parsed.statuses?.length ? { status: { in: parsed.statuses } } : {}),
-          ...(parsed.providerKey ? { providerKey: parsed.providerKey } : {}),
-          ...(parsed.kind || parsed.submissionId
-            ? {
-                intakeItems: {
-                  some: requestedAttribution
+  const unboundIds =
+    parsed.unboundOnly && !parsed.taskId
+      ? await measureArchiveReadPhase('tasks.unboundIds', () => unboundArchiveTaskIds(database, parsed, cursor))
+      : null
+  const records = await measureArchiveReadPhase('tasks.records', () =>
+    database.archiveImport.findMany({
+      where: parsed.taskId
+        ? { id: parsed.taskId }
+        : {
+            publishedArtworkDeletedAt: null,
+            ...(unboundIds ? { id: { in: unboundIds } } : {}),
+            ...(parsed.statuses?.length ? { status: { in: parsed.statuses } } : {}),
+            ...(parsed.providerKey ? { providerKey: parsed.providerKey } : {}),
+            ...(parsed.kind || parsed.submissionId
+              ? {
+                  intakeItems: {
+                    some: requestedAttribution
+                  }
                 }
-              }
-            : {}),
-          ...((parsed.search || cursor) && {
-            AND: [
-              ...(parsed.search
-                ? [
-                    {
-                      OR: [
-                        { submittedUrl: { contains: parsed.search, mode: 'insensitive' as const } },
-                        { canonicalUrl: { contains: parsed.search, mode: 'insensitive' as const } },
-                        { externalId: { contains: parsed.search, mode: 'insensitive' as const } },
-                        { normalizedMetadata: { path: ['titles', 'display'], string_contains: parsed.search } }
-                      ]
-                    }
-                  ]
-                : []),
-              ...(cursor
-                ? [
-                    {
-                      OR: [
-                        { createdAt: { lt: cursor.createdAt } },
-                        { createdAt: cursor.createdAt, id: { lt: cursor.id } }
-                      ]
-                    }
-                  ]
-                : [])
-            ]
-          })
-        },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: parsed.limit + 1,
-    select: buildArchiveTaskWireSelect(attributionWhere)
-  })
+              : {}),
+            ...((parsed.search || cursor) && {
+              AND: [
+                ...(parsed.search
+                  ? [
+                      {
+                        OR: [
+                          { submittedUrl: { contains: parsed.search, mode: 'insensitive' as const } },
+                          { canonicalUrl: { contains: parsed.search, mode: 'insensitive' as const } },
+                          { externalId: { contains: parsed.search, mode: 'insensitive' as const } },
+                          { normalizedMetadata: { path: ['titles', 'display'], string_contains: parsed.search } }
+                        ]
+                      }
+                    ]
+                  : []),
+                ...(cursor
+                  ? [
+                      {
+                        OR: [
+                          { createdAt: { lt: cursor.createdAt } },
+                          { createdAt: cursor.createdAt, id: { lt: cursor.id } }
+                        ]
+                      }
+                    ]
+                  : [])
+              ]
+            })
+          },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: parsed.limit + 1,
+      select: buildArchiveTaskWireSelect(attributionWhere)
+    })
+  )
   const hasMore = records.length > parsed.limit
   const visible = hasMore ? records.slice(0, parsed.limit) : records
   const last = visible.at(-1)
-  const creators = await archiveTaskCreatorSummaries(database, visible)
-  return {
+  const creators = await measureArchiveReadPhase('tasks.creators', () => archiveTaskCreatorSummaries(database, visible))
+  return measureArchiveReadPhase('tasks.serialize', () => ({
     items: visible.map((task, index) => ({
       ...serializeTask(task),
       ...creators[index]!,
@@ -157,7 +163,7 @@ export async function listArchiveTasks(
         : creators[index]!.creatorEditBlockedReason
     })),
     nextCursor: hasMore && last ? encodeTaskCursor(last.createdAt, last.id) : null
-  }
+  }))
 }
 
 export async function actionArchiveTasksMany(

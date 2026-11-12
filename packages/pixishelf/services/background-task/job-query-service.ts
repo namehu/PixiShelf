@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { measureArchiveReadPhase } from '@/lib/archive-read-timing'
 import {
   JOB_STATUS_VALUES,
   JOB_TYPE_VALUES,
@@ -96,144 +97,166 @@ export async function getJobDashboard(
     unacknowledgedFailures,
     archiveUnfinishedCount
   ] = await Promise.all([
-    database.systemJob.groupBy({
-      by: ['status'],
-      where: dashboardVisibleWhere,
-      _count: { _all: true }
-    }),
-    database.systemJob.findMany({
-      where: {
-        definitionVersion: { gte: 1 },
-        ...currentArchiveExecutionWhere,
-        status: { in: ['RUNNING', 'PAUSING', 'CANCELLING'] }
-      },
-      orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
-      take: 3,
-      select: systemJobWireSelect
-    }),
-    readLogicalJobPage(
-      (args) => database.systemJob.findMany({ ...args, select: { ...systemJobWireSelect, ...logicalArchiveSelect } }),
-      { where: dashboardVisibleWhere, take: 10 }
+    measureArchiveReadPhase('dashboard.statusCounts', () =>
+      database.systemJob.groupBy({
+        by: ['status'],
+        where: dashboardVisibleWhere,
+        _count: { _all: true }
+      })
     ),
-    database.workerInstance.findMany({ orderBy: { heartbeatAt: 'desc' }, select: workerInstanceWireSelect }),
-    database.systemJob.findMany({
-      where: {
-        definitionVersion: { gte: 1 },
-        type: { in: [...PIXIV_ENRICHMENT_TYPES] },
-        parentJobId: { not: null },
-        status: { in: ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'] },
-        parentJob: {
-          is: { status: { notIn: ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'] } }
-        }
-      },
-      select: { parentJobId: true },
-      distinct: ['parentJobId']
-    }),
-    database.systemJob.count({ where: unacknowledgedFailureWhere }),
-    readLogicalJobPage(
-      (args) => database.systemJob.findMany({ ...args, select: { ...systemJobWireSelect, ...logicalArchiveSelect } }),
-      { where: unacknowledgedFailureWhere, take: 10 }
+    measureArchiveReadPhase('dashboard.running', () =>
+      database.systemJob.findMany({
+        where: {
+          definitionVersion: { gte: 1 },
+          ...currentArchiveExecutionWhere,
+          status: { in: ['RUNNING', 'PAUSING', 'CANCELLING'] }
+        },
+        orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+        take: 3,
+        select: systemJobWireSelect
+      })
     ),
-    database.archiveImport.count({
-      where: { publishedArtworkDeletedAt: null, status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'] } }
-    })
+    measureArchiveReadPhase('dashboard.recent', () =>
+      readLogicalJobPage(
+        (args) => database.systemJob.findMany({ ...args, select: { ...systemJobWireSelect, ...logicalArchiveSelect } }),
+        { where: dashboardVisibleWhere, take: 10 }
+      )
+    ),
+    measureArchiveReadPhase('dashboard.workers', () =>
+      database.workerInstance.findMany({ orderBy: { heartbeatAt: 'desc' }, select: workerInstanceWireSelect })
+    ),
+    measureArchiveReadPhase('dashboard.activeBatchParents', () =>
+      database.systemJob.findMany({
+        where: {
+          definitionVersion: { gte: 1 },
+          type: { in: [...PIXIV_ENRICHMENT_TYPES] },
+          parentJobId: { not: null },
+          status: { in: ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'] },
+          parentJob: {
+            is: { status: { notIn: ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'] } }
+          }
+        },
+        select: { parentJobId: true },
+        distinct: ['parentJobId']
+      })
+    ),
+    measureArchiveReadPhase('dashboard.failureCount', () =>
+      database.systemJob.count({ where: unacknowledgedFailureWhere })
+    ),
+    measureArchiveReadPhase('dashboard.failures', () =>
+      readLogicalJobPage(
+        (args) => database.systemJob.findMany({ ...args, select: { ...systemJobWireSelect, ...logicalArchiveSelect } }),
+        { where: unacknowledgedFailureWhere, take: 10 }
+      )
+    ),
+    measureArchiveReadPhase('dashboard.archiveUnfinishedCount', () =>
+      database.archiveImport.count({
+        where: { publishedArtworkDeletedAt: null, status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'] } }
+      })
+    )
   ])
 
   const activeBatchParentIds = activePixivBatchParents.flatMap((job) => (job.parentJobId ? [job.parentJobId] : []))
   const [batchParents, batchGroups] = activeBatchParentIds.length
     ? await Promise.all([
-        database.systemJob.findMany({
-          where: { id: { in: activeBatchParentIds }, definitionVersion: { gte: 1 } },
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          select: systemJobWireSelect
-        }),
-        database.systemJob.groupBy({
-          by: ['parentJobId', 'status'],
-          where: {
-            definitionVersion: { gte: 1 },
-            parentJobId: { in: activeBatchParentIds }
-          },
-          _count: { _all: true }
-        })
+        measureArchiveReadPhase('dashboard.batchParents', () =>
+          database.systemJob.findMany({
+            where: { id: { in: activeBatchParentIds }, definitionVersion: { gte: 1 } },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            select: systemJobWireSelect
+          })
+        ),
+        measureArchiveReadPhase('dashboard.batchCounts', () =>
+          database.systemJob.groupBy({
+            by: ['parentJobId', 'status'],
+            where: {
+              definitionVersion: { gte: 1 },
+              parentJobId: { in: activeBatchParentIds }
+            },
+            _count: { _all: true }
+          })
+        )
       ])
     : [[], []]
 
-  // 仅采用新鲜 worker 心跳，过期 presence 不会影响 READY/DRAINING 判定。
-  const counts = Object.fromEntries(JOB_STATUS_VALUES.map((status) => [status, 0])) as Record<JobStatus, number>
-  for (const group of groups) counts[group.status] = group._count._all
-  const runningJobs = running.map(toJobDto)
-  const batchCounts = new Map<string, Record<JobStatus, number>>()
-  for (const group of batchGroups) {
-    if (!group.parentJobId) continue
-    const current = batchCounts.get(group.parentJobId) ?? createEmptyStatusCounts()
-    current[group.status] = group._count._all
-    batchCounts.set(group.parentJobId, current)
-  }
-  const activeBatches = batchParents.map((parent) => {
-    const parentJob = toJobDto(parent)
-    const childCounts = batchCounts.get(parent.id) ?? createEmptyStatusCounts()
-    const totalCount = JOB_STATUS_VALUES.reduce((total, status) => total + childCounts[status], 0)
-    const completedCount = TERMINAL_JOB_STATUSES.reduce((total, status) => total + childCounts[status], 0)
-    const status = collapsedBatchStatus(childCounts)
-    counts[status] += 1
+  return measureArchiveReadPhase('dashboard.serialize', () => {
+    // 仅采用新鲜 worker 心跳，过期 presence 不会影响 READY/DRAINING 判定。
+    const counts = Object.fromEntries(JOB_STATUS_VALUES.map((status) => [status, 0])) as Record<JobStatus, number>
+    for (const group of groups) counts[group.status] = group._count._all
+    const runningJobs = running.map(toJobDto)
+    const batchCounts = new Map<string, Record<JobStatus, number>>()
+    for (const group of batchGroups) {
+      if (!group.parentJobId) continue
+      const current = batchCounts.get(group.parentJobId) ?? createEmptyStatusCounts()
+      current[group.status] = group._count._all
+      batchCounts.set(group.parentJobId, current)
+    }
+    const activeBatches = batchParents.map((parent) => {
+      const parentJob = toJobDto(parent)
+      const childCounts = batchCounts.get(parent.id) ?? createEmptyStatusCounts()
+      const totalCount = JOB_STATUS_VALUES.reduce((total, status) => total + childCounts[status], 0)
+      const completedCount = TERMINAL_JOB_STATUSES.reduce((total, status) => total + childCounts[status], 0)
+      const status = collapsedBatchStatus(childCounts)
+      counts[status] += 1
+      return {
+        id: parent.id,
+        type: parent.type,
+        status,
+        progress: totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : parent.progress,
+        totalCount,
+        completedCount,
+        remainingCount: Math.max(0, totalCount - completedCount),
+        failedCount: childCounts.FAILED,
+        currentJob: runningJobs.find((job) => job.parentJobId === parent.id) ?? null,
+        parentJob
+      }
+    })
+    const workerDtos = workers.map(toWorkerHealthDto)
+    const timestamp = now()
+    const freshWorkers = workerDtos.filter((worker) => isWorkerHeartbeatFresh(worker.heartbeatAt, timestamp))
+    const laneNames = ['ARCHIVE_RESOLVE', 'ARCHIVE_DOWNLOAD', 'BACKGROUND_WRITER'] as const
+    const lanes = laneNames.map((executionLane) => {
+      const runningJob = runningJobs.find((job) => job.executionLane === executionLane) ?? null
+      // 状态优先级：先看是否有运行中的 job；否则看是否有 fresh 的 READY/STOPPING worker，最后才是 ERROR。
+      const ready = freshWorkers.some(
+        (worker) =>
+          worker.status === 'READY' &&
+          worker.capabilities.some((capability) => capability.executionLane === executionLane)
+      )
+      const draining = freshWorkers.some(
+        (worker) =>
+          worker.status === 'STOPPING' &&
+          worker.capabilities.some((capability) => capability.executionLane === executionLane)
+      )
+      return {
+        executionLane,
+        status: runningJob
+          ? ('RUNNING' as const)
+          : ready
+            ? ('READY' as const)
+            : draining
+              ? ('DRAINING' as const)
+              : ('ERROR' as const),
+        runningJob
+      }
+    })
     return {
-      id: parent.id,
-      type: parent.type,
-      status,
-      progress: totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : parent.progress,
-      totalCount,
-      completedCount,
-      remainingCount: Math.max(0, totalCount - completedCount),
-      failedCount: childCounts.FAILED,
-      currentJob: runningJobs.find((job) => job.parentJobId === parent.id) ?? null,
-      parentJob
+      counts,
+      queuedCount: counts.PENDING + counts.RETRY_WAIT,
+      activeCount: counts.RUNNING + counts.PAUSING + counts.CANCELLING,
+      archiveUnfinishedCount,
+      runningJob: runningJobs[0] ?? null,
+      runningJobs,
+      activeBatches,
+      lanes,
+      unacknowledgedFailureCount,
+      unacknowledgedFailures: unacknowledgedFailures.map((record) =>
+        toJobDto({ ...record, createdAt: logicalJobIdentity(record).createdAt })
+      ),
+      recentJobs: recent.map((record) => toJobDto({ ...record, createdAt: logicalJobIdentity(record).createdAt })),
+      workers: workerDtos
     }
   })
-  const workerDtos = workers.map(toWorkerHealthDto)
-  const timestamp = now()
-  const freshWorkers = workerDtos.filter((worker) => isWorkerHeartbeatFresh(worker.heartbeatAt, timestamp))
-  const laneNames = ['ARCHIVE_RESOLVE', 'ARCHIVE_DOWNLOAD', 'BACKGROUND_WRITER'] as const
-  const lanes = laneNames.map((executionLane) => {
-    const runningJob = runningJobs.find((job) => job.executionLane === executionLane) ?? null
-    // 状态优先级：先看是否有运行中的 job；否则看是否有 fresh 的 READY/STOPPING worker，最后才是 ERROR。
-    const ready = freshWorkers.some(
-      (worker) =>
-        worker.status === 'READY' &&
-        worker.capabilities.some((capability) => capability.executionLane === executionLane)
-    )
-    const draining = freshWorkers.some(
-      (worker) =>
-        worker.status === 'STOPPING' &&
-        worker.capabilities.some((capability) => capability.executionLane === executionLane)
-    )
-    return {
-      executionLane,
-      status: runningJob
-        ? ('RUNNING' as const)
-        : ready
-          ? ('READY' as const)
-          : draining
-            ? ('DRAINING' as const)
-            : ('ERROR' as const),
-      runningJob
-    }
-  })
-  return {
-    counts,
-    queuedCount: counts.PENDING + counts.RETRY_WAIT,
-    activeCount: counts.RUNNING + counts.PAUSING + counts.CANCELLING,
-    archiveUnfinishedCount,
-    runningJob: runningJobs[0] ?? null,
-    runningJobs,
-    activeBatches,
-    lanes,
-    unacknowledgedFailureCount,
-    unacknowledgedFailures: unacknowledgedFailures.map((record) =>
-      toJobDto({ ...record, createdAt: logicalJobIdentity(record).createdAt })
-    ),
-    recentJobs: recent.map((record) => toJobDto({ ...record, createdAt: logicalJobIdentity(record).createdAt })),
-    workers: workerDtos
-  }
 }
 
 function createEmptyStatusCounts() {

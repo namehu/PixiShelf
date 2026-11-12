@@ -1,11 +1,13 @@
 ---
 status: current
-scope: Next.js 主应用包职责、目录与包级命令
+scope: Next.js 主应用包职责、目录、包级命令与归档读取诊断
 last-verified: 2026-10-22
 sources:
   - packages/pixishelf/package.json
   - packages/pixishelf/proxy.ts
   - packages/pixishelf/server/trpc.ts
+  - packages/pixishelf/lib/trpc-transport.ts
+  - packages/pixishelf/lib/archive-read-timing.ts
 ---
 
 # @pixishelf/next
@@ -78,3 +80,35 @@ pnpm db:studio
 
 完整边界见[当前架构](../../docs/architecture/current-architecture.md)与
 [归档收件箱](../../docs/features/archive-intake.md)。
+
+## 归档列表读取诊断
+
+2026-11-12 局部核验：`archive.listTasks`、`job.backgroundDashboard`、`archiveInbox.summary`
+分别使用独立 HTTP 请求，概况或统计耗时不会阻塞同批列表返回；其他查询沿用既有传输策略。
+
+以上三个接口每次在 App stdout 输出一条 `message: "archive.read-timing"` 的 info 日志。
+浏览器 Network 中查看慢请求响应头 `x-request-id`，按同值 `requestId` 查找对应日志。
+该 ID 由服务端生成；请求输入、来源 URL、账户信息、Cookie 和原始错误均不进入耗时日志。
+
+| 字段或阶段                                           | 含义                                                                                                    |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `operations`、`status`、`success`                    | tRPC 操作名、HTTP 状态及是否成功                                                                        |
+| `durationMs`                                         | Route Handler 开始处理至响应对象生成的总耗时，包含 context 会话校验和 tRPC JSON 编码                    |
+| `session`                                            | tRPC context 的会话读取                                                                                 |
+| `tasks.records`、`tasks.creators`、`tasks.serialize` | 列表及关联读取、艺术家摘要读取、DTO 组装；未绑定筛选另记 `tasks.unboundIds`                             |
+| `dashboard.*`                                        | 状态统计、运行中任务、最近任务、Worker、批次、失败任务及未完成归档计数分别计时，`serialize` 为 DTO 组装 |
+| `summary.*`                                          | 收件箱各项统计、当前/最早任务、控制状态、来源事实和 DTO 组装分别计时                                    |
+| `phases[].startedAfterMs`、`durationMs`、`success`   | 阶段相对请求开始的偏移、阶段耗时和执行结果                                                              |
+
+并行阶段会重叠，不能把阶段耗时相加作为总耗时。数据库阶段包含连接池等待、传输和 Prisma
+处理，不等同于 PostgreSQL 执行计划中的纯 SQL 时间；失败请求记录已结束的阶段。
+总耗时不包含 Next.js proxy 会话校验、模块首次加载、反向代理排队、响应传输和浏览器渲染。
+如果浏览器等待明显大于日志总耗时，应继续对照这些边界；若某个数据库阶段明显慢，再采集其生产执行计划。
+
+从仓库根目录读取生产日志，实际 Compose 路径按[部署基线](../../docs/operations/deployment.md)核对：
+
+```bash
+docker compose --env-file build/.env -f build/docker-compose.deploy.yml logs --since=15m --no-color app
+```
+
+无需开启全局 SQL 或请求参数日志，也无需新增环境变量。
