@@ -46,94 +46,131 @@ describePostgres('archive uploader scan catalog PostgreSQL integration', () => {
     await prisma.$disconnect()
   })
 
-  it('consumes the first matched opportunity with empty defaults and skips ignored galleries', async () => {
-    const now = new Date('2026-09-16T01:00:00Z')
-    const artist = await db().artist.create({ data: { name: `${prefix}-empty-default` } })
-    const source = await seedSource('empty-default')
-    const run = await seedScanRun(source.id, 'empty-default', now)
-    await executeArchiveUploaderScan(scanContext(run.jobId, run.runId), {
-      database: db(),
-      providers: uploaderProviderRegistry(scanResult()),
-      now: () => now
-    })
-    const catalog = await db().archiveUploaderCatalogItem.findFirstOrThrow({ where: { sourceId: source.id } })
-    expect(catalog.firstMatchedAt).toEqual(now)
-    const again = await seedScanRun(source.id, 'empty-default-again', now)
-    await db().archiveUploaderScanRun.update({ where: { id: again.runId }, data: { defaultCreatorIds: [artist.id] } })
-    await executeArchiveUploaderScan(scanContext(again.jobId, again.runId), {
-      database: db(),
-      providers: uploaderProviderRegistry(scanResult()),
-      now: () => now
-    })
-    expect(await db().discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(0)
-    const second = await seedSource('ignored-default')
-    await db().archiveUploaderIgnoredItem.create({
-      data: { providerKey: 'e-hentai', externalId, sourceId: second.id, sourceDisplayName: prefix, title: prefix }
-    })
-    const ignored = await seedScanRun(second.id, 'ignored-default', now)
-    await db().archiveUploaderScanRun.update({ where: { id: ignored.runId }, data: { defaultCreatorIds: [artist.id] } })
-    await executeArchiveUploaderScan(scanContext(ignored.jobId, ignored.runId), {
-      database: db(),
-      providers: uploaderProviderRegistry(scanResult()),
-      now: () => now
-    })
-    expect(await db().discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(0)
-    expect(
-      (await db().archiveUploaderCatalogItem.findFirstOrThrow({ where: { sourceId: second.id } })).firstMatchedAt
-    ).toEqual(now)
-  })
+  it.each(['UPLOADER', 'TITLE_QUERY'] as const)(
+    '%s consumes the first matched opportunity with empty defaults and skips ignored galleries',
+    async (sourceKind) => {
+      const now = new Date('2026-09-16T01:00:00Z')
+      const artist = await db().artist.create({ data: { name: `${prefix}-empty-default` } })
+      const source = await seedSource('empty-default', sourceKind)
+      const run = await seedScanRun(source.id, 'empty-default', now, sourceKind)
+      await executeArchiveUploaderScan(
+        scanContext(run.jobId, run.runId),
+        {
+          database: db(),
+          providers: uploaderProviderRegistry(scanResult()),
+          now: () => now
+        },
+        sourceKind
+      )
+      const catalog = await db().archiveUploaderCatalogItem.findFirstOrThrow({ where: { sourceId: source.id } })
+      expect(catalog.firstMatchedAt).toEqual(now)
+      const again = await seedScanRun(source.id, 'empty-default-again', now, sourceKind)
+      await db().archiveUploaderScanRun.update({ where: { id: again.runId }, data: { defaultCreatorIds: [artist.id] } })
+      await executeArchiveUploaderScan(
+        scanContext(again.jobId, again.runId),
+        {
+          database: db(),
+          providers: uploaderProviderRegistry(scanResult()),
+          now: () => now
+        },
+        sourceKind
+      )
+      expect(await db().discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(0)
+      const second = await seedSource('ignored-default', sourceKind)
+      await db().archiveUploaderIgnoredItem.create({
+        data: { providerKey: 'e-hentai', externalId, sourceId: second.id, sourceDisplayName: prefix, title: prefix }
+      })
+      const ignored = await seedScanRun(second.id, 'ignored-default', now, sourceKind)
+      await db().archiveUploaderScanRun.update({
+        where: { id: ignored.runId },
+        data: { defaultCreatorIds: [artist.id] }
+      })
+      await executeArchiveUploaderScan(
+        scanContext(ignored.jobId, ignored.runId),
+        {
+          database: db(),
+          providers: uploaderProviderRegistry(scanResult()),
+          now: () => now
+        },
+        sourceKind
+      )
+      expect(await db().discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(0)
+      expect(
+        (await db().archiveUploaderCatalogItem.findFirstOrThrow({ where: { sourceId: second.id } })).firstMatchedAt
+      ).toEqual(now)
+    }
+  )
 
-  it('freezes defaults, consumes first-match once, unions sources and respects explicit removal', async () => {
-    const now = new Date('2026-09-16T00:00:00Z')
-    const a = await db().artist.create({ data: { name: `${prefix}-a` } })
-    const b = await db().artist.create({ data: { name: `${prefix}-b` } })
-    const source = await seedSource('default-first')
-    const run = await seedScanRun(source.id, 'default-first', now)
-    await db().archiveUploaderScanRun.update({ where: { id: run.runId }, data: { defaultCreatorIds: [a.id] } })
-    await db().discoverySourceCreator.create({ data: { sourceId: source.id, artistId: b.id } })
-    await executeArchiveUploaderScan(scanContext(run.jobId, run.runId), {
-      database: db(),
-      providers: uploaderProviderRegistry(scanResult()),
-      now: () => now
-    })
-    expect(await db().discoveryPendingCreator.findMany({ where: { providerKey: 'e-hentai', externalId } })).toEqual([
-      expect.objectContaining({ artistId: a.id })
-    ])
-    const again = await seedScanRun(source.id, 'default-again', now)
-    await db().archiveUploaderScanRun.update({ where: { id: again.runId }, data: { defaultCreatorIds: [b.id] } })
-    await executeArchiveUploaderScan(scanContext(again.jobId, again.runId), {
-      database: db(),
-      providers: uploaderProviderRegistry(scanResult()),
-      now: () => now
-    })
-    expect(await db().discoveryPendingCreator.count({ where: { providerKey: 'e-hentai', externalId } })).toBe(1)
-    const artwork = await db().artwork.create({ data: { title: `${prefix}-default-artwork` } })
-    await db().artworkExternalRef.create({
-      data: { providerKey: 'e-hentai', externalId, artworkId: artwork.id, canonicalUrl, locator: {} }
-    })
-    await db().$transaction((tx) => editArtworkCreators(tx, artwork.id, [a.id], 'ADD'))
-    const nextSource = await seedSource('default-second')
-    const next = await seedScanRun(nextSource.id, 'default-second', now)
-    await db().archiveUploaderScanRun.update({ where: { id: next.runId }, data: { defaultCreatorIds: [a.id, b.id] } })
-    await executeArchiveUploaderScan(scanContext(next.jobId, next.runId), {
-      database: db(),
-      providers: uploaderProviderRegistry(scanResult()),
-      now: () => now
-    })
-    expect(await db().artworkArtist.count({ where: { artworkId: artwork.id, ...activeCreatorMembership } })).toBe(2)
-    await db().$transaction((tx) => editArtworkCreators(tx, artwork.id, [a.id], 'REMOVE'))
-    const lastSource = await seedSource('default-third')
-    const last = await seedScanRun(lastSource.id, 'default-third', now)
-    await db().archiveUploaderScanRun.update({ where: { id: last.runId }, data: { defaultCreatorIds: [a.id] } })
-    await executeArchiveUploaderScan(scanContext(last.jobId, last.runId), {
-      database: db(),
-      providers: uploaderProviderRegistry(scanResult()),
-      now: () => now
-    })
-    expect(await db().artworkArtist.findMany({ where: { artworkId: artwork.id, ...activeCreatorMembership } })).toEqual(
-      [expect.objectContaining({ artistId: b.id })]
-    )
-  })
+  it.each(['UPLOADER', 'TITLE_QUERY'] as const)(
+    '%s freezes defaults, consumes first-match once, unions sources and respects explicit removal',
+    async (sourceKind) => {
+      const now = new Date('2026-09-16T00:00:00Z')
+      const a = await db().artist.create({ data: { name: `${prefix}-a` } })
+      const b = await db().artist.create({ data: { name: `${prefix}-b` } })
+      const source = await seedSource('default-first', sourceKind)
+      const run = await seedScanRun(source.id, 'default-first', now, sourceKind)
+      await db().archiveUploaderScanRun.update({ where: { id: run.runId }, data: { defaultCreatorIds: [a.id] } })
+      await db().discoverySourceCreator.create({ data: { sourceId: source.id, artistId: b.id } })
+      await executeArchiveUploaderScan(
+        scanContext(run.jobId, run.runId),
+        {
+          database: db(),
+          providers: uploaderProviderRegistry(scanResult()),
+          now: () => now
+        },
+        sourceKind
+      )
+      expect(await db().discoveryPendingCreator.findMany({ where: { providerKey: 'e-hentai', externalId } })).toEqual([
+        expect.objectContaining({ artistId: a.id })
+      ])
+      const again = await seedScanRun(source.id, 'default-again', now, sourceKind)
+      await db().archiveUploaderScanRun.update({ where: { id: again.runId }, data: { defaultCreatorIds: [b.id] } })
+      await executeArchiveUploaderScan(
+        scanContext(again.jobId, again.runId),
+        {
+          database: db(),
+          providers: uploaderProviderRegistry(scanResult()),
+          now: () => now
+        },
+        sourceKind
+      )
+      expect(await db().discoveryPendingCreator.count({ where: { providerKey: 'e-hentai', externalId } })).toBe(1)
+      const artwork = await db().artwork.create({ data: { title: `${prefix}-default-artwork` } })
+      await db().artworkExternalRef.create({
+        data: { providerKey: 'e-hentai', externalId, artworkId: artwork.id, canonicalUrl, locator: {} }
+      })
+      await db().$transaction((tx) => editArtworkCreators(tx, artwork.id, [a.id], 'ADD'))
+      const nextSource = await seedSource('default-second', sourceKind)
+      const next = await seedScanRun(nextSource.id, 'default-second', now, sourceKind)
+      await db().archiveUploaderScanRun.update({ where: { id: next.runId }, data: { defaultCreatorIds: [a.id, b.id] } })
+      await executeArchiveUploaderScan(
+        scanContext(next.jobId, next.runId),
+        {
+          database: db(),
+          providers: uploaderProviderRegistry(scanResult()),
+          now: () => now
+        },
+        sourceKind
+      )
+      expect(await db().artworkArtist.count({ where: { artworkId: artwork.id, ...activeCreatorMembership } })).toBe(2)
+      await db().$transaction((tx) => editArtworkCreators(tx, artwork.id, [a.id], 'REMOVE'))
+      const lastSource = await seedSource('default-third', sourceKind)
+      const last = await seedScanRun(lastSource.id, 'default-third', now, sourceKind)
+      await db().archiveUploaderScanRun.update({ where: { id: last.runId }, data: { defaultCreatorIds: [a.id] } })
+      await executeArchiveUploaderScan(
+        scanContext(last.jobId, last.runId),
+        {
+          database: db(),
+          providers: uploaderProviderRegistry(scanResult()),
+          now: () => now
+        },
+        sourceKind
+      )
+      expect(
+        await db().artworkArtist.findMany({ where: { artworkId: artwork.id, ...activeCreatorMembership } })
+      ).toEqual([expect.objectContaining({ artistId: b.id })])
+    }
+  )
 
   it('keeps POSSIBLE_UPDATE durable when an active import is observed during a rescan', async () => {
     const now = new Date('2026-09-03T10:00:00.000Z')
@@ -417,7 +454,10 @@ describePostgres('title scan persisted matching state', () => {
             controlStatus: 'CONTINUE',
             executionStatus: 'RUNNING',
             fail: async (failure: { errorCode: string; error: string }) => {
-              await transaction.systemJob.update({ where: { id: jobId }, data: { status: 'FAILED', ...failure, workerId: null, leaseToken: null, leaseExpiresAt: null } })
+              await transaction.systemJob.update({
+                where: { id: jobId },
+                data: { status: 'FAILED', ...failure, workerId: null, leaseToken: null, leaseExpiresAt: null }
+              })
               if (rollback) throw new Error('injected settlement failure')
             }
           } as never)
@@ -533,6 +573,7 @@ function scanResult(): ArchiveUploaderScanResult {
         externalId,
         canonicalUrl,
         title: 'Existing gallery',
+        matchesQuery: true,
         thumbnailUrl: changedMetadata.thumbnailUrl,
         uploaderName: 'alice',
         postedAt: new Date(changedMetadata.postedAt),
@@ -552,29 +593,48 @@ function uploaderProviderRegistry(result: ArchiveUploaderScanResult) {
   return {
     getUploaderScanner: () => ({
       key: 'e-hentai',
-      scanUploader: vi.fn(async () => result)
+      scanUploader: vi.fn(async () => result),
+      scanTitles: vi.fn(async () => result)
     })
   } as never
 }
 
-async function seedSource(suffix: string) {
+async function seedSource(suffix: string, sourceKind: 'UPLOADER' | 'TITLE_QUERY' = 'UPLOADER') {
   return db().archiveUploaderSource.create({
     data: {
       id: `${prefix}-source-${suffix}`,
       providerKey: 'e-hentai',
-      identityKind: 'UID',
-      identityValue: `${externalId}-${suffix}`,
-      normalizedIdentity: `${externalId}-${suffix}`,
+      sourceKind,
+      ...(sourceKind === 'TITLE_QUERY'
+        ? { titleQuery: { keyword: 'Existing', matchMode: 'CONTAINS', uploaderUid: null }, queryKey: randomUUID() }
+        : {
+            identityKind: 'UID',
+            identityValue: `${externalId}-${suffix}`,
+            normalizedIdentity: `${externalId}-${suffix}`
+          }),
       displayName: `Uploader ${suffix}`
     }
   })
 }
 
-async function seedScanRun(sourceId: string, suffix: string, now: Date) {
+async function seedScanRun(
+  sourceId: string,
+  suffix: string,
+  now: Date,
+  sourceKind: 'UPLOADER' | 'TITLE_QUERY' = 'UPLOADER'
+) {
   const runId = `${prefix}-run-${suffix}`
   const jobId = `${prefix}-scan-job-${suffix}`
   await db().systemJob.create({
-    data: systemJobData(jobId, 'ARCHIVE_UPLOADER_SCAN', { scanRunId: runId }, now)
+    data: {
+      ...systemJobData(
+        jobId,
+        sourceKind === 'TITLE_QUERY' ? 'ARCHIVE_SEARCH_SCAN' : 'ARCHIVE_UPLOADER_SCAN',
+        { scanRunId: runId },
+        now
+      ),
+      definitionVersion: sourceKind === 'TITLE_QUERY' ? 5 : 1
+    }
   })
   await db().archiveUploaderScanRun.create({
     data: {
@@ -582,9 +642,12 @@ async function seedScanRun(sourceId: string, suffix: string, now: Date) {
       sourceId,
       systemJobId: jobId,
       mode: 'LATEST',
-      searchIdentityKind: 'UID',
-      searchIdentityValue: '123',
-      status: 'PENDING'
+      searchIdentityKind: sourceKind === 'TITLE_QUERY' ? null : 'UID',
+      searchIdentityValue: sourceKind === 'TITLE_QUERY' ? null : '123',
+      status: 'PENDING',
+      ...(sourceKind === 'TITLE_QUERY'
+        ? { titleQuery: { keyword: 'Existing', matchMode: 'CONTAINS', uploaderUid: null } }
+        : {})
     }
   })
   return { runId, jobId }

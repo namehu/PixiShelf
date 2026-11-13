@@ -244,7 +244,6 @@ export async function applyTitleRules(input: z.input<typeof titleRuleRevisionSch
           "ruleMatches" = (e.evaluation->>'matched')::boolean,
           "uploaderMatches" = (e.evaluation->>'uploaderMatches')::boolean,
           "matchEvaluation" = e.evaluation,
-          "firstMatchedAt" = CASE WHEN e.accepted THEN COALESCE(c."firstMatchedAt", CURRENT_TIMESTAMP) ELSE c."firstMatchedAt" END,
           "updatedAt" = CURRENT_TIMESTAMP
         FROM archive_title_rule_evaluations e
         WHERE e."revisionId" = ${revision.id} AND c.id = e."catalogItemId" AND c."sourceId" = ${source.id}
@@ -321,8 +320,7 @@ export async function reviewTitleItems(input: z.input<typeof reviewTitleItemsSch
           ruleMatches: evaluation.matched,
           uploaderMatches: evaluation.uploaderMatches,
           matchEvaluation: JSON.parse(JSON.stringify(evaluation)) as Prisma.InputJsonValue,
-          matchesQuery: accepted,
-          ...(accepted && !item.firstMatchedAt ? { firstMatchedAt: new Date() } : {})
+          matchesQuery: accepted
         }
       })
       return { result: 'APPLIED' }

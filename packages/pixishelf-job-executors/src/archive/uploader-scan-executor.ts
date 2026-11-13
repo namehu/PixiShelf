@@ -461,12 +461,12 @@ async function finalizeScan(
           data: catalogWorkflowData(classified.latestWorkflow)
         })
       }
-      if (item.matchesQuery !== false) {
+      if (matchData.matchesQuery ?? catalogData.matchesQuery) {
         const firstMatch = await scope.transaction.archiveUploaderCatalogItem.updateMany({
           where: { id: catalog.id, firstMatchedAt: null },
           data: { firstMatchedAt: completedAt }
         })
-        if (!run.titleQuery && firstMatch.count && run.defaultCreatorIds.length) {
+        if (firstMatch.count && run.defaultCreatorIds.length) {
           await bindDiscoveryCreators(
             scope.transaction,
             { providerKey: item.providerKey, externalId: item.externalId },

@@ -25,13 +25,7 @@ import {
   archiveTitleEvaluationSchema,
   archiveTitleEvidenceFromCatalog
 } from '@pixishelf/job-contracts'
-import {
-  Prisma,
-  type PrismaClient,
-  discoveryCreatorSummaries,
-  bindDiscoveryCreators,
-  lockCreatorCatalog
-} from '@pixishelf/db'
+import { Prisma, type PrismaClient, discoveryCreatorSummaries, lockCreatorCatalog } from '@pixishelf/db'
 import { type ArchiveUploaderProviderRegistry } from '@pixishelf/job-executors'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
@@ -794,9 +788,6 @@ export async function addArchiveUploaderScanItems(
         })
         assertAllDispositionItemsFound(candidates, parsed.itemIds)
         await lockCreatorCatalog(transaction)
-        if (candidates.some((item) => item.source?.sourceKind === 'TITLE_QUERY')) {
-          await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock(7341902117)::text')
-        }
         trace.phase('identityLocks')
         await lockDispositionItems(transaction, candidates)
         trace.phase('stateChecks')
@@ -853,32 +844,6 @@ export async function addArchiveUploaderScanItems(
         )
         // The original submission may already have been resolved or published.
         if (existingAttempt) return submission
-        const acceptedIntakeItems = items.some(
-          (item) => item.source?.sourceKind === 'TITLE_QUERY' && item.source.defaultCreators.length
-        )
-          ? await transaction.archiveIntakeItem.findMany({
-              where: { submissionId: submission.id, status: { not: 'DUPLICATE' } },
-              select: { submittedUrl: true }
-            })
-          : []
-        const acceptedUrls = new Set(acceptedIntakeItems.map((item) => item.submittedUrl))
-        for (const item of items) {
-          if (
-            acceptedUrls.has(item.canonicalUrl) &&
-            item.source?.sourceKind === 'TITLE_QUERY' &&
-            item.source.defaultCreators.length
-          ) {
-            await bindDiscoveryCreators(
-              transaction,
-              { providerKey: item.providerKey, externalId: item.externalId },
-              item.source.defaultCreators.map((row) => row.artistId),
-              {
-                automatic: true,
-                title: item.title
-              }
-            )
-          }
-        }
         trace.phase('catalogWrite')
         await linkIntakeCatalogItems(transaction, items, submission.id, (dependencies.now ?? (() => new Date()))())
         return submission
@@ -946,7 +911,6 @@ const runSummarySelect = {
 } satisfies Prisma.ArchiveUploaderScanRunSelect
 
 const dispositionCatalogItemSelect = {
-  source: { select: { sourceKind: true, defaultCreators: { select: { artistId: true } } } },
   matchesQuery: true,
   id: true,
   sourceId: true,

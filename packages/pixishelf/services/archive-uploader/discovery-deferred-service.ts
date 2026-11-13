@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { Prisma, bindDiscoveryCreators, lockCreatorCatalog, type PrismaClient } from '@pixishelf/db'
+import { Prisma, lockCreatorCatalog, type PrismaClient } from '@pixishelf/db'
 import {
   ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
   archiveUploaderIdentityLockKey,
@@ -260,20 +260,6 @@ export async function downloadDeferredItems(
         transaction
       )
       if (submission.acceptedCount > 0) {
-        const source = decision.sourceId
-          ? await transaction.archiveUploaderSource.findUnique({
-              where: { id: decision.sourceId },
-              select: { sourceKind: true, defaultCreators: { select: { artistId: true } } }
-            })
-          : null
-        if (source?.sourceKind === 'TITLE_QUERY' && source.defaultCreators.length) {
-          await bindDiscoveryCreators(
-            transaction,
-            { providerKey: decision.providerKey, externalId: decision.externalId },
-            source.defaultCreators.map((creator) => creator.artistId),
-            { automatic: true, title: decision.title }
-          )
-        }
         await linkIntakeCatalogItems(transaction, [decision], submission.id, new Date())
       }
       return submission.acceptedCount > 0

@@ -188,6 +188,9 @@ suite('title rule preview, review and intake on isolated PostgreSQL', () => {
     expect(new Set(ids).size).toBe(551)
     await expect(applyTitleRules(input, db!)).resolves.toEqual({ applied: true, rulesVersion: 2 })
     await expect(applyTitleRules(input, db!)).resolves.toEqual({ applied: true, rulesVersion: 2 })
+    expect(
+      await db!.archiveUploaderCatalogItem.count({ where: { sourceId: s.id, firstMatchedAt: { not: null } } })
+    ).toBe(0)
     expect(await db!.archiveUploaderSource.findUnique({ where: { id: s.id } })).toMatchObject({
       historyCursor: 'old-v3-cursor',
       latestSeenExternalId: '99999',
@@ -424,7 +427,7 @@ suite('title rule preview, review and intake on isolated PostgreSQL', () => {
     ).rejects.toThrow('忽略')
   })
 
-  it('binds current fixed creators only on actual intake, preserving idempotency and cleanup suppression', async () => {
+  it('preserves scanned creators on intake instead of adding changed defaults, including replay and suppression', async () => {
     const s = await source({ rules })
     const [item, filtered] = await candidates(s.id, 2)
     const artist = await db!.artist.create({ data: { name: prefix } })
@@ -436,6 +439,13 @@ suite('title rule preview, review and intake on isolated PostgreSQL', () => {
       db!
     )
     expect(await db!.discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(0)
+    await db!.discoveryPendingCreator.create({
+      data: { providerKey: item!.providerKey, externalId: item!.externalId, artistId: artist.id, title: item!.title }
+    })
+    const changedArtist = await db!.artist.create({ data: { name: `${prefix}-changed` } })
+    artists.push(changedArtist.id)
+    await db!.discoverySourceCreator.deleteMany({ where: { sourceId: s.id } })
+    await db!.discoverySourceCreator.create({ data: { sourceId: s.id, artistId: changedArtist.id } })
     const request = {
       sourceId: s.id,
       itemIds: [item!.id],
@@ -445,6 +455,9 @@ suite('title rule preview, review and intake on isolated PostgreSQL', () => {
     await addArchiveUploaderScanItems(request, prefix, deps())
     await addArchiveUploaderScanItems(request, prefix, deps())
     expect(await db!.discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(1)
+    expect(await db!.discoveryPendingCreator.count({ where: { artistId: changedArtist.id } })).toBe(0)
+    await db!.discoverySourceCreator.deleteMany({ where: { sourceId: s.id } })
+    await db!.discoverySourceCreator.create({ data: { sourceId: s.id, artistId: artist.id } })
     await db!.$transaction(async (tx) => {
       await lockDiscoveryCreators(tx, filtered!)
       await bindDiscoveryCreators(
@@ -523,9 +536,16 @@ suite('title rule preview, review and intake on isolated PostgreSQL', () => {
     expect(await db!.discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(0)
   })
 
-  it.each([4, 5])(
-    'scans v%s with raw title evidence, preserves manual decisions, binds no creators and advances a zero-match cursor',
-    async (version) => {
+  it.each(
+    [4, 5].flatMap((version) => [
+      { version, decision: 'INCLUDE' as const, matched: false },
+      { version, decision: 'EXCLUDE' as const, matched: true },
+      { version, decision: 'AUTO' as const, matched: false },
+      { version, decision: 'AUTO' as const, matched: true }
+    ])
+  )(
+    'scans v$version with decision=$decision and rule match=$matched, binding only accepted candidates',
+    async ({ version, decision, matched }) => {
       const scanRules: ArchiveTitleRules =
         version === 5
           ? { ...rules, version: 2, any: [{ operator: 'REGEX', text: '^\\[RAG\\]', ignoreCase: false }] }
@@ -536,10 +556,11 @@ suite('title rule preview, review and intake on isolated PostgreSQL', () => {
       artists.push(artist.id)
       await db!.discoverySourceCreator.create({ data: { sourceId: s.id, artistId: artist.id } })
       await reviewTitleItems(
-        { sourceId: s.id, itemIds: [item!.id], decision: 'INCLUDE', rulesVersion: 1, requestId: randomUUID() },
+        { sourceId: s.id, itemIds: [item!.id], decision, rulesVersion: 1, requestId: randomUUID() },
         prefix,
         db!
       )
+      expect(await db!.discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(0)
       const run = await triggerArchiveUploaderScan({ sourceId: s.id, mode: 'LATEST' }, prefix, deps())
       if (version === 4) await db!.systemJob.update({ where: { id: run.systemJobId }, data: { definitionVersion: 4 } })
       const repository = repo()
@@ -552,11 +573,14 @@ suite('title rule preview, review and intake on isolated PostgreSQL', () => {
         items: [
           {
             ...item!,
-            title: '[Other] Ragnarok',
+            title: matched ? '[RAG] Match' : '[Other] Ragnarok',
             matchesQuery: true,
             matchTitles: {
               origin: 'REMOTE',
-              titles: [version === 5 ? '[rag] lower case' : '[Other] Ragnarok', '別のタイトル']
+              titles: [
+                matched ? '[RAG] Match' : version === 5 ? '[rag] lower case' : '[Other] Ragnarok',
+                '別のタイトル'
+              ]
             },
             thumbnailUrl: null,
             postedAt: null,
@@ -598,20 +622,22 @@ suite('title rule preview, review and intake on isolated PostgreSQL', () => {
       )
       expect(await db!.archiveUploaderScanRun.findUnique({ where: { id: run.id } })).toMatchObject({
         checkedCount: 1,
-        matchedCount: 0,
+        matchedCount: Number(matched),
         status: 'COMPLETED'
       })
       expect(await db!.archiveUploaderSource.findUnique({ where: { id: s.id } })).toMatchObject({
         historyCursor: 'next-fixture-cursor',
         latestSeenExternalId: item!.externalId
       })
+      const accepted = decision === 'INCLUDE' || (decision === 'AUTO' && matched)
       expect(await db!.archiveUploaderCatalogItem.findUnique({ where: { id: item!.id } })).toMatchObject({
-        ruleMatches: false,
-        matchesQuery: true,
-        reviewDecision: 'INCLUDE',
+        ruleMatches: matched,
+        matchesQuery: accepted,
+        reviewDecision: decision,
+        firstMatchedAt: accepted ? expect.any(Date) : null,
         matchTitles: result.items[0]!.matchTitles
       })
-      expect(await db!.discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(0)
+      expect(await db!.discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(Number(accepted))
     }
   )
 })

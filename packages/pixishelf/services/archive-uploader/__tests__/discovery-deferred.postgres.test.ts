@@ -121,6 +121,8 @@ async function cleanup() {
   await db().archiveIntakeSubmission.deleteMany({ where: { requestedByUserId: prefix } })
   await db().systemJob.deleteMany({ where: { requestedByUserId: prefix } })
   await db().artwork.deleteMany({ where: { title: prefix } })
+  await db().discoveryPendingCreator.deleteMany({ where: { artist: { name: { startsWith: prefix } } } })
+  await db().artist.deleteMany({ where: { name: { startsWith: prefix } } })
 }
 
 suite('persistent discovery deferred decisions', () => {
@@ -209,6 +211,51 @@ suite('persistent discovery deferred decisions', () => {
     }
     expect(await db().archiveDiscoveryDeferredItem.count({ where: { deferredByUserId: prefix } })).toBe(0)
   })
+
+  it.each(['UPLOADER', 'TITLE_QUERY'] as const)(
+    '%s preserves scanned creators when deferred items enter the inbox',
+    async (sourceKind) => {
+      const item = await seed('creators')
+      await db().archiveUploaderSource.update({
+        where: { id: item.sourceId },
+        data: {
+          sourceKind,
+          ...(sourceKind === 'TITLE_QUERY'
+            ? {
+                identityKind: null,
+                identityValue: null,
+                normalizedIdentity: null,
+                titleQuery: { keyword: prefix, matchMode: 'CONTAINS', uploaderUid: null },
+                queryKey: randomUUID()
+              }
+            : {})
+        }
+      })
+      const scannedArtist = await db().artist.create({ data: { name: `${prefix}-scanned` } })
+      const changedArtist = await db().artist.create({ data: { name: `${prefix}-changed` } })
+      await db().discoveryPendingCreator.create({
+        data: {
+          providerKey: item.providerKey,
+          externalId: item.externalId,
+          artistId: scannedArtist.id,
+          title: item.title
+        }
+      })
+      await db().discoverySourceCreator.create({ data: { sourceId: item.sourceId, artistId: changedArtist.id } })
+      const decision = await defer(item)
+      const result = await downloadDeferredItems(
+        { deferredItemIds: [decision.id], requestId: request() },
+        prefix,
+        deps()
+      )
+      expect(result?.counts.created).toBe(1)
+      expect(
+        await db().discoveryPendingCreator.findMany({
+          where: { providerKey: item.providerKey, externalId: item.externalId }
+        })
+      ).toEqual([expect.objectContaining({ artistId: scannedArtist.id })])
+    }
+  )
 
   it('makes ignore win and never revives deferred when ignore is restored', async () => {
     const item = await seed()
