@@ -1,5 +1,5 @@
 import 'server-only'
-import { inferMediaTypeFromPath } from '@pixishelf/job-contracts'
+import { inferMediaTypeFromPath, videoPlaybackProgressDataSchema } from '@pixishelf/job-contracts'
 import path from 'node:path'
 import { constants } from 'node:fs'
 import { open, stat, realpath } from 'node:fs/promises'
@@ -90,7 +90,19 @@ export async function videoPlaybackStatuses(imageIds: number[]) {
     return {
       imageId,
       copy: copy ? { ...copy, publishedAt: copy.publishedAt.toISOString(), outputSize: Number(copy.outputSize) } : null,
-      job: job ? { id: job.id, status: job.status, progress: job.progress, message: job.error ?? job.message } : null
+      job: job
+        ? {
+            id: job.id,
+            status: job.status,
+            progress: job.progress,
+            message: job.error ?? job.message,
+            progressData: videoPlaybackProgressDataSchema.safeParse(job.progressData).data ?? null,
+            createdAt: job.createdAt.toISOString(),
+            startedAt: job.startedAt?.toISOString() ?? null,
+            finishedAt: job.finishedAt?.toISOString() ?? null,
+            updatedAt: job.updatedAt.toISOString()
+          }
+        : null
     }
   })
 }

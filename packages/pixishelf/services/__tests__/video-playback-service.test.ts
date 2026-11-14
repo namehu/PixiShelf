@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   inspect: vi.fn(),
   matches: vi.fn(),
   find: vi.fn(),
+  copies: vi.fn(),
+  jobs: vi.fn(),
   remove: vi.fn()
 }))
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -21,7 +23,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   }
 })
 vi.mock('@/lib/prisma', () => ({
-  prisma: { mediaVideoPlayback: { findUnique: mocks.find, deleteMany: mocks.remove } }
+  prisma: { mediaVideoPlayback: { findUnique: mocks.find, findMany: mocks.copies, deleteMany: mocks.remove } }
 }))
 vi.mock('@pixishelf/job-executors/media-content', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pixishelf/job-executors/media-content')>()),
@@ -32,8 +34,8 @@ vi.mock('@/services/setting.service', () => ({ getScanPath: async () => mocks.ro
 vi.mock('@/services/archive/config', () => ({ requireArchiveStorageRoot: async () => mocks.root }))
 vi.mock('@/services/derived-media-storage-paths', () => ({ VIDEO_PLAYBACK_STORAGE_ROOT: mocks.root }))
 vi.mock('@/services/background-task', () => ({ enqueueJob: vi.fn() }))
-vi.mock('@/services/background-task/media-job-query', () => ({ latestMediaJobs: vi.fn() }))
-import { openVideoPlayback, getVideoPlaybackSource } from '../video-playback-service'
+vi.mock('@/services/background-task/media-job-query', () => ({ latestMediaJobs: mocks.jobs }))
+import { openVideoPlayback, getVideoPlaybackSource, videoPlaybackStatuses } from '../video-playback-service'
 import { VideoPlaybackUnavailable } from '@pixishelf/job-executors/media-content'
 const generation = '11111111-1111-4111-8111-111111111111'
 beforeAll(async () => {
@@ -68,6 +70,40 @@ afterEach(async () => {
   await vi.waitFor(() => expect(mocks.handles.every((handle) => handle.fd === -1)).toBe(true))
 })
 describe('playback byte delivery', () => {
+  it('returns typed progress and timestamps for management, with null metrics for old jobs', async () => {
+    const date = new Date('2026-11-14T05:00:00.000Z')
+    const progressData = {
+      version: 1,
+      kind: 'video-playback',
+      stage: 'ENCODING',
+      durationSeconds: 100,
+      encodedSeconds: 40,
+      speed: 0.5,
+      fps: 15,
+      etaSeconds: 120,
+      sampledAt: date.toISOString(),
+      stages: [{ stage: 'ENCODING', startedAt: date.toISOString(), finishedAt: null }]
+    }
+    const base = {
+      id: 'playback',
+      status: 'RUNNING',
+      progress: 38,
+      message: '编码中',
+      error: null,
+      createdAt: date,
+      startedAt: date,
+      updatedAt: date,
+      finishedAt: null
+    }
+    mocks.copies.mockResolvedValue([])
+    mocks.jobs.mockResolvedValue([
+      { ...base, targetImageId: 1, progressData },
+      { ...base, targetImageId: 2, progressData: null }
+    ])
+    const results = await videoPlaybackStatuses([1, 2])
+    expect(results[0]!.job).toMatchObject({ progressData, startedAt: date.toISOString(), finishedAt: null })
+    expect(results[1]!.job!.progressData).toBeNull()
+  })
   it.each([true, false])('closes the file when the HTTP request aborts (before body=%s)', async (beforeBody) => {
     mocks.find.mockResolvedValue({
       imageId: 1,

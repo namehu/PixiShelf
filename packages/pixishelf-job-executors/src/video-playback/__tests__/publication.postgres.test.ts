@@ -3,8 +3,14 @@ import { mkdtemp, writeFile, readFile, rm, stat, mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { videoPlaybackProgressDataSchema, type VideoPlaybackProgressData } from '@pixishelf/job-contracts'
 import { PrismaClient, type Prisma } from '@pixishelf/db'
-import type { ExecutionContext, EnqueuedChildJob, FencedExecutionTransaction } from '@pixishelf/job-runtime'
+import type {
+  ExecutionContext,
+  ExecutionProgressUpdate,
+  EnqueuedChildJob,
+  FencedExecutionTransaction
+} from '@pixishelf/job-runtime'
 import { executeDerivedMediaGc } from '../../video-media/gc.ts'
 import { createVideoPlaybackExecutor } from '../executor.ts'
 import { inspectVideoPlaybackSource, playbackMatchesSource } from '../source.ts'
@@ -60,6 +66,7 @@ describe.skipIf(!db)('playback publication and retirement', () => {
       outputSize?: number
       abort?: boolean
       failPublication?: boolean
+      onProgress?: (update: ExecutionProgressUpdate) => void
     } = {}
   ) {
     const { tx, root, imageId, jobId } = input
@@ -87,7 +94,9 @@ describe.skipIf(!db)('playback publication and retirement', () => {
       payload: { imageId, relativePath: path.relative(root, input.sourceFile), mode: 'SDR_1080P_V1' },
       job: { id: jobId, attempt: 1, maxAttempts: 1, executionToken: randomUUID() },
       signal: controller.signal,
-      progress: vi.fn().mockResolvedValue(undefined),
+      progress: vi.fn(async (update: ExecutionProgressUpdate) => {
+        options.onProgress?.(update)
+      }),
       logger: { error: vi.fn() },
       mutateInTransaction: (operation: (tx: Prisma.TransactionClient) => Promise<unknown>) => operation(tx),
       finalizeInTransaction: async (
@@ -137,6 +146,68 @@ describe.skipIf(!db)('playback publication and retirement', () => {
     })
     return executor.execute(context)
   }
+  it('records all phase boundaries and the final FFmpeg sample without mutating earlier snapshots', async () => {
+    await fixture(async (input) => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      let time = Date.parse('2026-11-14T05:00:00.000Z')
+      vi.setSystemTime(time)
+      const snapshots: VideoPlaybackProgressData[] = []
+      try {
+        const result = await execute(input, {
+          onProgress: (update) => {
+            snapshots.push(videoPlaybackProgressDataSchema.parse(update.progressData))
+          },
+          runner: async (request) => {
+            time += 3000
+            vi.setSystemTime(time)
+            if (request.command === 'ffmpeg') {
+              request.onStdout?.('fps=15\nout_time_us=30000000\nspeed=0.')
+              request.onStdout?.('5x\nprogress=continue\n')
+              time += 500
+              vi.setSystemTime(time)
+              request.onStdout?.('fps=15\nout_time_us=120000000\nspeed=0.5x\nprogress=end\n')
+              await writeFile(request.args.at(-1)!, Buffer.alloc(400))
+              return { stdout: '', stderr: '' }
+            }
+            return {
+              stdout: JSON.stringify({
+                format: { duration: 120 },
+                streams: [
+                  { index: 0, codec_type: 'video', codec_name: 'h264', pix_fmt: 'yuv420p', width: 320, height: 180 }
+                ]
+              }),
+              stderr: ''
+            }
+          }
+        })
+        expect(result).toMatchObject({ kind: 'completed' })
+        expect(snapshots.find((sample) => sample.encodedSeconds === 30)).toMatchObject({
+          speed: 0.5,
+          fps: 15,
+          etaSeconds: 180
+        })
+        expect(snapshots.find((sample) => sample.encodedSeconds === 120 && sample.stage === 'ENCODING')).toMatchObject({
+          etaSeconds: 0
+        })
+        expect(snapshots[0]!.stages).toHaveLength(1)
+        const final = snapshots.at(-1)!
+        expect(final.stage).toBe('PUBLISHING')
+        expect(final.etaSeconds).toBeNull()
+        expect(final.stages.map((phase) => phase.stage)).toEqual([
+          'PREPARING',
+          'PROBING',
+          'ENCODING',
+          'VALIDATING',
+          'PUBLISHING'
+        ])
+        expect(final.stages[2]!.finishedAt).toBe(final.stages[3]!.startedAt)
+        expect(Date.parse(final.stages[2]!.finishedAt!) - Date.parse(final.stages[2]!.startedAt)).toBe(3500)
+        expect(Date.parse(final.stages[3]!.finishedAt!) - Date.parse(final.stages[3]!.startedAt)).toBe(3000)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
   it.skipIf(spawnSync('ffmpeg', ['-version']).status !== 0)(
     'runs the complete executor with real FFmpeg',
     async () => {

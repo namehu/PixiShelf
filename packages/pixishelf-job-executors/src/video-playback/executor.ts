@@ -7,13 +7,22 @@ import {
   assertMediaContentDirectorySnapshot,
   type PrismaClient
 } from '@pixishelf/db'
-import { videoPlaybackGenerationPayloadSchema } from '@pixishelf/job-contracts'
+import {
+  videoPlaybackGenerationPayloadSchema,
+  type VideoPlaybackProgressData,
+  type VideoPlaybackProgressStage
+} from '@pixishelf/job-contracts'
 import type { ExecutorDefinition } from '@pixishelf/job-runtime'
 import { runVideoProcess } from '../video-processing/process-runner.ts'
 import type { VideoProcessRunner } from '../video-processing/types.ts'
 import { resolvePosterOutput } from '../video-media/paths.ts'
 import { inspectVideoPlaybackSource, VideoPlaybackUnavailable } from './source.ts'
-import { playbackEncoding, probePlaybackFile, validatePlaybackOutput } from './media-process.ts'
+import {
+  createPlaybackProgressParser,
+  playbackEncoding,
+  probePlaybackFile,
+  validatePlaybackOutput
+} from './media-process.ts'
 
 type Payload = ReturnType<typeof videoPlaybackGenerationPayloadSchema.parse>
 export function createVideoPlaybackExecutor(dependencies: {
@@ -27,13 +36,46 @@ export function createVideoPlaybackExecutor(dependencies: {
     jobType: 'VIDEO_PLAYBACK_GENERATION',
     executionLane: 'BACKGROUND_WRITER',
     definitionVersion: 1,
-    progressPolicy: 'STANDARD',
+    progressPolicy: 'REALTIME',
     parsePayload: (value) => videoPlaybackGenerationPayloadSchema.parse(value),
     async execute(context) {
       let finalizing = false
       let temporaryPath: string | undefined
       let progressWork = Promise.resolve()
+      let durationSeconds: number | null = null
+      let encodedSeconds = 0
+      let speed: number | null = null
+      let fps: number | null = null
+      const stages: VideoPlaybackProgressData['stages'] = []
+      const report = (stage: VideoPlaybackProgressStage, progress: number, message: string) => {
+        const sampledAt = new Date().toISOString()
+        const previous = stages.at(-1)
+        if (previous?.stage !== stage) {
+          if (previous) previous.finishedAt = sampledAt
+          stages.push({ stage, startedAt: sampledAt, finishedAt: null })
+        }
+        const progressData: VideoPlaybackProgressData = {
+          version: 1,
+          kind: 'video-playback',
+          stage,
+          durationSeconds,
+          encodedSeconds,
+          speed,
+          fps,
+          etaSeconds:
+            stage === 'ENCODING' && durationSeconds !== null && speed !== null && speed > 0
+              ? Math.ceil(Math.max(0, durationSeconds - encodedSeconds) / speed)
+              : null,
+          stages: stages.map((entry) => ({ ...entry })),
+          sampledAt
+        }
+        progressWork = progressWork.then(() => context.progress({ progress, stage, message, progressData }))
+        // The process callback cannot await persistence; the executor drains it before changing phase.
+        void progressWork.catch(() => undefined)
+        return progressWork
+      }
       try {
+        await report('PREPARING', 0, '正在准备播放副本任务')
         const source = await inspectVideoPlaybackSource(database, config, context.payload.imageId, context.signal)
         if (source.image.path.replace(/^[/\\]+/, '') !== context.payload.relativePath)
           throw new VideoPlaybackUnavailable('CHANGED')
@@ -62,7 +104,7 @@ export function createVideoPlaybackExecutor(dependencies: {
         const outputPath = await resolvePosterOutput(config.playbackRoot, relativePath)
         await fs.mkdir(path.dirname(outputPath), { recursive: true })
         temporaryPath = await resolvePosterOutput(config.playbackRoot, temporaryRelativePath)
-        await context.progress({ progress: 1, stage: 'PROBING', message: '正在检查原视频' })
+        await report('PROBING', 1, '正在检查原视频')
         const probe = await probePlaybackFile({
           file: source.file.absolutePath,
           runner,
@@ -70,38 +112,30 @@ export function createVideoPlaybackExecutor(dependencies: {
           signal: context.signal
         })
         const encoding = playbackEncoding(probe, source.file.absolutePath, temporaryPath)
-        let pending = '',
-          lastProgress = 0
+        durationSeconds = probe.format.duration
+        await report('ENCODING', 2, '正在生成 1080p 播放副本')
+        let lastProgress = Date.now()
         await runner({
           command: config.ffmpegPath ?? 'ffmpeg',
           args: encoding.args,
           timeoutMs: Math.max(30 * 60_000, probe.format.duration * 30_000),
           signal: context.signal,
-          onStdout(chunk) {
-            pending += chunk
-            const lines = pending.split('\n')
-            pending = lines.pop() ?? ''
-            for (const line of lines) {
-              if (!line.startsWith('out_time_us=') || Date.now() - lastProgress < 2000) continue
-              const seconds = Number(line.slice(12)) / 1_000_000
-              if (!Number.isFinite(seconds)) continue
-              lastProgress = Date.now()
-              progressWork = progressWork
-                .then(() =>
-                  context.progress({
-                    progress: Math.round(Math.min(94, 2 + (seconds / probe.format.duration) * 92)),
-                    stage: 'ENCODING',
-                    message: '正在生成 1080p 播放副本'
-                  })
-                )
-                .then(() => undefined)
-              // Preserve the rejection for the awaited chain without an unhandled callback promise.
-              void progressWork.catch(() => undefined)
-            }
-          }
+          onStdout: createPlaybackProgressParser((sample) => {
+            encodedSeconds = Math.min(probe.format.duration, sample.encodedSeconds)
+            speed = sample.speed
+            fps = sample.fps
+            if (!sample.ended && Date.now() - lastProgress < 2000) return
+            lastProgress = Date.now()
+            void report(
+              'ENCODING',
+              Math.round(2 + (encodedSeconds / probe.format.duration) * 92),
+              '正在生成 1080p 播放副本'
+            )
+          })
         })
         await progressWork
         context.signal.throwIfAborted()
+        await report('VALIDATING', 95, '正在校验播放副本')
         const output = await probePlaybackFile({
           file: temporaryPath,
           runner,
@@ -112,7 +146,7 @@ export function createVideoPlaybackExecutor(dependencies: {
         const outputStat = await fs.stat(temporaryPath, { bigint: true })
         if (outputStat.size >= source.file.state.size)
           return { kind: 'skipped', reason: 'PRECONDITION_NOT_MET', message: '副本未小于原片，无需保留' }
-        await context.progress({ progress: 96, stage: 'VALIDATING', message: '正在验证并发布播放副本' })
+        await report('PUBLISHING', 96, '正在发布播放副本')
         finalizing = true
         return await context.finalizeInTransaction<Prisma.TransactionClient>(async (scope) => {
           if (scope.executionStatus === 'PAUSING') {

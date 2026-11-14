@@ -1,6 +1,42 @@
 import { z } from 'zod'
 import type { VideoProcessRunner } from '../video-processing/types.ts'
 
+export type PlaybackEncodingSample = {
+  encodedSeconds: number
+  speed: number | null
+  fps: number | null
+  ended: boolean
+}
+
+/** FFmpeg writes a sample across several lines/chunks, ending with progress=continue/end. */
+export function createPlaybackProgressParser(onSample: (sample: PlaybackEncodingSample) => void) {
+  let pending = ''
+  let values: Record<string, number | null> = {}
+  return (chunk: string) => {
+    pending += chunk
+    const lines = pending.split('\n')
+    pending = lines.pop() ?? ''
+    for (const line of lines) {
+      const [key, raw = ''] = line.trim().split('=')
+      if (key === 'progress') {
+        if (values.out_time_us !== undefined && values.out_time_us !== null) {
+          onSample({
+            encodedSeconds: values.out_time_us / 1_000_000,
+            speed: values.speed ?? null,
+            fps: values.fps ?? null,
+            ended: raw === 'end'
+          })
+        }
+        values = {}
+      } else if (key === 'out_time_us' || key === 'speed' || key === 'fps') {
+        const text = raw.trim().replace(/x$/, '')
+        const value = Number(text)
+        values[key] = text && Number.isFinite(value) && value >= 0 ? value : null
+      }
+    }
+  }
+}
+
 const streamSchema = z.object({
   index: z.number().int(),
   codec_type: z.string(),

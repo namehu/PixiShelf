@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatFileSize } from '@/utils/media'
 import { formatBackgroundJobStatus } from '@/app/admin/tasks/_components/background-task-format'
+import { VideoPlaybackProgress } from '@/app/admin/_components/video-playback-progress'
 import type { videoPlaybackStatuses } from '@/services/video-playback-service'
 
 type Status = Awaited<ReturnType<typeof videoPlaybackStatuses>>[number]
@@ -149,6 +150,7 @@ export function VideoPlaybackEntry({ imageId }: { imageId: number }) {
       {!running && job?.message && ['FAILED', 'SKIPPED', 'CANCELLED'].includes(job.status) && (
         <span className="max-w-52 text-xs text-muted-foreground">{job.message}</span>
       )}
+      {job && <VideoPlaybackProgress job={job} compact />}
     </div>
   )
 }

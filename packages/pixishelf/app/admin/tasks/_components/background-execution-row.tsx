@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { ArtworkDedupProgress } from '../../_components/artwork-dedup-progress'
+import { VideoPlaybackProgress } from '../../_components/video-playback-progress'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
 import { formatBackgroundJobStatus, formatBackgroundJobType, getArtworkDedupHref } from './background-task-format'
 import type { BackgroundBatchView } from './background-task-console'
@@ -78,7 +79,11 @@ export function BackgroundExecutionRow({
           </div>
           <p className="select-text break-all font-mono text-[11px] text-muted-foreground">{visibleJob.id}</p>
           {visibleJob.type === 'ARTWORK_DEDUP_SCAN' ? (
-            <ArtworkDedupProgress status={visibleJob.status} stage={visibleJob.stage} progressData={visibleJob.progressData} />
+            <ArtworkDedupProgress
+              status={visibleJob.status}
+              stage={visibleJob.stage}
+              progressData={visibleJob.progressData}
+            />
           ) : (
             <div className="flex items-center gap-3">
               <Progress value={progress} className="h-2 flex-1" aria-label={`任务进度 ${progress}%`} />
@@ -106,6 +111,7 @@ export function BackgroundExecutionRow({
               {visibleJob.message}
             </PrivacySensitiveText>
           ) : null}
+          {visibleJob.type === 'VIDEO_PLAYBACK_GENERATION' ? <VideoPlaybackProgress job={visibleJob} compact /> : null}
         </>
       ) : null}
     </div>

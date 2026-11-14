@@ -63,15 +63,51 @@ export const animationDurationProgressDataSchema = z.object({
   sampledAt: z.string().datetime({ offset: true })
 }).strict()
 
+export const VIDEO_PLAYBACK_PROGRESS_STAGE_VALUES = [
+  'PREPARING',
+  'PROBING',
+  'ENCODING',
+  'VALIDATING',
+  'PUBLISHING'
+] as const
+export const videoPlaybackProgressStageSchema = z.enum(VIDEO_PLAYBACK_PROGRESS_STAGE_VALUES)
+export const videoPlaybackProgressDataSchema = z
+  .object({
+    version: z.literal(1),
+    kind: z.literal('video-playback'),
+    stage: videoPlaybackProgressStageSchema,
+    durationSeconds: z.number().positive().finite().nullable(),
+    encodedSeconds: z.number().nonnegative().finite(),
+    speed: z.number().nonnegative().finite().nullable(),
+    fps: z.number().nonnegative().finite().nullable(),
+    etaSeconds: aggregateCountSchema.nullable(),
+    stages: z
+      .array(
+        z
+          .object({
+            stage: videoPlaybackProgressStageSchema,
+            startedAt: z.string().datetime({ offset: true }),
+            finishedAt: z.string().datetime({ offset: true }).nullable()
+          })
+          .strict()
+      )
+      .min(1)
+      .max(VIDEO_PLAYBACK_PROGRESS_STAGE_VALUES.length),
+    sampledAt: z.string().datetime({ offset: true })
+  })
+  .strict()
+
 /**
  * A plain union keeps decoding additive: old rows may remain null, while a
  * future version can be added beside v1 without changing the SSE envelope.
  */
-export const jobProgressDataSchema = z.union([animationScanProgressDataSchema, animationDurationProgressDataSchema, artworkDedupProgressDataSchema])
+export const jobProgressDataSchema = z.union([animationScanProgressDataSchema, animationDurationProgressDataSchema, artworkDedupProgressDataSchema, videoPlaybackProgressDataSchema])
 
 export type AnimationScanProgressStage = z.infer<typeof animationScanProgressStageSchema>
 export type AnimationScanProgressData = z.infer<typeof animationScanProgressDataSchema>
 export type AnimationDurationProgressData = z.infer<typeof animationDurationProgressDataSchema>
 export type ArtworkDedupProgressPhase = z.infer<typeof artworkDedupProgressPhaseSchema>
 export type ArtworkDedupProgressData = z.infer<typeof artworkDedupProgressDataSchema>
+export type VideoPlaybackProgressData = z.infer<typeof videoPlaybackProgressDataSchema>
+export type VideoPlaybackProgressStage = z.infer<typeof videoPlaybackProgressStageSchema>
 export type JobProgressData = z.infer<typeof jobProgressDataSchema>

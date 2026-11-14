@@ -43,6 +43,7 @@ import { ArtworkDedupProgress } from '../../_components/artwork-dedup-progress'
 import { confirm } from '@/components/shared/global-confirm'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { AnimationScanLiveFeedback } from './animation-scan-live-feedback'
+import { VideoPlaybackProgress } from '../../_components/video-playback-progress'
 import { BackgroundJobDiagnostics } from './background-job-diagnostics'
 import {
   getArtworkDedupHref,
@@ -877,6 +878,7 @@ function JobDetail({
       {job.progressData?.kind === 'animation-scan' ? (
         <AnimationScanLiveFeedback job={job} className="mt-3 rounded-lg border bg-muted/10 p-3" />
       ) : null}
+      {job.type === 'VIDEO_PLAYBACK_GENERATION' ? <VideoPlaybackProgress job={job} className="mt-3" /> : null}
       {job.type !== 'ARTWORK_DEDUP_SCAN' && job.message && job.message !== job.error ? (
         <PrivacySensitiveText as="p" className="mt-3 select-text break-words text-sm text-muted-foreground">
           {job.message}

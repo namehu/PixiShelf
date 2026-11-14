@@ -5,6 +5,8 @@ last-verified: 2026-10-31
 sources:
   - packages/pixishelf-job-executors/src/video-playback/
   - packages/pixishelf/services/video-playback-service.ts
+  - packages/pixishelf-job-contracts/src/job-progress-data.ts
+  - packages/pixishelf/app/admin/_components/video-playback-progress.tsx
   - packages/pixishelf/hooks/use-video-playback-source.ts
   - packages/pixishelf-db/prisma/schema.prisma
 ---
@@ -20,6 +22,18 @@ sources:
 有效副本默认以「流畅」播放，可切换「原片」。切换保留时间位置、播放或暂停状态、音量、静音及倍速；选择仅属于当前视频。原片路径、媒体 ID、媒体计数、章节、书签和阅读记录不因副本变化而改变。尚未分类的旧视频沿用扩展名识别，不在生成或读取时回填分类。
 
 没有副本或源绑定失效时播放原片；副本读取失败时重新解析源并回退原片。原片正在受控写入时显示暂不可用，缺失时显示缺失状态。原片失效后不自动重建副本。管理列表只查数据库，不逐项访问 NAS；实际准备播放时才检查文件证据。列表显示已发布记录，不保证其尚未被外部 NAS 操作失效。
+
+## 生成进度与耗时
+
+2026-11-14 局部核验：任务详情显示首次排队，以及本次执行的准备、原片探测、转码与封装、输出校验、发布耗时。当前执行行和作品管理媒体入口显示转码速度（实时倍速及 fps）和预计编码剩余时间。每次执行重新开始采样，暂停后恢复不会把上次编码时间累计到新执行。
+
+Worker 使用 `REALTIME` 进度策略，约每 2 秒通过既有 `progressData`、持久事件和 SSE 更新。版本化 `video-playback` 快照只含数值与阶段时间戳，不含文件路径。FFmpeg 的完整进度块提供累计编码速度和 fps，剩余秒数按剩余视频时长除以速度估算；无有效速度时显示采样中，不显示伪造的零秒。估算只覆盖编码，不包括封装收尾、输出校验和发布，`faststart` 收尾耗时归入转码与封装阶段。
+
+阶段转换时保存前一阶段结束时间；当前阶段耗时截至最近采样，任务终结时使用持久 `finishedAt` 收尾，暂停使用状态更新时间冻结。完成后保留平均转码速度与分阶段耗时。运行中的采样超过 10 秒未更新时隐藏速度数值和 ETA 并提示过期；暂停、取消、失败、校验及发布阶段不显示运行中的 ETA。旧任务没有这些采样，仍显示已有排队和执行耗时，并说明缺失指标，不从进度百分比伪造历史速度。
+
+此变更不新增数据库迁移，不修改 CPU、内存、FFmpeg 线程或编码档位。App 与 Worker 需配套升级：先让 App 识别新的进度 kind，再启动会写入该快照的 Worker；旧 App 的严格进度契约不能读取新快照。回退前应保留兼容该 kind 的读取能力，不清除历史进度来规避兼容问题。进度限频与事件保留沿用[后台任务实时进度](./background-job-live-progress.md)。
+
+本次本地验证与限制见[进度指标验证记录](../records/features/video-playback-progress-2026-11-14.md)。
 
 ## 固定编码档位
 

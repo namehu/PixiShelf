@@ -1,8 +1,42 @@
 import { describe, expect, it } from 'vitest'
-import { playbackEncoding, validatePlaybackOutput, type PlaybackProbe } from '../media-process.ts'
+import {
+  createPlaybackProgressParser,
+  playbackEncoding,
+  validatePlaybackOutput,
+  type PlaybackProbe,
+  type PlaybackEncodingSample
+} from '../media-process.ts'
 const probe = (width = 3840, height = 2160): PlaybackProbe => ({
   streams: [{ index: 0, codec_type: 'video', width, height }],
   format: { duration: 5 }
+})
+
+describe('FFmpeg playback progress', () => {
+  it('waits for complete records across chunks and reads speed after the output timestamp', () => {
+    const samples: PlaybackEncodingSample[] = []
+    const parse = createPlaybackProgressParser((sample) => samples.push(sample))
+    parse('fps=11.60\r\nout_time_us=1000')
+    parse('00000\nspeed=0.387x\nprogress=con')
+    expect(samples).toHaveLength(0)
+    parse('tinue\nfps=12.00\nout_time_us=110000000\nspeed=0.400x\nprogress=end\n')
+    expect(samples).toEqual([
+      { encodedSeconds: 100, speed: 0.387, fps: 11.6, ended: false },
+      { encodedSeconds: 110, speed: 0.4, fps: 12, ended: true }
+    ])
+  })
+  it('does not carry rates across missing/invalid samples or emit invalid timestamps', () => {
+    const samples: PlaybackEncodingSample[] = []
+    const parse = createPlaybackProgressParser((sample) => samples.push(sample))
+    parse('fps=N/A\nout_time_us=0\nspeed=N/A\nprogress=continue\n')
+    parse('fps=Infinity\nout_time_us=1000000\nspeed=-1x\nprogress=continue\n')
+    parse('fps=12\nout_time_us=N/A\nspeed=1x\nprogress=continue\n')
+    parse('out_time_us=2000000\nprogress=end\n')
+    expect(samples).toEqual([
+      { encodedSeconds: 0, speed: null, fps: null, ended: false },
+      { encodedSeconds: 1, speed: null, fps: null, ended: false },
+      { encodedSeconds: 2, speed: null, fps: null, ended: true }
+    ])
+  })
 })
 
 describe('playback encoding profile', () => {
