@@ -2,9 +2,8 @@ import { deletionMembers, type createDeletionGuard } from './deletion-content-gu
 import { ContentWriteConflict } from './content-context.ts'
 import { randomUUID } from 'crypto'
 import path from 'path'
-import type { PrismaClient } from '@pixishelf/db'
+import { lockArtworkForReading, Prisma, type PrismaClient } from '@pixishelf/db'
 import type { DeletionExecutionControl } from './types.ts'
-import { lockArtworkForReading, type Prisma } from '@pixishelf/db'
 import {
   ArtworkDeleteReportSchema,
   ArtworkDeletePreviewSchema,
@@ -43,16 +42,20 @@ export function createArtworkDeletionService(deps: {
       value.replace(/\//g, '\\'),
       `\\${value.replace(/\//g, '\\')}`
     ]
-    const mode = process.platform === 'win32' ? ('insensitive' as const) : ('default' as const)
+    const windows = process.platform === 'win32'
+    const mode = windows ? ('insensitive' as const) : ('default' as const)
     // Prisma startsWith uses PostgreSQL LIKE. Backslashes must remain literal separators;
     // underscores/percent signs in real directory names must not become wildcards.
     const escapeLike = (value: string) => value.replace(/[\\%_]/g, '\\$&')
-    const filters = [...new Set(scopes)].flatMap((scope) =>
-      variants(scope).flatMap((value) => [
-        { equals: value, mode },
-        { startsWith: escapeLike(`${value}${value.includes('\\') ? '\\' : '/'}`), mode }
-      ])
-    )
+    const paths = [...new Set(scopes.flatMap(variants))].map((value) => {
+      const backslash = value.includes('\\')
+      // The upper bound replaces the final separator with its next byte in C collation.
+      return { value, prefix: value + (backslash ? '\\' : '/'), upper: value + (backslash ? ']' : '0') }
+    })
+    const filters = paths.flatMap(({ value, prefix }) => [
+      { equals: value, mode },
+      { startsWith: escapeLike(prefix), mode }
+    ])
     const ancestorFilters = [
       ...new Set(
         scopes.flatMap((scope) => {
@@ -61,6 +64,14 @@ export function createArtworkDeletionService(deps: {
         })
       )
     ].flatMap((scope) => variants(scope).map((equals) => ({ equals, mode })))
+    const matchesPath = (column: Prisma.Sql) =>
+      Prisma.join(
+        paths.map(
+          ({ value, prefix, upper }) =>
+            Prisma.sql`(${column} = ${value} OR (${column} >= ${prefix} AND ${column} < ${upper}))`
+        ),
+        ' OR '
+      )
     const [artworks, images] = await Promise.all([
       prisma.artwork.findMany({
         where: {
@@ -72,20 +83,30 @@ export function createArtworkDeletionService(deps: {
         },
         select: { storagePath: true, metaSource: true }
       }),
-      prisma.image.findMany({
-        where: {
-          AND: [
-            { OR: [{ artworkId: { not: artworkId } }, { artworkId: null }] },
-            {
-              OR: [
-                ...filters.map((filter) => ({ path: filter })),
-                ...filters.map((filter) => ({ chaptersPath: filter }))
+      windows
+        ? prisma.image.findMany({
+            where: {
+              AND: [
+                { OR: [{ artworkId: { not: artworkId } }, { artworkId: null }] },
+                {
+                  OR: [
+                    ...filters.map((filter) => ({ path: filter })),
+                    ...filters.map((filter) => ({ chaptersPath: filter }))
+                  ]
+                }
               ]
-            }
-          ]
-        },
-        select: { path: true, chaptersPath: true }
-      })
+            },
+            select: { path: true, chaptersPath: true }
+          })
+        : prisma.$queryRaw<Array<{ path: string; chaptersPath: string | null }>>(Prisma.sql`
+            SELECT "path", "chaptersPath" FROM "Image"
+            WHERE "artworkId" IS DISTINCT FROM ${artworkId}::integer
+              AND (${matchesPath(Prisma.sql`"path" COLLATE "C"`)})
+            UNION ALL
+            SELECT "path", "chaptersPath" FROM "Image"
+            WHERE "artworkId" IS DISTINCT FROM ${artworkId}::integer AND "chaptersPath" IS NOT NULL
+              AND (${matchesPath(Prisma.sql`"chaptersPath" COLLATE "C"`)})
+          `)
     ])
     return [
       ...artworks.flatMap((row) => [

@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   writes: new Map<string, any>(),
   findArtwork: vi.fn(),
   otherArtworks: vi.fn(),
+  otherImages: vi.fn(),
   findImages: vi.fn(),
   deleteImages: vi.fn(),
   deleteArtwork: vi.fn(),
@@ -86,6 +87,7 @@ vi.mock('@/lib/prisma', () => ({
     mediaContentPathWrite: { findUnique: async (args: any) => mocks.writes.get(args.where.writeToken) ?? null },
     artwork: { findUnique: mocks.findArtwork, findMany: mocks.otherArtworks, delete: mocks.deleteArtwork },
     image: { findMany: mocks.findImages, deleteMany: mocks.deleteImages },
+    $queryRaw: mocks.otherImages,
     $transaction: async (callback: (tx: unknown) => Promise<unknown>) =>
       callback({
         mediaContentPathWrite: { findUnique: async (args: any) => mocks.writes.get(args.where.writeToken) ?? null },
@@ -174,7 +176,8 @@ beforeEach(async () => {
   media = [{ path: `${directory}/1.jpg`, chaptersPath: null }]
   mocks.findArtwork.mockImplementation(async () => artwork)
   mocks.otherArtworks.mockResolvedValue([])
-  mocks.findImages.mockImplementation(async (args) => (args.where.artworkId === 1 ? media : []))
+  mocks.otherImages.mockResolvedValue([])
+  mocks.findImages.mockImplementation(async (args) => (args.where.artworkId === 1 ? media : mocks.otherImages()))
   mocks.deleteImages.mockImplementation(async () => ({ count: media.length }))
   mocks.deleteArtwork.mockResolvedValue({ id: 1 })
   mocks.scanPath.mockImplementation(async () => root)
@@ -360,7 +363,7 @@ describe('deleteArtwork actual filesystem results', () => {
   it('preserves shared directories and shared registered media', async () => {
     await write(media[0]!.path)
     await write(`${directory}/42-meta.json`, '{}')
-    mocks.findImages.mockImplementation(async (args) => (args.where.artworkId === 1 ? media : media))
+    mocks.otherImages.mockResolvedValue(media)
     const report = await run()
     expect(report.outcome).toBe('COMPLETED')
     expect(report.database.artwork).toBe('DELETED')
@@ -371,9 +374,23 @@ describe('deleteArtwork actual filesystem results', () => {
     )
     expect(await exists(media[0]!.path)).toBe(true)
   })
+  it.runIf(process.platform === 'win32')('keeps the case-insensitive Prisma lookup on Windows', async () => {
+    await write(media[0]!.path)
+    await previewDeleteArtwork(1, 'admin-1')
+    expect(mocks.findImages).toHaveBeenCalledWith({
+      where: {
+        AND: [
+          { OR: [{ artworkId: { not: 1 } }, { artworkId: null }] },
+          { OR: expect.arrayContaining([{ path: { equals: directory, mode: 'insensitive' } }]) }
+        ]
+      },
+      select: { path: true, chaptersPath: true }
+    })
+    expect(mocks.otherImages).toHaveBeenCalledWith()
+  })
   it('does no mutation when reference lookup fails', async () => {
     await write(media[0]!.path)
-    mocks.otherArtworks.mockRejectedValue(new Error('unavailable'))
+    mocks.otherImages.mockRejectedValue(new Error('unavailable'))
     await expect(previewDeleteArtwork(1, 'admin-1')).rejects.toThrow('unavailable')
     const report = await deleteArtwork(
       { artworkId: 1, selectedPaths: [media[0]!.path] },

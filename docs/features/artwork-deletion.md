@@ -4,6 +4,7 @@ scope: 作品详情与管理页删除入口、文件预览选择、空目录清�
 last-verified: 2026-10-31
 sources:
   - packages/pixishelf-job-executors/src/artwork-delete/delete-artwork.ts
+  - packages/pixishelf-db/prisma/migrations/20261118000000_artwork_delete_image_reference_indexes/migration.sql
   - packages/pixishelf/services/artwork-batch-delete-service.ts
   - packages/pixishelf/services/artwork-service/delete-artwork.ts
   - packages/pixishelf/services/artwork-service/delete-artwork-files.ts
@@ -42,6 +43,7 @@ sources:
 - 覆盖本地导入、手工、Pixiv 扫描等非 `URL_ARCHIVE` 创建方式。目录依次从 `storagePath`、首个有序媒体父目录、`metaSource` 父目录确定。媒体分散时不推算公共祖先。
 - 扫描根、第一层艺术家目录、`local-imports` 及其艺术家层级不整目录列举或清理；无法确定作品目录时只展示和处理登记文件。
 - 共享作品目录递归只读展示，额外文件禁选且目录保留；其他作品引用的登记文件也保留，但允许移除本作品记录。
+- 预检和首次确认删除都按数据库中的目录范围检查其他作品与无归属媒体的引用；即使被引用文件已经缺失，也保留共享保护。非 Windows 用两个路径范围索引分别检查 `Image.path` 和 `Image.chaptersPath`；Windows 保留原大小写不敏感查询。支持正斜杠、反斜杠及各自的单个前导分隔符这四种旧路径写法，不推断混合或含 `.` 段的历史路径等价关系。
 - 不跟随符号链接或 junction，不删除系统保留路径 `sources`、`.trash`、`.archive-staging` 和 `.pixishelf-root`，不处理非普通文件。非法登记章节路径保留。不根据文件内容扩展删除范围，不清理派生媒体根目录。
 - 检查最多 100,000 个目录项、向下 12 层；达到边界时报告未完整检查并禁止执行。只处理本次作品，不扫描历史残留。
 - 目录只在原清单的文件处理后、数据库发布前，从深到浅通过非递归 `rmdir` 清理，不向作品范围外延伸。用户保留文件导致目录非空是预期结果。
@@ -103,4 +105,4 @@ Image 与 Artwork 删除在同一短事务中，先获取 creator catalog 锁，
 
 隔离 PostgreSQL 测试位于 `tests/integration/artwork-deletion.postgres.test.ts`。仅接受 `DELETION_VALIDATION_DATABASE_URL=postgresql://postgres@127.0.0.1:55439/pixishelf_delete_validation` 对应的专用测试库；先部署仓库已有迁移，再运行该测试。失败注入通过测试库触发器验证 Image/Artwork 原子回滚，不得指向实际图库数据库。
 
-历史验证与限制见[2026-10-02 删除事务验证](../records/features/artwork-deletion.md)。
+历史验证与限制见[2026-10-02 删除事务验证](../records/features/artwork-deletion.md)和[2026-11-18 预检查询验证](../records/features/artwork-delete-preview-query-2026-11-18.md)。

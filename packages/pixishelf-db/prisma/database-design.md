@@ -33,6 +33,10 @@ sources:
 
 `20261016090000_artwork_browse_indexes` 创建仅覆盖未删除且 ACTIVE 作品的 `artwork_active_random_v1_idx`，表达式为 `md5(id::text || ':artwork-random-v1') COLLATE "C"`，以 id 决胜。它不能完整表示在 Prisma Schema 中，SQL migration 和查询构造器必须保持表达式／排序规则一致。另建 `Image_artworkId_sortOrder_id_idx`，用于数据库内每作品 LIMIT 1 的封面读取。两者为增量索引，不回填业务数据；普通创建期间需停写，回退旧应用可保留。详见[性能与部署边界](../../../docs/architecture/artwork-feed-query-performance.md)。
 
+## 删除预检的媒体引用索引
+
+`20261118000000_artwork_delete_image_reference_indexes` 在同一事务为 `Image.path` 和非空 `Image.chaptersPath` 添加 `COLLATE "C"` B-tree 索引。非 Windows 的共享删除服务用同样的排序规则做等值和目录前缀范围比较；索引和比较排序规则必须一致。迁移按[标准发布](../../../docs/operations/deployment.md#标准发布)停写执行，不回填业务数据；若未跨越其他不兼容迁移，回退旧镜像时可保留索引。发布后只用预检验证性能，不触发实际删除。
+
 ## Artwork 阅读版本与进度约束
 
 2026-11-04 局部核验：`20261104010000_reading_position_progress` 在 Artwork 新增非负的 `logicalMediaCount` 和至少为 1 的 `readingLayoutVersion`，前者是完整逻辑序列的缓存总数，后者独立于仍用于媒体读取/分页的 `mediaRevision`。
