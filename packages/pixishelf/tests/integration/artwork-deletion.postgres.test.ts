@@ -253,8 +253,8 @@ describe.skipIf(!databaseUrl)('artwork deletion with real PostgreSQL transaction
                 `${mode}: no range index condition for ${column}` + '\n' + plan
               ).toBe(true)
             }
-            console.info(
-              `${mode}: ${lines.find((line) => line['QUERY PLAN'].startsWith('Execution Time:'))?.['QUERY PLAN']}`
+            process.stdout.write(
+              `${mode}: ${lines.find((line) => line['QUERY PLAN'].startsWith('Execution Time:'))?.['QUERY PLAN']}\n`
             )
           }
           await tx.$executeRaw`DEALLOCATE artwork_delete_lookup`
