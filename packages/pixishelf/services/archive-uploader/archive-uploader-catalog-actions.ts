@@ -38,16 +38,24 @@ export async function assertCatalogItemsActionable(
     item.classification === 'POSSIBLE_UPDATE' &&
     item.lastOutcome === 'CANCELLED' &&
     activeArtworkKeys.has(dispositionKey(item))
-  if (
-    items.some(
-      (item) =>
-        item.lastOutcome !== null &&
-        item.lastOutcome !== 'ARCHIVED' &&
-        item.lastIntakeItemId !== null &&
-        !cancelledUpdate(item)
+  const previouslySubmitted = items.find(
+    (item) =>
+      item.lastOutcome !== null &&
+      item.lastOutcome !== 'ARCHIVED' &&
+      item.lastIntakeItemId !== null &&
+      !cancelledUpdate(item)
+  )
+  if (previouslySubmitted?.lastIntakeItemId) {
+    const intake = await transaction.archiveIntakeItem.findUnique({
+      where: { id: previouslySubmitted.lastIntakeItemId },
+      select: { creatorSourceName: true }
+    })
+    throw new ArchiveError(
+      'STATE_CONFLICT',
+      intake?.creatorSourceName
+        ? `已从「${intake.creatorSourceName}」加入收件箱`
+        : '该画廊已经进入过收件流程；请前往收件箱处理当前结果'
     )
-  ) {
-    throw new ArchiveError('STATE_CONFLICT', '该画廊已经进入过收件流程；请前往收件箱处理当前结果')
   }
   const canonicalUrls = items.map(({ canonicalUrl }) => canonicalUrl)
   const authoritativeTerminalFilters: Prisma.ArchiveIntakeItemWhereInput[] = items.map((item) => ({
@@ -65,7 +73,7 @@ export async function assertCatalogItemsActionable(
         status: { in: ['QUEUED', 'RESOLVING', 'RETRY_WAIT', 'READY', 'STALE'] },
         OR: [...identities, { submittedUrl: { in: canonicalUrls } }, { canonicalUrl: { in: canonicalUrls } }]
       },
-      select: { id: true }
+      select: { id: true, creatorSourceName: true }
     }),
     transaction.archiveIntakeItem.findFirst({
       where: { OR: authoritativeTerminalFilters },
@@ -76,7 +84,7 @@ export async function assertCatalogItemsActionable(
         status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'] },
         OR: identities
       },
-      select: { id: true }
+      select: { id: true, creatorSourceName: true }
     })
   ])
   const referenceKeys = new Set(references.map(dispositionKey))
@@ -84,6 +92,8 @@ export async function assertCatalogItemsActionable(
     const archived = referenceKeys.has(dispositionKey(item))
     return archived && item.classification !== 'POSSIBLE_UPDATE'
   })
+  const activeSource = activeIntake?.creatorSourceName ?? activeImports?.creatorSourceName
+  if (activeSource) throw new ArchiveError('STATE_CONFLICT', `已从「${activeSource}」加入收件箱`)
   if (activeIntake || terminalIntake || activeImports || hasInvalidRecommendation) {
     throw new ArchiveError(
       'STATE_CONFLICT',

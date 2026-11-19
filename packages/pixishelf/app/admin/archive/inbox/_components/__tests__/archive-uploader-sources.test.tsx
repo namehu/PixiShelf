@@ -44,6 +44,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
 vi.mock('@/hooks/use-media-query', () => ({ useMediaQuery: () => mocks.isDesktop }))
 
+vi.mock('@/components/creators/creator-picker', () => ({
+  CreatorPicker: ({ onChange }: { onChange: (value: { id: number; name: string }[]) => void }) => (
+    <button onClick={() => onChange([{ id: 17, name: '本站艺术家' }])}>选择本站测试艺术家</button>
+  )
+}))
 vi.mock('@/components/ui/dropdown-menu', async () => {
   const { createContext, useContext } = await import('react')
   const { Slot } = await import('@radix-ui/react-slot')
@@ -802,7 +807,7 @@ describe('ArchiveUploaderSources', () => {
     expect(calls().find(([input]) => !input.unboundOnly)?.[1].enabled).toBe(true)
     expect(calls().find(([input]) => input.sourceId)?.[1].enabled).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: '筛选' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: '仅看未绑定' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '已归档且未绑定艺术家' }))
     fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
     expect(
       calls()
@@ -909,27 +914,24 @@ describe('ArchiveUploaderSources', () => {
     expect(screen.getByRole('checkbox', { name: '选择 Gallery 302' }).getAttribute('data-state')).toBe('checked')
   })
 
-  it('submits selected catalog items without generating persistence ids in the browser', () => {
+  it('asks once for an empty source and submits the selected artists only on confirmation', () => {
+    currentDetailData = { ...detailData, source: { ...source, defaultCreators: [] } }
     renderSources()
-
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
     fireEvent.click(screen.getByRole('button', { name: '加入收件箱' }))
-
-    expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith({
-      sourceId: 'source-1',
-      itemIds: ['catalog-item-1'],
-      downloadMode: 'AUTO',
-      quality: 'DISPLAY',
-      downloadScope: 'ALL'
-    })
-    expect(mocks.addToInbox).toHaveBeenCalledWith({
-      sourceId: 'source-1',
-      itemIds: ['catalog-item-1'],
-      downloadMode: 'AUTO',
-      quality: 'DISPLAY',
-      downloadScope: 'ALL',
-      submissionAttemptId: '00000000-0000-4000-8000-000000000001'
-    })
+    expect((screen.getByRole('button', { name: '绑定到此来源并加入收件箱' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(mocks.createSubmissionAttempt).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '加入收件箱' }))
+    fireEvent.click(screen.getByRole('button', { name: '选择本站测试艺术家' }))
+    fireEvent.click(screen.getByRole('button', { name: '绑定到此来源并加入收件箱' }))
+    expect(mocks.addToInbox).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceId: source.id,
+        itemIds: ['catalog-item-1'],
+        artistIds: [17]
+      })
+    )
   })
 
   it('can recreate an inbox item after terminal intake history was cleaned up', () => {
@@ -1050,7 +1052,7 @@ describe('ArchiveUploaderSources', () => {
     renderSources()
     fireEvent.click(screen.getByRole('checkbox', { name: `选择 ${item.title}` }))
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Archived gallery' }))
-    expect(screen.getByRole('button', { name: /绑定艺术家/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /绑定艺术家/ })).toBeNull()
     expect(screen.getByRole('button', { name: '忽略' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '加入收件箱' }))
     expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith(expect.objectContaining({ itemIds: [item.id] }))
@@ -1095,31 +1097,14 @@ describe('ArchiveUploaderSources', () => {
     }
   )
 
-  it('shows explicit creator states together and leaves unbound results visible', () => {
+  it('omits all creator badges from discovery rows', () => {
     const item = itemsData.pages[0]!.items[0]!
-    currentItemsData = {
-      pages: [
-        {
-          ...itemsData.pages[0]!,
-          items: [
-            item,
-            {
-              ...item,
-              id: 'bound',
-              title: 'Bound',
-              effectiveCreators: [{ id: 1, name: 'Artist A' }],
-              pendingCreators: [{ id: 2, name: 'Artist B' }]
-            }
-          ]
-        }
-      ]
-    }
+    const bound = { ...item, id: 'bound', title: 'Bound', effectiveCreators: [{ id: 1, name: 'Artist A' }], pendingCreators: [{ id: 2, name: 'Artist B' }] }
+    currentItemsData = { pages: [{ ...itemsData.pages[0]!, items: [item, bound] }] }
     renderSources()
-    expect(screen.getByText('未绑定艺术家')).toBeTruthy()
-    expect(screen.getByText('已绑定：')).toBeTruthy()
-    expect(screen.getByText('待生效：')).toBeTruthy()
-    expect(screen.getByText('Artist A').hasAttribute('data-privacy-sensitive')).toBe(true)
-    expect(screen.getByText('Artist B')).toBeTruthy()
+    for (const label of ['未绑定艺术家', '已绑定：', '待生效：', 'Artist A', 'Artist B']) {
+      expect(screen.queryByText(label)).toBeNull()
+    }
   })
 
   it('cancels ignore without submitting and confirms only the eligible bulk subset', () => {

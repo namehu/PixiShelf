@@ -16,6 +16,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/u
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { archiveClientErrorMessage } from '../../_components/archive-client-error'
 import { ArchiveIntakeOptionsDialog, DEFAULT_ARCHIVE_INTAKE_OPTIONS } from './archive-intake-options'
+import { ArchiveIntakeCreatorsDialog } from './archive-intake-creators-dialog'
 import { ArchiveDiscoveryIgnoreDialog } from './archive-discovery-ignore-dialog'
 import { formatArchiveUploaderTimestamp } from './archive-uploader-view-state'
 import { ArchiveDiscoverySelectionBar } from './archive-discovery-bulk-bar'
@@ -35,6 +36,7 @@ export function ArchiveDiscoveryDeferred({
   const trpc = useTRPC()
   const queryClient = useQueryClient()
   const [selected, setSelected] = useState(new Set<string>())
+  const [needsArtistPrompt, setNeedsArtistPrompt] = useState(false)
   const [options, setOptions] = useState(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
   const [issues, setIssues] = useState<string[]>([])
   const [ignoreSelection, setIgnoreSelection] = useState<{ items: { id: string; title: string }[] } | null>(null)
@@ -57,6 +59,7 @@ export function ArchiveDiscoveryDeferred({
     )
     if (result && result.counts.created + result.counts.applied > 0) toast.success('稍后决定已更新')
     await Promise.all([
+      queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.getSource.queryKey() }),
       queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listDeferredItems.infiniteQueryKey() }),
       queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() }),
       queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.catalogCounts.queryKey() }),
@@ -70,12 +73,12 @@ export function ArchiveDiscoveryDeferred({
   const ignore = useMutation(trpc.archiveSearch.ignoreDeferredItems.mutationOptions({ onSuccess: finish, onError }))
   const download = useMutation(trpc.archiveSearch.downloadDeferredItems.mutationOptions({ onSuccess: finish, onError }))
   const pending = restore.isPending || ignore.isPending || download.isPending
-  const command = (action: 'restore' | 'ignore' | 'download', deferredItemIds: string[]) => {
-    const key = JSON.stringify([action, [...deferredItemIds].sort(), action === 'download' ? options : null])
+  const command = (action: 'restore' | 'ignore' | 'download', deferredItemIds: string[], artistIds?: number[]) => {
+    const key = JSON.stringify([action, [...deferredItemIds].sort(), action === 'download' ? options : null, artistIds])
     const requestId = attempts.current.get(key) ?? crypto.randomUUID()
     attempts.current.set(key, requestId)
     const input = { deferredItemIds, requestId }
-    if (action === 'download') download.mutate({ ...input, ...options })
+    if (action === 'download') download.mutate({ ...input, ...options, artistIds })
     else if (action === 'ignore') ignore.mutate(input)
     else restore.mutate(input)
   }
@@ -185,13 +188,45 @@ export function ArchiveDiscoveryDeferred({
             ) : null}
           </div>
         )}
+        {needsArtistPrompt && (
+          <ArchiveIntakeCreatorsDialog
+            saveToSource={false}
+            description={
+              <>
+                所选作品中缺少艺术家的来源为「
+                <PrivacySensitiveText>
+                  {[
+                    ...new Set(
+                      items
+                        .filter((item) => selected.has(item.id) && item.needsArtists)
+                        .map((item) => item.sourceDisplayName)
+                    )
+                  ].join('、')}
+                </PrivacySensitiveText>
+                」。所选艺术家将保存到这些来源；原来源已删除的作品仅用于本次入箱。
+              </>
+            }
+            onClose={() => setNeedsArtistPrompt(false)}
+            onConfirm={(artistIds) => {
+              setNeedsArtistPrompt(false)
+              command('download', [...selected], artistIds)
+            }}
+          />
+        )}
         <ArchiveDiscoverySelectionBar
           selectedCount={selected.size}
           pending={pending}
           onClear={() => setSelected(new Set())}
           label="稍后决定批量操作"
           primaryAction={
-            <Button aria-label="加入收件箱" disabled={pending} onClick={() => command('download', [...selected])}>
+            <Button
+              aria-label="加入收件箱"
+              disabled={pending}
+              onClick={() => {
+                if (items.some((item) => selected.has(item.id) && item.needsArtists)) setNeedsArtistPrompt(true)
+                else command('download', [...selected])
+              }}
+            >
               <PlusIcon data-icon="inline-start" />
               加入收件箱（{selected.size}）
             </Button>

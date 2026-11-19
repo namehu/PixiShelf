@@ -196,8 +196,9 @@ export async function applyArtistMerge(tx: Prisma.TransactionClient, mergeId: st
   const current = await captureArtistMerge(tx, plan.sourceArtistId, plan.targetArtistId)
   if (current.fingerprint !== plan.fingerprint) throw new Error('资料或绑定已变化，请重新预览')
   if (current.summary.conflicts.length) throw new Error(current.summary.conflicts.join('；'))
-  if ((await artistMergeBlockers(tx, [plan.sourceArtistId, plan.targetArtistId], jobId)).length)
-    {throw new Error('存在相关未结束任务，请处理后重试')}
+  if ((await artistMergeBlockers(tx, [plan.sourceArtistId, plan.targetArtistId], jobId)).length) {
+    throw new Error('存在相关未结束任务，请处理后重试')
+  }
   const affected = await tx.artwork.findMany({
     where: {
       OR: [
@@ -280,6 +281,16 @@ export async function applyArtistMerge(tx: Prisma.TransactionClient, mergeId: st
     })
   }
   await tx.discoveryCreatorSuppression.deleteMany({ where: { artistId: sourceId } })
+  // Pending local assignments must follow an artist merge before the worker publishes them.
+  for (const [table, unpublished] of [
+    [Prisma.sql`archive_intake_items`, Prisma.sql`status NOT IN ('ENQUEUED', 'DUPLICATE', 'SKIPPED')`],
+    [Prisma.sql`archive_imports`, Prisma.sql`status <> 'COMPLETED' AND "publishedArtworkId" IS NULL`]
+  ] as const) {
+    await tx.$executeRaw(Prisma.sql`UPDATE ${table} SET "assignedArtistIds" = ARRAY(
+      SELECT DISTINCT CASE WHEN id = ${sourceId} THEN ${targetId} ELSE id END
+      FROM unnest("assignedArtistIds") id ORDER BY 1)
+      WHERE "localCreatorsOnly" AND ${unpublished} AND ${sourceId} = ANY("assignedArtistIds")`)
+  }
   const after = await captureArtistMerge(tx, sourceId, targetId)
   const completedAt = new Date()
   await tx.artist.update({ where: { id: sourceId }, data: { mergedIntoId: targetId, mergedAt: completedAt } })

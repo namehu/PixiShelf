@@ -2,10 +2,10 @@
 import { randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import { Prisma, PrismaClient } from '@pixishelf/db'
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import logger from '@/lib/logger'
 import { addArchiveUploaderScanItems } from '../../archive-uploader/archive-uploader-service'
-import { createArchiveIntakeSubmission } from '../archive-intake-service'
+import { createArchiveIntakeSubmission, retryArchiveIntakeMany } from '../archive-intake-service'
 import { runConcurrentArchiveTasks } from './intake-worker-fixture'
 
 const databaseUrl = process.env.QUEUE_KERNEL_TEST_DATABASE_URL
@@ -18,13 +18,19 @@ const db = new PrismaClient({ datasourceUrl: url?.toString() })
 const observer = new PrismaClient({ datasourceUrl: databaseUrl })
 let fixtureIndex = 0
 
+let intakeArtistId: number
 suite('100 item intake transactions', () => {
+  beforeAll(async () => {
+    intakeArtistId = (await db.artist.create({ data: { name: 'Intake test ' + randomUUID() } })).id
+  })
   afterEach(async () => {
     await db.archiveUploaderSource.deleteMany({ where: { id: { startsWith: prefix } } })
     await db.archiveIntakeSubmission.deleteMany({ where: { requestedByUserId: prefix } })
     await db.systemJob.deleteMany({ where: { requestedByUserId: prefix } })
   })
   afterAll(async () => {
+
+    await db.artist.delete({ where: { id: intakeArtistId } })
     await Promise.all([db.$disconnect(), observer.$disconnect()])
   })
 
@@ -57,6 +63,7 @@ suite('100 item intake transactions', () => {
     const urls = fixture.urls.slice(0, 98)
     const result = await createArchiveIntakeSubmission(
       {
+        artistIds: [intakeArtistId],
         idempotencyKey: randomUUID(),
         urls: [...urls, urls[0]!, 'invalid'],
         downloadMode: 'AUTO',
@@ -69,18 +76,82 @@ suite('100 item intake transactions', () => {
     expect(result.items.map((item) => item.submittedUrl)).toEqual(urls)
     expect(result.items.every((item) => item.selectedQuality === 'DISPLAY' && item.downloadMode === 'AUTO')).toBe(true)
     const duplicates = await createArchiveIntakeSubmission(
-      {
-        idempotencyKey: randomUUID(),
-        urls,
-        downloadMode: 'MANUAL',
-        quality: 'ORIGINAL'
-      },
+      { artistIds: [intakeArtistId], idempotencyKey: randomUUID(), urls, downloadMode: 'MANUAL', quality: 'ORIGINAL' },
       prefix,
       { database: db }
     )
     expect(duplicates).toMatchObject({ acceptedCount: 0, duplicateCount: 98 })
     expect(duplicates.items.map((item) => item.duplicateOfItemId)).toEqual(result.items.map((item) => item.id))
     expect(duplicates.items.every((item) => item.currentSystemJobId === null)).toBe(true)
+  })
+
+  it('keeps gallery aliases in one manual batch and rejects a later catalog submission before resolution', async () => {
+    const fixture = await seedBatch()
+    const gid = fixture.externalIds[0]!
+    const manualUrls = [`https://e-hentai.org/s/pagekey/${gid}-1`, `https://e-hentai.org/s/pagekey/${gid}-2`]
+    const first = await createArchiveIntakeSubmission(
+      { artistIds: [intakeArtistId], idempotencyKey: randomUUID(), urls: manualUrls },
+      prefix,
+      { database: db }
+    )
+    expect(first.acceptedCount).toBe(2)
+    expect(first.items.map((row) => row.providerKey)).toEqual([null, null])
+    await expect(submit({ ...fixture, itemIds: [fixture.itemIds[0]!] })).rejects.toThrow('已加入收件箱')
+    expect(await db.discoverySourceCreator.count({ where: { sourceId: fixture.sourceId } })).toBe(0)
+    expect(await db.archiveIntakeItem.count({ where: { submission: { requestedByUserId: prefix } } })).toBe(2)
+  })
+
+  it('reuses the first source intake for a manual page alias while the original resolver is waiting', async () => {
+    const fixture = await seedBatch()
+    const first = await submit({ ...fixture, itemIds: [fixture.itemIds[0]!] })
+    const original = first.items[0]!
+    await db.archiveIntakeItem.update({ where: { id: original.id }, data: { status: 'RETRY_WAIT' } })
+    const alias = `https://e-hentai.org/s/pagekey/${fixture.externalIds[0]}-2`
+    const other = await db.artist.create({ data: { name: prefix + '-manual' } })
+    try {
+      const second = await createArchiveIntakeSubmission(
+        { artistIds: [other.id], idempotencyKey: randomUUID(), urls: [alias] },
+        prefix,
+        { database: db }
+      )
+      expect(second).toMatchObject({
+        acceptedCount: 0,
+        duplicateCount: 1,
+        items: [{ status: 'DUPLICATE', duplicateOfItemId: original.id, currentSystemJobId: null }]
+      })
+      expect(await db.archiveIntakeItem.findUniqueOrThrow({ where: { id: original.id } })).toMatchObject({
+        assignedArtistIds: [intakeArtistId],
+        creatorSourceId: fixture.sourceId,
+        status: 'RETRY_WAIT'
+      })
+    } finally {
+      await db.artist.delete({ where: { id: other.id } })
+    }
+  })
+
+  it('rejects a retry that would race an active gallery alias before remote resolution', async () => {
+    const fixture = await seedBatch()
+    const original = await submit({ ...fixture, itemIds: [fixture.itemIds[0]!] })
+    const failed = original.items[0]!
+    await db.archiveIntakeItem.update({ where: { id: failed.id }, data: { status: 'FAILED', retryable: true } })
+    await db.systemJob.update({ where: { id: failed.currentSystemJobId! }, data: { status: 'FAILED' } })
+    const active = await createArchiveIntakeSubmission(
+      {
+        artistIds: [intakeArtistId],
+        idempotencyKey: randomUUID(),
+        urls: [`https://e-hentai.org/s/pagekey/${fixture.externalIds[0]}-2`]
+      },
+      prefix,
+      { database: db }
+    )
+    const result = await retryArchiveIntakeMany({ idempotencyKey: randomUUID(), itemIds: [failed.id] }, prefix, {
+      database: db
+    })
+    expect(result?.items[0]).toMatchObject({
+      result: 'CONFLICT',
+      relatedId: active.items[0]!.id,
+      code: 'ACTIVE_DUPLICATE'
+    })
   })
 
   it('serializes competing 100 item submissions at the capacity boundary', async () => {
@@ -139,21 +210,13 @@ suite('100 item intake transactions', () => {
     try {
       const urls = fixture.urls.slice(0, 2)
       const auto = await createArchiveIntakeSubmission(
-        {
-          idempotencyKey: randomUUID(),
-          urls,
-          downloadMode: 'AUTO'
-        },
+        { artistIds: [intakeArtistId], idempotencyKey: randomUUID(), urls, downloadMode: 'AUTO' },
         prefix,
         { database: db }
       )
       expect(auto).toMatchObject({ acceptedCount: 0, rejectedCount: 2 })
       const manual = await createArchiveIntakeSubmission(
-        {
-          idempotencyKey: randomUUID(),
-          urls,
-          downloadMode: 'MANUAL'
-        },
+        { artistIds: [intakeArtistId], idempotencyKey: randomUUID(), urls, downloadMode: 'MANUAL' },
         prefix,
         { database: db }
       )
@@ -283,7 +346,7 @@ suite('100 item intake transactions', () => {
     'commits 100 items with real resolver and archive phase executors running ($phase round $round)',
     async ({ phase, round }) => {
       const fixture = await seedBatch()
-      await runConcurrentArchiveTasks(db, prefix, phase, async () => {
+      await runConcurrentArchiveTasks(db, prefix, intakeArtistId, phase, async () => {
         const result = await measuredSubmit(fixture, `${phase}-${round}`)
         await assertBatch(result, fixture)
       })
@@ -294,10 +357,7 @@ suite('100 item intake transactions', () => {
   it('rejects a batch containing a gallery with an active intake instead of bypassing conflicts', async () => {
     const fixture = await seedBatch()
     await createArchiveIntakeSubmission(
-      {
-        idempotencyKey: randomUUID(),
-        urls: [fixture.urls[0]!]
-      },
+      { artistIds: [intakeArtistId], idempotencyKey: randomUUID(), urls: [fixture.urls[0]!] },
       prefix,
       { database: db }
     )
@@ -353,6 +413,7 @@ type Submission = Awaited<ReturnType<typeof submit>>
 function submit(fixture: BatchFixture, database: PrismaClient = db) {
   return addArchiveUploaderScanItems(
     {
+      artistIds: [intakeArtistId],
       sourceId: fixture.sourceId,
       itemIds: fixture.itemIds,
       submissionAttemptId: fixture.submissionAttemptId,

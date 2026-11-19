@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { Prisma, lockCreatorCatalog } from '@pixishelf/db'
+import { Prisma } from '@pixishelf/db'
 import {
   ARCHIVE_SEARCH_DEFINITION_VERSION,
   archiveTitleQuerySchema,
@@ -73,11 +73,6 @@ export async function enqueueDiscoveryScan(
       data: { sourceId: source.id, scanRunId: runId, mode: input.mode }
     }
   })
-  await lockCreatorCatalog(tx)
-  const defaults = await tx.discoverySourceCreator.findMany({
-    where: { sourceId: source.id },
-    orderBy: { artistId: 'asc' }
-  })
   const run = await tx.archiveUploaderScanRun.create({
     data: {
       id: runId,
@@ -95,8 +90,7 @@ export async function enqueueDiscoveryScan(
             rulesVersion: source.rulesVersion ?? 1
           }
         : {}),
-      cursorBefore,
-      defaultCreatorIds: defaults.map(({ artistId }) => artistId)
+      cursorBefore
     }
   })
   await tx.archiveUploaderSource.update({ where: { id: source.id }, data: { lastRunId: run.id } })

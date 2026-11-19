@@ -49,7 +49,8 @@ export async function completeArchiveArtwork(
         downloadScope: 'ALL'
       },
       requestedByUserId,
-      tx
+      tx,
+      { preserveArtworkCreators: true }
     )
     const intake = await tx.archiveIntakeItem.findFirst({ where: { submissionId: submission.id } })
     if (!intake) throw new ArchiveError('STATE_CONFLICT', '收件箱容量不足，暂时不能补全。')

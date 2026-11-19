@@ -28,6 +28,14 @@ vi.mock('@/lib/trpc', () => ({
   })
 }))
 
+vi.mock('@/components/creators/creator-picker', () => ({
+  CreatorPicker: ({ onChange }: { onChange: (artists: { id: number; name: string }[]) => void }) => (
+    <button type="button" onClick={() => onChange([{ id: 7, name: 'Test artist' }])}>
+      选择测试艺术家
+    </button>
+  )
+}))
+
 describe('ArchiveAddDialog', () => {
   beforeEach(() => {
     mocks.create.mockReset()
@@ -46,9 +54,12 @@ describe('ArchiveAddDialog', () => {
     fireEvent.change(screen.getByLabelText('作品链接'), {
       target: { value: 'https://e-hentai.org/g/123/token/' }
     })
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '加入 1 条' }).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: '选择测试艺术家' }))
     fireEvent.click(screen.getByRole('button', { name: '加入 1 条' }))
     expect(mocks.create).toHaveBeenCalledWith(
       expect.objectContaining({
+        artistIds: [7],
         urls: ['https://e-hentai.org/g/123/token/'],
         downloadMode: 'AUTO',
         quality: 'DISPLAY'
@@ -65,6 +76,8 @@ describe('ArchiveAddDialog', () => {
     fireEvent.click(screen.getByRole('radio', { name: '仅解析' }))
     fireEvent.click(screen.getByRole('radio', { name: '原图' }))
     expect(screen.getByText(/只解析作品信息；完成后在收件箱选择项目并确认下载。/)).toBeTruthy()
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '加入 1 条' }).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: '选择测试艺术家' }))
     fireEvent.click(screen.getByRole('button', { name: '加入 1 条' }))
     expect(mocks.create).toHaveBeenLastCalledWith(
       expect.objectContaining({ downloadMode: 'MANUAL', quality: 'ORIGINAL' })
@@ -136,7 +149,9 @@ describe('ArchiveAddDialog', () => {
     expect(mocks.create).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog')).toBeTruthy()
     expect((input as HTMLTextAreaElement).value).toBe('https://e-hentai.org/g/123/token/')
-    fireEvent.change(input, { target: { value: 'https://e-hentai.org/g/123/token/\nhttps://e-hentai.org/g/124/token/' } })
+    fireEvent.change(input, {
+      target: { value: 'https://e-hentai.org/g/123/token/\nhttps://e-hentai.org/g/124/token/' }
+    })
     expect(screen.queryByRole('link', { name: '打开原站' })).toBeNull()
     fireEvent.change(input, { target: { value: 'https://example.org/g/123/token/' } })
     expect(screen.queryByRole('link', { name: '打开原站' })).toBeNull()

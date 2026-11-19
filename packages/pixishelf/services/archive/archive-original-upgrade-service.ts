@@ -112,7 +112,8 @@ export async function upgradeArchiveOriginal(
         downloadScope: base.downloadScope
       },
       requestedByUserId,
-      tx
+      tx,
+      { preserveArtworkCreators: true }
     )
     const intake = await tx.archiveIntakeItem.findFirst({ where: { submissionId: submission.id } })
     if (!intake) throw new ArchiveError('STATE_CONFLICT', '收件箱容量不足，暂时不能升级原图。')

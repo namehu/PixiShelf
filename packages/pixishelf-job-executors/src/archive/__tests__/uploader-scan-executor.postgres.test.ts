@@ -102,7 +102,7 @@ describePostgres('archive uploader scan catalog PostgreSQL integration', () => {
   )
 
   it.each(['UPLOADER', 'TITLE_QUERY'] as const)(
-    '%s freezes defaults, consumes first-match once, unions sources and respects explicit removal',
+    '%s records matches without creating or modifying any artwork creator assignment',
     async (sourceKind) => {
       const now = new Date('2026-09-16T00:00:00Z')
       const a = await db().artist.create({ data: { name: `${prefix}-a` } })
@@ -120,9 +120,9 @@ describePostgres('archive uploader scan catalog PostgreSQL integration', () => {
         },
         sourceKind
       )
-      expect(await db().discoveryPendingCreator.findMany({ where: { providerKey: 'e-hentai', externalId } })).toEqual([
-        expect.objectContaining({ artistId: a.id })
-      ])
+      expect(await db().discoveryPendingCreator.findMany({ where: { providerKey: 'e-hentai', externalId } })).toEqual(
+        []
+      )
       const again = await seedScanRun(source.id, 'default-again', now, sourceKind)
       await db().archiveUploaderScanRun.update({ where: { id: again.runId }, data: { defaultCreatorIds: [b.id] } })
       await executeArchiveUploaderScan(
@@ -134,7 +134,7 @@ describePostgres('archive uploader scan catalog PostgreSQL integration', () => {
         },
         sourceKind
       )
-      expect(await db().discoveryPendingCreator.count({ where: { providerKey: 'e-hentai', externalId } })).toBe(1)
+      expect(await db().discoveryPendingCreator.count({ where: { providerKey: 'e-hentai', externalId } })).toBe(0)
       const artwork = await db().artwork.create({ data: { title: `${prefix}-default-artwork` } })
       await db().artworkExternalRef.create({
         data: { providerKey: 'e-hentai', externalId, artworkId: artwork.id, canonicalUrl, locator: {} }
@@ -152,7 +152,7 @@ describePostgres('archive uploader scan catalog PostgreSQL integration', () => {
         },
         sourceKind
       )
-      expect(await db().artworkArtist.count({ where: { artworkId: artwork.id, ...activeCreatorMembership } })).toBe(2)
+      expect(await db().artworkArtist.count({ where: { artworkId: artwork.id, ...activeCreatorMembership } })).toBe(1)
       await db().$transaction((tx) => editArtworkCreators(tx, artwork.id, [a.id], 'REMOVE'))
       const lastSource = await seedSource('default-third', sourceKind)
       const last = await seedScanRun(lastSource.id, 'default-third', now, sourceKind)
@@ -168,7 +168,7 @@ describePostgres('archive uploader scan catalog PostgreSQL integration', () => {
       )
       expect(
         await db().artworkArtist.findMany({ where: { artworkId: artwork.id, ...activeCreatorMembership } })
-      ).toEqual([expect.objectContaining({ artistId: b.id })])
+      ).toEqual([])
     }
   )
 

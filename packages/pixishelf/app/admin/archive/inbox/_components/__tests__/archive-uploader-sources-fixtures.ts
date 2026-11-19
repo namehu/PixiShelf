@@ -1,5 +1,6 @@
 export const source = {
   id: 'source-1',
+  defaultCreators: [{ id: 7, name: 'Test artist', kind: 'PERSON' }],
   titleRules: null,
   rulesVersion: 1,
   providerKey: 'e-hentai',

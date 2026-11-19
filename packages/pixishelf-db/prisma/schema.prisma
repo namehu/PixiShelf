@@ -196,6 +196,7 @@ model LocalImportArtistMapping {
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model Artwork {
+  archiveLocalCreatorsOnly Boolean @default(false)
   id                    Int                   @id @default(autoincrement())
   mediaRevision         Int                   @default(1)
   logicalMediaCount     Int                   @default(0)
@@ -1135,6 +1136,10 @@ model DerivedMediaGcEntry {
 }
 
 model ArchiveImport {
+  localCreatorsOnly Boolean @default(false)
+  assignedArtistIds Int[] @default([])
+  creatorSourceId String?
+  creatorSourceName String?
   upgradeBaseRevisionId String?
   upgradeSnapshot Json?
   downloadScope ArchiveDownloadScope @default(ALL)
@@ -1255,6 +1260,10 @@ model ArchiveIntakeSubmission {
 }
 
 model ArchiveIntakeItem {
+  localCreatorsOnly Boolean @default(false)
+  assignedArtistIds Int[] @default([])
+  creatorSourceId String?
+  creatorSourceName String?
   upgradeBaseRevisionId String?
   upgradeSnapshot Json?
   downloadScope ArchiveDownloadScope @default(ALL)

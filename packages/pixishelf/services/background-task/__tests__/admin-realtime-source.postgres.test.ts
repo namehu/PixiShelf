@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto'
 import { PrismaClient } from '@pixishelf/db'
-import { afterAll, describe, expect, it } from 'vitest'
+import { beforeAll, afterAll, describe, expect, it } from 'vitest'
 import {
   createArchiveIntakeSubmission,
   listArchiveIntakeItems,
@@ -13,11 +13,17 @@ const url = process.env.QUEUE_KERNEL_TEST_DATABASE_URL
 const db = url ? new PrismaClient({ datasourceUrl: url }) : null
 const prefix = `sse-${randomUUID()}`
 
+let intakeArtistId: number
 describe.skipIf(!db)('admin realtime with actual intake transactions', () => {
+  beforeAll(async () => {
+    intakeArtistId = (await db!.artist.create({ data: { name: 'Intake test ' + randomUUID() } })).id
+  })
   afterAll(async () => {
     if (!db) return
     await db.archiveIntakeSubmission.deleteMany({ where: { requestedByUserId: prefix } })
     await db.systemJob.deleteMany({ where: { requestedByUserId: prefix } })
+
+    await db!.artist.delete({ where: { id: intakeArtistId } })
     await db.$disconnect()
   })
 
@@ -30,6 +36,7 @@ describe.skipIf(!db)('admin realtime with actual intake transactions', () => {
     const base = Math.floor(Date.now() / 1000)
     const submission = await createArchiveIntakeSubmission(
       {
+        artistIds: [intakeArtistId],
         idempotencyKey: prefix,
         urls: Array.from({ length: 100 }, (_, index) => `https://e-hentai.org/g/${base + index}/${token}/`),
         downloadMode: 'MANUAL',

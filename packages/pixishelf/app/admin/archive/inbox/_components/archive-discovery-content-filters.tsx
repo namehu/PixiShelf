@@ -78,7 +78,7 @@ export function ArchiveDiscoveryContentFilters({
         ]
       : []),
     ...(value.unboundOnly
-      ? [{ key: 'unbound', label: '仅看未绑定', remove: () => onChange({ ...value, unboundOnly: false }) }]
+      ? [{ key: 'unbound', label: '已归档且未绑定艺术家', remove: () => onChange({ ...value, unboundOnly: false }) }]
       : [])
   ]
   const form = (
@@ -175,7 +175,7 @@ export function ArchiveDiscoveryContentFilters({
             checked={draft.unboundOnly}
             onCheckedChange={(checked) => setDraft({ ...draft, unboundOnly: checked === true })}
           />
-          <FieldLabel htmlFor={`${id}-unbound`}>仅看未绑定</FieldLabel>
+          <FieldLabel htmlFor={`${id}-unbound`}>已归档且未绑定艺术家</FieldLabel>
         </Field>
       </FieldGroup>
       <div className="flex shrink-0 justify-between gap-2 pt-4 pb-[env(safe-area-inset-bottom)] [&_[data-slot=button]]:h-11 sm:[&_[data-slot=button]]:h-9">

@@ -17,7 +17,7 @@ export * from './media-content-writes'
 export * from './media-content-evidence'
 export * from './media-content-recovery'
 
-const latestRequiredMigration = '20261104010000_reading_position_progress'
+const latestRequiredMigration = '20261118180000_archive_intake_creator_assignment'
 
 const requiredSourceSnapshotTables = [
   'scan_run_metadata_inputs',

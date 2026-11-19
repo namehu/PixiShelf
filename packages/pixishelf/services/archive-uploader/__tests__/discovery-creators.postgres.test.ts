@@ -4,13 +4,10 @@ import {
   PrismaClient,
   activeCreatorMembership,
   consumeDiscoveryCreators,
-  editArtworkCreators,
   lockDiscoveryCreators
 } from '@pixishelf/db'
 import {
   bindDiscoveryItems,
-  cancelPendingCreators,
-  listPendingCreators,
   setDiscoveryCreators
 } from '../discovery-creator-service'
 import { listArchiveUploaderScanItems } from '../archive-uploader-service'
@@ -85,89 +82,38 @@ describe.skipIf(!url)('discovery creator binding PostgreSQL', () => {
     await db.artist.deleteMany({ where: { id: { in: artistIds } } })
     await db.$disconnect()
   })
-  it('deduplicates across sources, survives source deletion and supports orphan cancellation', async () => {
-    const input = { sourceId, itemIds: [itemId], artistIds: [artistId, artistId], requestId: requestId() }
-    expect((await bindDiscoveryItems(input, 'test', db!))?.counts.created).toBe(1)
-    const other = await db!.archiveUploaderSource.create({
-      data: {
-        providerKey: 'e-hentai',
-        displayName: prefix,
-        identityKind: 'NAME',
-        identityValue: randomUUID(),
-        normalizedIdentity: randomUUID()
-      }
-    })
-    const item = await db!.archiveUploaderCatalogItem.create({
-      data: {
-        ...identity,
-        sourceId: other.id,
-        title: prefix,
-        canonicalUrl: 'https://e-hentai.org/g/1/token/',
-        relationships: [],
-        classification: 'NEW',
-        firstSeenAt: new Date(),
-        lastSeenAt: new Date()
-      }
-    })
-    await bindDiscoveryItems({ ...input, sourceId: other.id, itemIds: [item.id], requestId: requestId() }, 'test', db!)
-    expect(await db!.discoveryPendingCreator.count({ where: identity })).toBe(1)
-    await db!.archiveUploaderSource.delete({ where: { id: sourceId } })
-    expect((await bindDiscoveryItems(input, 'test', db!))?.counts.created).toBe(1)
-    const pending = (await listPendingCreators({ limit: 100 }, db!)).items.find(
-      (row) => row.externalId === identity.externalId
-    )!
-    expect(pending.artist.id).toBe(artistId)
-    await cancelPendingCreators({ pendingIds: [pending.id], requestId: requestId() }, 'test', db!)
-    expect(await db!.discoveryCreatorSuppression.count({ where: identity })).toBe(1)
-  })
-  it('serializes binding against publication in both orders and prevents replay after removal', async () => {
+  it('skips unpublished galleries and only fills a still unbound active artwork', async () => {
     const input = { sourceId, itemIds: [itemId], artistIds: [artistId], requestId: requestId() }
-    const [, artworkId] = await Promise.all([bindDiscoveryItems(input, 'test', db!), publish()])
-    expect((await effective(artworkId)).map((row) => row.artistId)).toEqual([artistId])
+    expect((await bindDiscoveryItems(input, 'test', db!))?.counts.skipped).toBe(1)
     expect(await db!.discoveryPendingCreator.count({ where: identity })).toBe(0)
-    await db!.$transaction((tx) => editArtworkCreators(tx, artworkId, [artistId], 'REMOVE'))
-    await bindDiscoveryItems(input, 'test', db!)
-    expect(await effective(artworkId)).toEqual([])
+    const artworkId = await publish()
     expect((await bindDiscoveryItems({ ...input, requestId: requestId() }, 'test', db!))?.counts.applied).toBe(1)
-    expect(await db!.discoveryCreatorSuppression.count({ where: identity })).toBe(0)
+    expect((await bindDiscoveryItems({ ...input, requestId: requestId() }, 'test', db!))?.counts.skipped).toBe(1)
+    expect((await effective(artworkId)).map((row) => row.artistId)).toEqual([artistId])
   })
-  it('cancels only pending relations, even when publication races cancellation', async () => {
-    await bindDiscoveryItems(
-      { sourceId, itemIds: [itemId], artistIds: [artistId], requestId: requestId() },
-      'test',
-      db!
-    )
-    const pending = await db!.discoveryPendingCreator.findFirstOrThrow({ where: identity })
-    const [artworkId, result] = await Promise.all([
-      publish(),
-      cancelPendingCreators({ pendingIds: [pending.id], requestId: requestId() }, 'test', db!)
-    ])
-    expect(await db!.discoveryPendingCreator.count({ where: identity })).toBe(0)
-    expect((await effective(artworkId)).length).toBe(result?.counts.applied ? 0 : 1)
-  })
-  it('filters unbound results before pagination and does not enqueue when setting defaults or binding', async () => {
-    await setDiscoveryCreators({ sourceId, artistIds: [artistId] }, db!)
-    expect(await db!.archiveUploaderScanRun.count({ where: { sourceId } })).toBe(0)
+  it('filters published artwork by effective creators before counting, including available updates and stale pending rows', async () => {
     const deps = { database: db!, sourceKind: 'ALL' as const }
-    expect((await listArchiveUploaderScanItems({ sourceId, unboundOnly: true }, deps)).counts?.total).toBe(1)
+    const page = () => listArchiveUploaderScanItems({ sourceId, view: 'ALL', unboundOnly: true }, deps)
+    await setDiscoveryCreators({ sourceId, artistIds: [artistId] }, db!)
+    expect((await page()).counts?.total).toBe(0)
+    const artworkId = await publish()
+    await db!.discoveryPendingCreator.create({ data: { ...identity, artistId, title: prefix } })
+    await db!.archiveUploaderCatalogItem.update({ where: { id: itemId }, data: { classification: 'POSSIBLE_UPDATE' } })
+    const unbound = await page()
+    expect(unbound.counts).toMatchObject({ total: 1, actionable: 1 })
+    expect(unbound.items[0]?.artworkId).toBe(artworkId)
     await bindDiscoveryItems(
       { sourceId, itemIds: [itemId], artistIds: [artistId], requestId: requestId() },
       'test',
       db!
     )
-    expect((await listArchiveUploaderScanItems({ sourceId, unboundOnly: true }, deps)).items).toEqual([])
-    const page = await listArchiveUploaderScanItems({ sourceId }, deps)
-    expect(page.items[0]?.pendingCreators[0]?.id).toBe(artistId)
-    await publish()
-    expect(
-      (await listArchiveUploaderScanItems({ sourceId, view: 'ALL' }, deps)).items[0]?.effectiveCreators[0]?.id
-    ).toBe(artistId)
+    expect((await page()).items).toEqual([])
     expect(await db!.archiveIntakeItem.count({ where: identity })).toBe(0)
   })
   it('keeps per-item failures and rejects request reuse with another payload or actor', async () => {
     const input = { sourceId, itemIds: [itemId, 'missing'], artistIds: [artistId], requestId: requestId() }
     const result = await bindDiscoveryItems(input, 'test', db!)
-    expect(result?.counts).toMatchObject({ created: 1, conflict: 1 })
+    expect(result?.counts).toMatchObject({ skipped: 1, conflict: 1 })
     await expect(bindDiscoveryItems(input, 'another-user', db!)).rejects.toThrow('幂等键')
     await expect(bindDiscoveryItems({ ...input, itemIds: [itemId] }, 'test', db!)).rejects.toThrow('幂等键')
   })

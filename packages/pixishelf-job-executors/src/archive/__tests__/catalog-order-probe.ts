@@ -1,9 +1,13 @@
 import { expect } from 'vitest'
-import type { PrismaClient } from '@pixishelf/db'
+import type { Prisma, PrismaClient } from '@pixishelf/db'
 
 /** Pause at the actual first catalog call. A separate PG transaction must still be
  * able to own catalog -> archive -> the original provider row, not merely a mock lock. */
-export function archiveCatalogProbe(database: PrismaClient, sourceId: string) {
+export function archiveCatalogProbe(
+  database: PrismaClient,
+  sourceId: string,
+  whileLocked?: (tx: Prisma.TransactionClient) => Promise<unknown>
+) {
   let hits = 0
   return {
     hits: () => hits,
@@ -24,6 +28,7 @@ export function archiveCatalogProbe(database: PrismaClient, sourceId: string) {
                   { id: string }[]
                 >`SELECT id FROM "ArtworkDedupSourceIdentity" WHERE id=${sourceId} FOR UPDATE`
                 expect(sources).toHaveLength(1)
+                await whileLocked?.(other)
               })
               hits++
             }

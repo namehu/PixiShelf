@@ -89,3 +89,37 @@ export async function sourceProof(database: PrismaClient, externalId: string, pr
   )
   return serializeArtworkDedupSourceSnapshot(sources)
 }
+
+export async function seedCatalogItem(database: PrismaClient, suitePrefix: string, intakeItemId: string, externalId: string, timestamp: Date) {
+  const sourceId = `${suitePrefix}-source-${randomUUID()}`
+  const catalogId = `${suitePrefix}-catalog-${randomUUID()}`
+  await database.archiveUploaderSource.create({
+    data: {
+      id: sourceId,
+      providerKey: 'test-provider',
+      identityKind: 'UID',
+      identityValue: randomUUID(),
+      normalizedIdentity: randomUUID(),
+      displayName: 'Intake lifecycle source'
+    }
+  })
+  await database.archiveUploaderCatalogItem.create({
+    data: {
+      id: catalogId,
+      sourceId,
+      providerKey: 'test-provider',
+      externalId,
+      canonicalUrl: `https://e-hentai.org/g/${externalId}/privatetoken/`,
+      title: `Gallery ${externalId}`,
+      relationships: [],
+      classification: 'NEW',
+      comparisonKnown: true,
+      firstSeenAt: timestamp,
+      lastSeenAt: timestamp,
+      lastIntakeItemId: intakeItemId,
+      lastOutcome: 'SUBMITTED',
+      lastOutcomeAt: timestamp
+    }
+  })
+  return catalogId
+}

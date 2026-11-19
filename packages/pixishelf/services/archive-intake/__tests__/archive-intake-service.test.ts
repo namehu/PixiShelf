@@ -72,8 +72,9 @@ describe('archive intake input and wire safety', () => {
 
   it('defaults only new requests to display quality and preserves explicit original intent', () => {
     const input = { idempotencyKey: 'fixture-default', urls: ['https://e-hentai.org/g/123/token/'] }
-    expect(createArchiveIntakeSchema.parse(input).quality).toBe('DISPLAY')
-    expect(createArchiveIntakeSchema.parse({ ...input, quality: 'ORIGINAL' }).quality).toBe('ORIGINAL')
+    expect(createArchiveIntakeSchema.safeParse(input).success).toBe(false)
+    expect(createArchiveIntakeSchema.parse({ ...input, artistIds: [7] }).quality).toBe('DISPLAY')
+    expect(createArchiveIntakeSchema.parse({ ...input, artistIds: [7], quality: 'ORIGINAL' }).quality).toBe('ORIGINAL')
   })
 
   it('enforces create and bulk limits at the service boundary', () => {

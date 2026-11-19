@@ -7,7 +7,7 @@ const queueKernelDatabaseUrl =
   process.env.QUEUE_KERNEL_TEST_DATABASE_URL ?? (process.env.CI === 'true' ? process.env.DATABASE_URL : undefined)
 const describePostgres = queueKernelDatabaseUrl ? describe : describe.skip
 const postgresClient = queueKernelDatabaseUrl ? new PrismaClient({ datasourceUrl: queueKernelDatabaseUrl }) : null
-const latestMigration = '20261104010000_reading_position_progress'
+const latestMigration = '20261118180000_archive_intake_creator_assignment'
 
 const sourceSnapshotColumns = [
   'scan_run_metadata_inputs.dedupSourceSnapshot',
@@ -155,7 +155,7 @@ describe('database package', () => {
     ])
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(`archive_imports.${missingColumn}`)
   })
-  it('rejects migration 110 even when all source snapshot columns were added manually', async () => {
+  it('rejects the previous Worker schema even when all source snapshot columns exist', async () => {
     const client = createQueryClient([
       [
         'definitionVersion',
@@ -172,7 +172,7 @@ describe('database package', () => {
         'archive_imports.sealedManifestSha256'
       ].map((columnName) => ({ columnName })),
       completeTableRows,
-      [{ migrationName: '20261024001300_artwork_dedup_reference_indexes' }],
+      [{ migrationName: '20261104010000_reading_position_progress' }],
       [expectedIndex]
     ])
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(`migration:${latestMigration}`)
@@ -806,8 +806,8 @@ describePostgres('database package PostgreSQL integration', () => {
     ).rejects.toBe(rollback)
   })
 
-  it('rejects a real catalog without the completed archive deletion migration', async () => {
-    const rollback = new Error('rollback archive deletion migration fixture')
+  it('rejects a real catalog without the completed intake creator assignment migration', async () => {
+    const rollback = new Error('rollback intake creator assignment migration fixture')
     await expect(
       postgresClient!.$transaction(async (transaction) => {
         await transaction.$executeRaw`DELETE FROM "_prisma_migrations" WHERE migration_name = ${latestMigration}`

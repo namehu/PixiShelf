@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import type { AppRouter } from '@/server'
 import { useTRPC } from '@/lib/trpc'
+import { CreatorPicker, type CreatorOption } from '@/components/creators/creator-picker'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -38,6 +39,7 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
   const trpc = useTRPC()
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
+  const [artists, setArtists] = useState<CreatorOption[]>([])
   const [value, setValue] = useState('')
   const [options, setOptions] = useState(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
   const valueRef = useRef('')
@@ -139,7 +141,10 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
 
   const changeOpen = (nextOpen: boolean) => {
     setOpen(nextOpen)
-    if (nextOpen) setOptions(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
+    if (nextOpen) {
+      setOptions(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
+      setArtists([])
+    }
     if (!nextOpen && !createMutation.isPending) {
       clipboardRequestId.current += 1
       manualPasteRequested.current = false
@@ -171,10 +176,11 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
           className="flex flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault()
-            if (!analysis.nonEmptyCount || tooMany) return
+            if (!analysis.nonEmptyCount || tooMany || !artists.length) return
             createMutation.mutate({
               idempotencyKey,
               ...options,
+              artistIds: artists.map((a) => a.id),
               urls: analysis.lines.map((line) => line.raw)
             })
           }}
@@ -222,6 +228,19 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
             </Field>
           </FieldGroup>
 
+          <Field>
+            <FieldLabel>本站艺术家</FieldLabel>
+            <CreatorPicker
+              value={artists}
+              onChange={(next) => {
+                setArtists(next)
+                setIdempotencyKey(createIdempotencyKey())
+              }}
+              presentation="dialog"
+              disabled={createMutation.isPending}
+            />
+            <FieldDescription>所选艺术家应用到本批 {analysis.nonEmptyCount} 条链接</FieldDescription>
+          </Field>
           <ArchiveIntakeOptions
             value={options}
             onChange={(nextOptions) => {
@@ -251,7 +270,9 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
             <Button
               type="submit"
               className="min-h-11 sm:min-h-9"
-              disabled={!analysis.nonEmptyCount || tooMany || clipboardPending || createMutation.isPending}
+              disabled={
+                !artists.length || !analysis.nonEmptyCount || tooMany || clipboardPending || createMutation.isPending
+              }
             >
               {createMutation.isPending ? (
                 <Spinner data-icon="inline-start" />

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Prisma, PrismaClient } from '@pixishelf/db'
 import { enqueueArchiveIntakeItemInTransaction } from '@pixishelf/job-executors'
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('server-only', () => ({}))
 import {
   deferDiscoveryItems,
@@ -86,7 +86,11 @@ async function cancelledUpdate() {
     where: { id: item.id },
     data: { classification: 'POSSIBLE_UPDATE', lastOutcome: 'ARCHIVED' }
   })
-  const submission = await createArchiveIntakeSubmission({ idempotencyKey: request(), urls: [url] }, prefix, deps())
+  const submission = await createArchiveIntakeSubmission(
+    { artistIds: [intakeArtistId], idempotencyKey: request(), urls: [url] },
+    prefix,
+    deps()
+  )
   const intake = await db().archiveIntakeItem.findFirstOrThrow({ where: { submissionId: submission.id } })
   expect(intake.providerKey).toBeNull()
   const cancelled = await cancelArchiveIntakeMany({ idempotencyKey: request(), itemIds: [intake.id] }, prefix, deps())
@@ -125,11 +129,17 @@ async function cleanup() {
   await db().artist.deleteMany({ where: { name: { startsWith: prefix } } })
 }
 
+let intakeArtistId: number
 suite('persistent discovery deferred decisions', () => {
+  beforeAll(async () => {
+    intakeArtistId = (await db().artist.create({ data: { name: 'Intake test ' + randomUUID() } })).id
+  })
   beforeEach(cleanup)
   afterAll(async () => {
     if (database) {
       await cleanup()
+
+    await db().artist.delete({ where: { id: intakeArtistId } })
       await database.$disconnect()
     }
   })
@@ -167,20 +177,29 @@ suite('persistent discovery deferred decisions', () => {
       expect(page.items).toContainEqual(expect.objectContaining({ id: decision.id, sourceDeleted: true }))
       expect(JSON.stringify(page)).not.toContain('aabbccdd11')
       const input = { deferredItemIds: [decision.id], requestId: request(), downloadScope }
-      const downloaded = await downloadDeferredItems(input, prefix, deps())
+      const downloaded = await downloadDeferredItems({ ...input, artistIds: [intakeArtistId] }, prefix, deps())
       expect(downloaded?.counts.created).toBe(1)
       expect(await db().archiveDiscoveryDeferredItem.findUnique({ where: { id: decision.id } })).toBeNull()
       const intake = await db().archiveIntakeItem.findFirstOrThrow({
         where: { submissionId: downloaded!.items[0]!.relatedId! }
       })
-      expect(intake.downloadScope).toBe(downloadScope)
+      expect(intake).toMatchObject({
+        downloadScope,
+        assignedArtistIds: [intakeArtistId],
+        creatorSourceId: null,
+        creatorSourceName: decision.sourceDisplayName
+      })
       expect(
         (await db().systemJob.findUniqueOrThrow({ where: { id: intake.currentSystemJobId! } })).definitionVersion
       ).toBe(2)
-      const replay = await downloadDeferredItems(input, prefix, deps())
+      const replay = await downloadDeferredItems({ ...input, artistIds: [intakeArtistId] }, prefix, deps())
       expect(replay?.id).toBe(downloaded?.id)
       await expect(
-        downloadDeferredItems({ ...input, downloadScope: downloadScope === 'ALL' ? 'FIRST_20' : 'ALL' }, prefix, deps())
+        downloadDeferredItems(
+          { artistIds: [intakeArtistId], ...input, downloadScope: downloadScope === 'ALL' ? 'FIRST_20' : 'ALL' },
+          prefix,
+          deps()
+        )
       ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
       expect(await db().archiveIntakeItem.count({ where: { submissionId: downloaded!.items[0]!.relatedId! } })).toBe(1)
       await assertDeferredDownloadPlan(intake, downloadScope)
@@ -194,6 +213,7 @@ suite('persistent discovery deferred decisions', () => {
     await db().archiveUploaderSource.delete({ where: { id: first.sourceId } })
     const result = await downloadDeferredItems(
       {
+        artistIds: [intakeArtistId],
         deferredItemIds: decisions.map(({ id }) => id),
         requestId: request(),
         downloadScope: 'FIRST_20',
@@ -213,7 +233,7 @@ suite('persistent discovery deferred decisions', () => {
   })
 
   it.each(['UPLOADER', 'TITLE_QUERY'] as const)(
-    '%s preserves scanned creators when deferred items enter the inbox',
+    '%s uses current source artists when deferred items enter the inbox',
     async (sourceKind) => {
       const item = await seed('creators')
       await db().archiveUploaderSource.update({
@@ -244,11 +264,14 @@ suite('persistent discovery deferred decisions', () => {
       await db().discoverySourceCreator.create({ data: { sourceId: item.sourceId, artistId: changedArtist.id } })
       const decision = await defer(item)
       const result = await downloadDeferredItems(
-        { deferredItemIds: [decision.id], requestId: request() },
+        { artistIds: [intakeArtistId], deferredItemIds: [decision.id], requestId: request() },
         prefix,
         deps()
       )
       expect(result?.counts.created).toBe(1)
+      expect(
+        await db().archiveIntakeItem.findFirstOrThrow({ where: { submissionId: result!.items[0]!.relatedId! } })
+      ).toMatchObject({ assignedArtistIds: [changedArtist.id], creatorSourceId: item.sourceId })
       expect(
         await db().discoveryPendingCreator.findMany({
           where: { providerKey: item.providerKey, externalId: item.externalId }
@@ -278,13 +301,13 @@ suite('persistent discovery deferred decisions', () => {
     const item = await seed()
     await defer(item)
     await createArchiveIntakeSubmission(
-      { idempotencyKey: request(), urls: ['https://127.0.0.1/g/123/private/'] },
+      { artistIds: [intakeArtistId], idempotencyKey: request(), urls: ['https://127.0.0.1/g/123/private/'] },
       prefix,
       deps()
     )
     expect(await db().archiveDiscoveryDeferredItem.count({ where: { deferredByUserId: prefix } })).toBe(1)
     const input = { idempotencyKey: request(), urls: [url], downloadMode: 'MANUAL' as const }
-    const submission = await createArchiveIntakeSubmission(input, prefix, deps())
+    const submission = await createArchiveIntakeSubmission({ ...input, artistIds: [intakeArtistId] }, prefix, deps())
     expect(submission.acceptedCount).toBe(1)
     expect(await db().archiveDiscoveryDeferredItem.count({ where: { deferredByUserId: prefix } })).toBe(0)
     // A later decision must survive a replay of the earlier accepted URL request.
@@ -298,13 +321,17 @@ suite('persistent discovery deferred decisions', () => {
         deferredByUserId: prefix
       }
     })
-    await createArchiveIntakeSubmission(input, prefix, deps())
+    await createArchiveIntakeSubmission({ ...input, artistIds: [intakeArtistId] }, prefix, deps())
     expect(await db().archiveDiscoveryDeferredItem.findUnique({ where: { id: later.id } })).not.toBeNull()
   })
 
   it('rejects already enqueued candidates', async () => {
     const item = await seed()
-    await createArchiveIntakeSubmission({ idempotencyKey: request(), urls: [url] }, prefix, deps())
+    await createArchiveIntakeSubmission(
+      { artistIds: [intakeArtistId], idempotencyKey: request(), urls: [url] },
+      prefix,
+      deps()
+    )
     const operation = await deferDiscoveryItems(
       { sourceId: item.sourceId, itemIds: [item.id], requestId: request() },
       prefix,
@@ -318,7 +345,11 @@ suite('persistent discovery deferred decisions', () => {
     const item = await seed()
     const decision = await defer(item)
     await fillCapacity()
-    const result = await downloadDeferredItems({ deferredItemIds: [decision.id], requestId: request() }, prefix, deps())
+    const result = await downloadDeferredItems(
+      { artistIds: [intakeArtistId], deferredItemIds: [decision.id], requestId: request() },
+      prefix,
+      deps()
+    )
     expect(result?.counts.conflict).toBe(1)
     expect(await db().archiveDiscoveryDeferredItem.findUnique({ where: { id: decision.id } })).not.toBeNull()
   })

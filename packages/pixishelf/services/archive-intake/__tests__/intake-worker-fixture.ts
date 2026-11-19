@@ -33,6 +33,7 @@ import { resolveMediaContentRoots } from '@pixishelf/job-executors/media-content
 export async function runConcurrentArchiveTasks(
   database: PrismaClient,
   requestedByUserId: string,
+  artistId: number,
   phase: 'transfer' | 'checkpoint' | 'publication',
   submit: () => Promise<void>
 ) {
@@ -87,6 +88,7 @@ export async function runConcurrentArchiveTasks(
   const seed = async (identity: string) => {
     const submission = await createArchiveIntakeSubmission(
       {
+        artistIds: [artistId],
         idempotencyKey: randomUUID(),
         urls: [`https://e-hentai.org/g/${identity}/fixture/`],
         downloadMode: 'AUTO'
@@ -112,6 +114,14 @@ export async function runConcurrentArchiveTasks(
 
   let running: Promise<unknown>[] = []
   try {
+    const historical = await database.discoveryPendingCreator.create({
+      data: {
+        providerKey: 'e-hentai',
+        externalId: downloadIdentity,
+        title,
+        artist: { create: { name: title + '-legacy' } }
+      }
+    })
     const downloadSeed = await seed(downloadIdentity)
     await executeArchiveResolveItem(context<ArchiveResolveItemPayload>(downloadSeed.claimed, repository), {
       database,
@@ -244,6 +254,13 @@ export async function runConcurrentArchiveTasks(
       completedItems: 1,
       failedItems: 0
     })
+    const published = await database.artwork.findFirstOrThrow({
+      where: { title },
+      include: { creators: { include: { evidence: true } } }
+    })
+    expect(await database.discoveryPendingCreator.findUnique({ where: { id: historical.id } })).not.toBeNull()
+    expect(published.archiveLocalCreatorsOnly).toBe(true)
+    expect(published.creators).toMatchObject([{ artistId, evidence: [{ evidenceKey: 'archive:' + archive.id }] }])
     expect(await database.archiveIntakeItem.findUniqueOrThrow({ where: { id: resolving.item.id } })).toMatchObject({
       status: 'ENQUEUED'
     })
@@ -270,6 +287,10 @@ export async function runConcurrentArchiveTasks(
       where: { providerKey: 'e-hentai', externalId: { in: [downloadIdentity, resolveIdentity] } }
     })
     await database.artwork.deleteMany({ where: { title } })
+    await database.discoveryPendingCreator.deleteMany({
+      where: { providerKey: 'e-hentai', externalId: downloadIdentity }
+    })
+    await database.artist.deleteMany({ where: { name: title + '-legacy' } })
     // The next case uses a new temporary root; remove this root's durable claims after all executors stop.
     const { source } = await resolveMediaContentRoots({
       sourceRoot: root,
@@ -342,8 +363,13 @@ function resolved(url: string, title: string): ResolvedArchive {
     tags: [],
     relationships: [],
     media: [{ index: 0, sourcePageUrl: 'https://fixture.invalid/page/1', locator: {}, expectedFilename: '0001.png' }],
-    normalizedMetadata: { titles: { display: title }, fileCount: 1, tags: [], relationships: [] },
-    rawMetadata: {},
+    normalizedMetadata: {
+      titles: { display: title },
+      fileCount: 1,
+      tags: [{ namespace: 'artist', name: 'external-creator' }],
+      relationships: []
+    },
+    rawMetadata: { tags: ['artist:external-creator'] },
     warnings: [],
     creatorBucket: '_unknown'
   }

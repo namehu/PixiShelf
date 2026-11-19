@@ -21,6 +21,29 @@ export function registerDiscoveryRowCases<
   getItem: () => T
   setItems: (items: T[]) => void
 }) {
+  it('submits selected catalog items without generating persistence ids in the browser', () => {
+    renderSources()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入收件箱' }))
+
+    expect(createSubmissionAttempt).toHaveBeenCalledWith({
+      sourceId: 'source-1',
+      itemIds: ['catalog-item-1'],
+      downloadMode: 'AUTO',
+      quality: 'DISPLAY',
+      downloadScope: 'ALL'
+    })
+    expect(addToInbox).toHaveBeenCalledWith({
+      sourceId: 'source-1',
+      itemIds: ['catalog-item-1'],
+      downloadMode: 'AUTO',
+      quality: 'DISPLAY',
+      downloadScope: 'ALL',
+      submissionAttemptId: '00000000-0000-4000-8000-000000000001'
+    })
+  })
+
   it.each(['list', 'preview', 'cards'] as const)('selects all non-link row content exactly once in %s mode', (view) => {
     useAdminPreferencesStore.setState({ archiveUploaderResultView: view })
     renderSources()

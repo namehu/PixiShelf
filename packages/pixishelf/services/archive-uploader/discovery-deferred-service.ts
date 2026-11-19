@@ -10,6 +10,7 @@ import { prisma } from '@/lib/prisma'
 import { runArchiveBulkOperation } from '@/services/archive/archive-bulk-operation'
 import { ArchiveError } from '@/services/archive/errors'
 import { archiveTaskSourceUrl } from '@/services/archive/archive-task-source-service'
+import { intakeArtistIdsSchema } from '@/services/archive-intake/archive-intake-creators'
 import { createArchiveIntakeSubmissionInTransaction } from '@/services/archive-intake/archive-intake-service'
 import { assertCatalogItemsActionable } from './archive-uploader-catalog-actions'
 import { linkIntakeCatalogItems } from './archive-uploader-intake-link'
@@ -24,6 +25,7 @@ const requestId = z.string().trim().min(1).max(180)
 export const deferDiscoveryItemsSchema = z.object({ sourceId: id, itemIds: ids, requestId }).strict()
 export const deferredItemsCommandSchema = z.object({ deferredItemIds: ids, requestId }).strict()
 export const downloadDeferredItemsSchema = deferredItemsCommandSchema.extend({
+  artistIds: intakeArtistIdsSchema.optional(),
   downloadMode: z.enum(['AUTO', 'MANUAL']).default('AUTO'),
   quality: z.enum(['ORIGINAL', 'DISPLAY']).default('DISPLAY'),
   downloadScope: archiveDownloadScopeSchema.default('ALL')
@@ -64,8 +66,8 @@ export async function listDeferredItems(
   )`
     : Prisma.empty
   const [rows, counts] = await Promise.all([
-    database.$queryRaw<ArchiveDiscoveryDeferredItem[]>(Prisma.sql`
-      SELECT deferred.* FROM archive_discovery_deferred_items deferred WHERE ${scope} ${cursor}
+    database.$queryRaw<(ArchiveDiscoveryDeferredItem & { needsArtists: boolean })[]>(Prisma.sql`
+      SELECT deferred.*, NOT EXISTS (SELECT 1 FROM discovery_source_creators d WHERE d."sourceId" = deferred."sourceId") AS "needsArtists" FROM archive_discovery_deferred_items deferred WHERE ${scope} ${cursor}
       ORDER BY deferred."deferredAt" DESC, deferred.id DESC LIMIT ${parsed.limit + 1}`),
     database.$queryRaw<{ count: bigint }[]>(Prisma.sql`
       SELECT COUNT(*)::bigint AS count FROM archive_discovery_deferred_items deferred WHERE ${scope}`)
@@ -79,6 +81,7 @@ export async function listDeferredItems(
       externalId: item.externalId,
       title: item.title,
       sourceDisplayName: item.sourceDisplayName,
+      needsArtists: item.needsArtists,
       sourceDeleted: item.sourceId === null,
       deferredAt: item.deferredAt,
       uploaderName: item.uploaderName,
@@ -231,6 +234,7 @@ export async function downloadDeferredItems(
       targetType: 'DEFERRED_DISCOVERY_ITEM',
       targetIds: parsed.deferredItemIds,
       requestOptions: {
+        ...(parsed.artistIds ? { artistIds: parsed.artistIds } : {}),
         downloadMode: parsed.downloadMode,
         quality: parsed.quality,
         downloadScope: parsed.downloadScope
@@ -251,13 +255,15 @@ export async function downloadDeferredItems(
       const submission = await createArchiveIntakeSubmissionInTransaction(
         {
           idempotencyKey: `deferred:${createHash('sha256').update(`${parsed.requestId}:${targetId}`).digest('hex')}`,
+          artistIds: parsed.artistIds,
           urls: [decision.canonicalUrl],
           downloadMode: parsed.downloadMode,
           quality: parsed.quality,
           downloadScope: parsed.downloadScope
         },
         userId,
-        transaction
+        transaction,
+        { creatorSource: { id: decision.sourceId, displayName: decision.sourceDisplayName } }
       )
       if (submission.acceptedCount > 0) {
         await linkIntakeCatalogItems(transaction, [decision], submission.id, new Date())

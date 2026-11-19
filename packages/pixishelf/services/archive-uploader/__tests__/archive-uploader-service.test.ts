@@ -238,7 +238,6 @@ describe('archive uploader service', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             cursorBefore: 'incremental-cursor',
-            defaultCreatorIds: [17],
             searchIdentityKind: sourceKind === 'TITLE_QUERY' ? null : 'UID',
             searchIdentityValue: sourceKind === 'TITLE_QUERY' ? null : '123',
             ...(sourceKind === 'TITLE_QUERY' ? { titleQuery: source.titleQuery } : {})
@@ -1036,7 +1035,7 @@ function transactionalDatabase<T extends object>(delegates: T) {
     archiveDiscoveryDeferredItem: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     archiveDeletedIdentity: { findMany: vi.fn(async () => []) },
     artworkExternalRef: { findMany: vi.fn(async () => []) },
-    archiveIntakeItem: { findFirst: vi.fn(async () => null), findMany: vi.fn(async () => []) },
+    archiveIntakeItem: { findUnique: vi.fn(async () => null), findFirst: vi.fn(async () => null), findMany: vi.fn(async () => []) },
     archiveImport: { findFirst: vi.fn(async () => null) },
     archiveUploaderCatalogItem: { findFirst: vi.fn(async () => null) }
   }

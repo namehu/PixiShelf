@@ -165,7 +165,9 @@ export async function executeCreatorMaintenance(
         const ids = await tx.artwork.findMany({
           where: {
             ...visibleCreatorArtwork,
-            ...(input.command === 'BACKFILL' ? { createdVia: 'URL_ARCHIVE' as const } : {}),
+            ...(input.command === 'BACKFILL'
+              ? { createdVia: 'URL_ARCHIVE' as const, archiveLocalCreatorsOnly: false }
+              : {}),
             id: {
               gt: previous._max.artworkId ?? 0,
               lte: plan.maximumArtworkId,

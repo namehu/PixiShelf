@@ -1,7 +1,8 @@
 import {
   Prisma,
   type PrismaClient,
-  bindDiscoveryCreators,
+  activeCreatorMembership,
+  editArtworkCreators,
   cancelDiscoveryCreator,
   lockCreatorCatalog,
   lockDiscoveryCreators
@@ -66,12 +67,6 @@ export async function setDiscoveryCreators(
     })
     return { saved: true }
   })
-}
-
-export async function snapshotDiscoverySourceCreators(tx: Prisma.TransactionClient, sourceId: string) {
-  await lockCreatorCatalog(tx)
-  const defaults = await tx.discoverySourceCreator.findMany({ where: { sourceId }, orderBy: { artistId: 'asc' } })
-  return defaults.map((row) => row.artistId)
 }
 
 export async function appendDiscoveryCreators(
@@ -153,13 +148,25 @@ export async function bindDiscoveryItems(
           message: pending.length ? '已取消待生效绑定' : '绑定已生效或已取消'
         }
       }
-      return {
-        result: await bindDiscoveryCreators(tx, identity, parsed.artistIds, {
-          automatic: false,
-          title: item.title,
-          requestedByUserId: userId
-        })
+      const ref = await tx.artworkExternalRef.findUnique({
+        where: { providerKey_externalId: identity },
+        select: {
+          artwork: {
+            select: {
+              id: true,
+              deletedAt: true,
+              archiveLifecycleState: true,
+              creators: { where: activeCreatorMembership, select: { id: true }, take: 1 }
+            }
+          }
+        }
+      })
+      const artwork = ref?.artwork
+      if (!artwork || artwork.deletedAt || artwork.archiveLifecycleState !== 'ACTIVE' || artwork.creators.length) {
+        return { result: 'SKIPPED', message: '仅补绑当前有效且尚未绑定艺术家的作品' }
       }
+      await editArtworkCreators(tx, artwork.id, parsed.artistIds, 'ADD')
+      return { result: 'APPLIED' }
     },
     { database }
   )

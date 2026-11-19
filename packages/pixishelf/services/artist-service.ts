@@ -480,13 +480,20 @@ export async function deleteArtist(id: number): Promise<void> {
     if (artworksCount > 0) {
       throw new Error(`无法删除：该艺术家名下还有 ${artworksCount} 个作品`)
     }
-    const [defaults, pending, runs] = await Promise.all([
+    const [defaults, pending, runs, intake, imports] = await Promise.all([
       prisma.discoverySourceCreator.count({ where: { artistId: id } }),
       prisma.discoveryPendingCreator.count({ where: { artistId: id } }),
       prisma.archiveUploaderScanRun.count({
         where: { defaultCreatorIds: { has: id }, status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'RETRY_WAIT'] } }
+      }),
+      prisma.archiveIntakeItem.count({
+        where: { assignedArtistIds: { has: id }, status: { notIn: ['ENQUEUED', 'DUPLICATE', 'SKIPPED'] } }
+      }),
+      prisma.archiveImport.count({
+        where: { assignedArtistIds: { has: id }, status: { not: 'COMPLETED' }, publishedArtworkId: null }
       })
     ])
+    if (intake || imports) throw new Error('无法删除：归档任务已指定这位艺术家')
     if (defaults || pending || runs) throw new Error('无法删除：该艺术家仍被发现来源、待生效绑定或活动扫描引用')
 
     await prisma.artist.delete({

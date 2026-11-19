@@ -79,7 +79,7 @@ export function ArchiveReplaceDialog({
         <DialogHeader>
           <DialogTitle>修改链接并重试</DialogTitle>
           <DialogDescription>
-            输入修正后的公开链接。系统会创建一个关联的新收件项目，原失败记录不会被改写。
+            输入修正后的公开链接。新收件项目会保留原入箱艺术家，并关联原失败记录。补全缺页或升级原图时，请填写同一画廊的链接。
           </DialogDescription>
         </DialogHeader>
 

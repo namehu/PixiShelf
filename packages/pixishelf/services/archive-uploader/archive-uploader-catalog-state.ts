@@ -266,8 +266,8 @@ function catalogFilterCondition(filters?: ArchiveDiscoveryFilters) {
 }
 
 function unboundCondition() {
-  return Prisma.sql`NOT EXISTS (SELECT 1 FROM discovery_pending_creators p WHERE p."providerKey" = state."providerKey" AND p."externalId" = state."externalId")
-    AND NOT EXISTS (SELECT 1 FROM effective_artwork_creators e JOIN "Artwork" a ON a.id = e."artworkId" WHERE e."artworkId" = state."artworkId" AND a."deletedAt" IS NULL AND a."archiveLifecycleState" = 'ACTIVE')`
+  return Prisma.sql`state."matchesQuery" AND state."hasActiveArtwork" AND NOT EXISTS (
+    SELECT 1 FROM effective_artwork_creators e WHERE e."artworkId" = state."artworkId")`
 }
 
 function catalogStateCte(scope: Prisma.Sql, accepted = true) {

@@ -88,7 +88,8 @@ describe('explicit partial archive completion', () => {
         downloadScope: 'ALL'
       },
       'admin',
-      f.tx
+      f.tx,
+      { preserveArtworkCreators: true }
     )
     expect(f.tx.archiveIntakeItem.update).toHaveBeenCalledWith({
       where: { id: 'intake' },

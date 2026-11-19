@@ -142,7 +142,7 @@ export function ArchiveTaskCreatorDialog({
         <DialogHeader>
           <DialogTitle>管理艺术家</DialogTitle>
           <DialogDescription>
-            修改对同一原站作品的所有任务与来源生效。未归档的绑定会在归档后生效，不会启动下载。
+            发布前可调整归档时要绑定的本站艺术家。作品已发布时，修改会直接更新作品的艺术家。
           </DialogDescription>
         </DialogHeader>
         {query.isPending ? (

@@ -133,7 +133,7 @@ describe('discovery filters', () => {
     fireEvent.click(screen.getByRole('button', { name: '筛选' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '中文' }))
     fireEvent.click(screen.getByRole('checkbox', { name: 'Manga' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: '仅看未绑定' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '已归档且未绑定艺术家' }))
     expect(changed).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '取消' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())

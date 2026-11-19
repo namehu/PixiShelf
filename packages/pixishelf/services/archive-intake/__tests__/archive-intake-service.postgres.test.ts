@@ -1,8 +1,8 @@
 import { randomInt, randomUUID } from 'node:crypto'
 import { createDatabaseClient, disconnectDatabase, Prisma } from '@pixishelf/db'
-import { ARCHIVE_COVERAGE_DEFINITION_VERSION } from '@pixishelf/job-contracts'
+import { ARCHIVE_COVERAGE_DEFINITION_VERSION, ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { readyItemData, archiveImportData, sourceProof } from './archive-intake-fixture'
+import { readyItemData, archiveImportData, sourceProof, seedCatalogItem } from './archive-intake-fixture'
 import { ArchiveError } from '@/services/archive/errors'
 import { archiveModule } from '@/services/archive/archive-module'
 import {
@@ -21,8 +21,12 @@ const validateUrl = (value: string) => {
   const parsed = new URL(value)
   if (parsed.protocol !== 'https:' || parsed.hostname !== 'e-hentai.org') throw new Error('unsupported')
 }
+let intakeArtistId: number
 describePostgres('archive intake PostgreSQL transactions', () => {
-  beforeAll(async () => database.$connect())
+  beforeAll(async () => {
+    await database.$connect()
+    intakeArtistId = (await database.artist.create({ data: { name: 'Intake test ' + randomUUID() } })).id
+  })
   afterEach(async () => {
     const submissions = await database.archiveIntakeSubmission.findMany({
       where: { requestedByUserId },
@@ -47,10 +51,14 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     })
     vi.unstubAllEnvs()
   })
-  afterAll(async () => disconnectDatabase(database))
+  afterAll(async () => {
+    await database.artist.delete({ where: { id: intakeArtistId } })
+    await disconnectDatabase(database)
+  })
   it('requeues an old remote-not-found failure once and preserves its download choices', async () => {
     const submission = await createArchiveIntakeSubmission(
       {
+        artistIds: [intakeArtistId],
         idempotencyKey: `${suitePrefix}-missing`,
         urls: ['https://e-hentai.org/g/123/token/'],
         downloadMode: 'AUTO',
@@ -98,13 +106,24 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       downloadMode: 'AUTO' as const,
       quality: 'DISPLAY' as const
     }
-    const submission = await createArchiveIntakeSubmission(input, requestedByUserId, { database, validateUrl })
+    const submission = await createArchiveIntakeSubmission(
+      { ...input, artistIds: [intakeArtistId] },
+      requestedByUserId,
+      { database, validateUrl }
+    )
     expect(submission.items[0]).toMatchObject({ downloadMode: 'AUTO', selectedQuality: 'DISPLAY' })
     await expect(
-      createArchiveIntakeSubmission({ ...input, downloadMode: 'MANUAL' }, requestedByUserId, { database, validateUrl })
+      createArchiveIntakeSubmission(
+        { artistIds: [intakeArtistId], ...input, downloadMode: 'MANUAL' },
+        requestedByUserId,
+        { database, validateUrl }
+      )
     ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
     await expect(
-      createArchiveIntakeSubmission({ ...input, quality: 'ORIGINAL' }, requestedByUserId, { database, validateUrl })
+      createArchiveIntakeSubmission({ artistIds: [intakeArtistId], ...input, quality: 'ORIGINAL' }, requestedByUserId, {
+        database,
+        validateUrl
+      })
     ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
     const itemId = submission.items[0]!.id
     await database.archiveIntakeItem.update({ where: { id: itemId }, data: { status: 'FAILED', retryable: true } })
@@ -138,7 +157,11 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       supersedesItemId: itemId
     })
     const legacy = await createArchiveIntakeSubmission(
-      { idempotencyKey: suitePrefix + '-legacy-intent', urls: ['https://e-hentai.org/g/1003/token/'] },
+      {
+        artistIds: [intakeArtistId],
+        idempotencyKey: suitePrefix + '-legacy-intent',
+        urls: ['https://e-hentai.org/g/1003/token/']
+      },
       requestedByUserId,
       { database, validateUrl }
     )
@@ -168,12 +191,20 @@ describePostgres('archive intake PostgreSQL transactions', () => {
 
     const [first, second] = await Promise.all([
       createArchiveIntakeSubmission(
-        { idempotencyKey: `${suitePrefix}-capacity-a`, urls: ['https://e-hentai.org/g/3001/token/'] },
+        {
+          artistIds: [intakeArtistId],
+          idempotencyKey: `${suitePrefix}-capacity-a`,
+          urls: ['https://e-hentai.org/g/3001/token/']
+        },
         requestedByUserId,
         { database, validateUrl }
       ),
       createArchiveIntakeSubmission(
-        { idempotencyKey: `${suitePrefix}-capacity-b`, urls: ['https://e-hentai.org/g/3002/token/'] },
+        {
+          artistIds: [intakeArtistId],
+          idempotencyKey: `${suitePrefix}-capacity-b`,
+          urls: ['https://e-hentai.org/g/3002/token/']
+        },
         requestedByUserId,
         { database, validateUrl }
       )
@@ -186,8 +217,15 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       })
     ).resolves.toBe(1_000)
 
+    const assignment = {
+      localCreatorsOnly: true,
+      assignedArtistIds: [intakeArtistId],
+      creatorSourceId: suitePrefix,
+      creatorSourceName: '天奈'
+    }
     const failedItem = await database.archiveIntakeItem.create({
       data: {
+        ...assignment,
         submissionId: seededSubmissionId,
         submittedUrl: 'https://e-hentai.org/g/3003/token/',
         normalizedUrlHash: 'f'.repeat(64),
@@ -265,6 +303,13 @@ describePostgres('archive intake PostgreSQL transactions', () => {
         where: { status: { in: ['QUEUED', 'RESOLVING', 'RETRY_WAIT', 'READY', 'STALE'] } }
       })
     ).resolves.toBe(1_000)
+    await database.archiveIntakeItem.update({ where: { id: expiredReady.id }, data: { status: 'CANCELLED' } })
+    const corrected = await replaceArchiveIntakeItem({
+      idempotencyKey: suitePrefix + '-after-capacity', itemId: replacementAtCapacity.items[0]!.id,
+      url: 'https://e-hentai.org/g/3004/freshtoken/'
+    }, requestedByUserId, { database, validateUrl })
+    expect(corrected.acceptedCount).toBe(1)
+    expect(await database.archiveIntakeItem.findUniqueOrThrow({ where: { id: corrected.items[0]!.id } })).toMatchObject(assignment)
   })
 
   it('creates one submission and resolver job for concurrent semantic replay', async () => {
@@ -273,8 +318,14 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       urls: ['https://e-hentai.org/g/123/token/']
     }
     const [first, second] = await Promise.all([
-      createArchiveIntakeSubmission(input, requestedByUserId, { database, validateUrl }),
-      createArchiveIntakeSubmission(input, requestedByUserId, { database, validateUrl })
+      createArchiveIntakeSubmission({ ...input, artistIds: [intakeArtistId] }, requestedByUserId, {
+        database,
+        validateUrl
+      }),
+      createArchiveIntakeSubmission({ ...input, artistIds: [intakeArtistId] }, requestedByUserId, {
+        database,
+        validateUrl
+      })
     ])
     expect(first).toEqual(second)
     await expect(
@@ -285,7 +336,10 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     ).resolves.toBe(1)
 
     await expect(
-      createArchiveIntakeSubmission({ ...input, urls: ['not-a-url'] }, requestedByUserId, { database, validateUrl })
+      createArchiveIntakeSubmission({ artistIds: [intakeArtistId], ...input, urls: ['not-a-url'] }, requestedByUserId, {
+        database,
+        validateUrl
+      })
     ).rejects.toBeInstanceOf(ArchiveError)
   })
 
@@ -374,9 +428,40 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     ).rejects.toMatchObject({ code: 'INVALID_URL' })
   })
 
+  it.each(['completion', 'upgrade'] as const)('preserves the %s intent only for corrections to the same gallery', async (mode) => {
+    const url = 'https://e-hentai.org/g/4008/baseline/'
+    const submission = await createArchiveIntakeSubmission({
+      idempotencyKey: suitePrefix + mode, urls: [url], artistIds: [intakeArtistId]
+    }, requestedByUserId, { database })
+    const itemId = submission.items[0]!.id
+    const baseline = mode === 'upgrade'
+      ? { upgradeBaseRevisionId: 'original', upgradeSnapshot: { revisionId: 'original' } }
+      : { completionBaseRevisionId: 'original', completionSnapshot: { revisionId: 'original' } }
+    await database.archiveIntakeItem.update({
+      where: { id: itemId }, data: { status: 'FAILED', assignedArtistIds: [], ...baseline }
+    })
+    const key = suitePrefix + '-replace-' + mode
+    const correct = (url: string) =>
+      replaceArchiveIntakeItem({ itemId, idempotencyKey: key, url }, requestedByUserId, { database })
+    await expect(correct('https://e-hentai.org/g/4009/unrelated/')).rejects.toThrow('同一画廊')
+    const fresh = await correct('https://e-hentai.org/g/4008/newtoken/')
+    const replacement = await database.archiveIntakeItem.findUniqueOrThrow({
+      where: { id: fresh.items[0]!.id },
+      include: { currentSystemJob: true }
+    })
+    const version = mode === 'upgrade' ? ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION : ARCHIVE_COVERAGE_DEFINITION_VERSION
+    expect(replacement).toMatchObject({
+      ...baseline,
+      localCreatorsOnly: true,
+      assignedArtistIds: [],
+      currentSystemJob: { definitionVersion: version }
+    })
+  })
+
   it('records an active replacement URL as a terminal duplicate while preserving supersession lineage', async () => {
     const active = await createArchiveIntakeSubmission(
       {
+        artistIds: [intakeArtistId],
         idempotencyKey: `${suitePrefix}-replace-duplicate-active`,
         urls: ['https://e-hentai.org/g/4002/activetoken/']
       },
@@ -469,6 +554,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
 
     const cancellable = await createArchiveIntakeSubmission(
       {
+        artistIds: [intakeArtistId],
         idempotencyKey: `${suitePrefix}-cancelled-retry-source`,
         urls: ['https://e-hentai.org/g/5002/token/']
       },
@@ -541,14 +627,14 @@ describePostgres('archive intake PostgreSQL transactions', () => {
   it('classifies invalid and exact duplicate strings without changing token semantics', async () => {
     const url = 'https://e-hentai.org/g/6001/privatetoken/?b=2&a=1'
     const first = await createArchiveIntakeSubmission(
-      { idempotencyKey: `${suitePrefix}-duplicates-a`, urls: [url, url, 'invalid'] },
+      { artistIds: [intakeArtistId], idempotencyKey: `${suitePrefix}-duplicates-a`, urls: [url, url, 'invalid'] },
       requestedByUserId,
       { database, validateUrl }
     )
     expect(first).toMatchObject({ rawCount: 3, acceptedCount: 1, duplicateCount: 1, invalidCount: 1, rejectedCount: 0 })
 
     const second = await createArchiveIntakeSubmission(
-      { idempotencyKey: `${suitePrefix}-duplicates-b`, urls: [url] },
+      { artistIds: [intakeArtistId], idempotencyKey: `${suitePrefix}-duplicates-b`, urls: [url] },
       requestedByUserId,
       { database, validateUrl }
     )
@@ -565,6 +651,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
   it('persists partial bulk results and keeps completedAt stable on replay', async () => {
     const created = await createArchiveIntakeSubmission(
       {
+        artistIds: [intakeArtistId],
         idempotencyKey: `${suitePrefix}-cancel-source`,
         urls: ['https://e-hentai.org/g/7001/token/']
       },
@@ -572,7 +659,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       { database, validateUrl }
     )
     const itemId = created.items[0]!.id
-    const catalogId = await seedCatalogItem(itemId, '7001', new Date('2026-08-18T00:00:00.000Z'))
+    const catalogId = await seedCatalogItem(database, suitePrefix, itemId, '7001', new Date('2026-08-18T00:00:00.000Z'))
     const input = { idempotencyKey: `${suitePrefix}-cancel-bulk`, itemIds: [itemId, `${suitePrefix}-missing`] }
     const [first, concurrent] = await Promise.all([
       cancelArchiveIntakeMany(input, requestedByUserId, {
@@ -622,6 +709,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
   it('keeps a running resolver cancellation at requested without a terminal event', async () => {
     const created = await createArchiveIntakeSubmission(
       {
+        artistIds: [intakeArtistId],
         idempotencyKey: `${suitePrefix}-running-cancel-source`,
         urls: ['https://e-hentai.org/g/7002/token/']
       },
@@ -699,8 +787,8 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       },
       include: { items: { orderBy: { queueOrder: 'asc' } } }
     })
-    const activeCatalogId = await seedCatalogItem(readyItems.items[0]!.id, '8001', now)
-    const newCatalogId = await seedCatalogItem(readyItems.items[1]!.id, '8002', now)
+    const activeCatalogId = await seedCatalogItem(database, suitePrefix, readyItems.items[0]!.id, '8001', now)
+    const newCatalogId = await seedCatalogItem(database, suitePrefix, readyItems.items[1]!.id, '8002', now)
     await database.archiveIntakeItem.update({
       where: { id: readyItems.items[1]!.id },
       data: { resolutionKind: 'UNCHANGED' }
@@ -1102,37 +1190,3 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     }
   })
 })
-
-async function seedCatalogItem(intakeItemId: string, externalId: string, timestamp: Date) {
-  const sourceId = `${suitePrefix}-source-${randomUUID()}`
-  const catalogId = `${suitePrefix}-catalog-${randomUUID()}`
-  await database.archiveUploaderSource.create({
-    data: {
-      id: sourceId,
-      providerKey: 'test-provider',
-      identityKind: 'UID',
-      identityValue: randomUUID(),
-      normalizedIdentity: randomUUID(),
-      displayName: 'Intake lifecycle source'
-    }
-  })
-  await database.archiveUploaderCatalogItem.create({
-    data: {
-      id: catalogId,
-      sourceId,
-      providerKey: 'test-provider',
-      externalId,
-      canonicalUrl: `https://e-hentai.org/g/${externalId}/privatetoken/`,
-      title: `Gallery ${externalId}`,
-      relationships: [],
-      classification: 'NEW',
-      comparisonKnown: true,
-      firstSeenAt: timestamp,
-      lastSeenAt: timestamp,
-      lastIntakeItemId: intakeItemId,
-      lastOutcome: 'SUBMITTED',
-      lastOutcomeAt: timestamp
-    }
-  })
-  return catalogId
-}

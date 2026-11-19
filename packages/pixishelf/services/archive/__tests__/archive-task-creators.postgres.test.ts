@@ -98,6 +98,67 @@ describe.skipIf(!url)('archive task creators PostgreSQL', () => {
     expect((await db!.archiveImport.findUniqueOrThrow({ where: { id: taskId } })).status).toBe('FAILED')
   })
 
+  it('keeps edits and filtering scoped to the new task despite legacy pending artists on the same gallery', async () => {
+    const other = await seedTask()
+    await edit('ADD')
+    const local = await db!.artist.create({ data: { name: prefix } })
+    artistIds.push(local.id)
+    await db!.archiveImport.update({
+      where: { id: taskId },
+      data: { localCreatorsOnly: true, assignedArtistIds: [local.id] }
+    })
+    expect((await summary()).pendingCreators.map((row) => row.id)).toEqual([local.id])
+    await edit('REMOVE', [local.id])
+    expect((await summary()).pendingCreators).toEqual([])
+    const unbound = () =>
+      listArchiveTasks({ providerKey, search: identity.externalId, unboundOnly: true }, { database: db! })
+    expect((await unbound()).items.map((row) => row.id)).toEqual([taskId])
+    await edit('ADD', [local.id])
+    expect((await unbound()).items).toHaveLength(0)
+    expect((await summary(other.id)).pendingCreators.map((row) => row.id)).toEqual([artistId])
+  })
+
+  it('keeps a purged task read-only when its gallery is archived again', async () => {
+    const oldArtwork = await publish()
+    await db!.artwork.update({ where: { id: oldArtwork }, data: { createdVia: 'URL_ARCHIVE' } })
+    await db!.archiveImport.update({
+      where: { id: taskId },
+      data: {
+        status: 'COMPLETED',
+        publishedArtworkId: oldArtwork,
+        localCreatorsOnly: true,
+        assignedArtistIds: [artistId]
+      }
+    })
+    await db!.artwork.update({
+      where: { id: oldArtwork },
+      data: { deletedAt: new Date(), archiveLifecycleState: 'TRASHED' }
+    })
+    await db!.artwork.delete({ where: { id: oldArtwork } })
+    const removed = await summary()
+    expect(removed.publishedArtworkPurgedAt).toBeInstanceOf(Date)
+    expect(removed).toMatchObject({ pendingCreators: [], effectiveCreators: [] })
+    expect(removed.creatorEditBlockedReason).toContain('彻底删除')
+    expect((await edit('REMOVE'))?.counts.conflict).toBe(1)
+    const nextTask = await seedTask()
+    const newArtwork = await publish()
+    const input = { providerKey, search: identity.externalId, unboundOnly: true }
+    expect((await listArchiveTasks(input, { database: db! })).items.map((row) => row.id)).toEqual([nextTask.id])
+    await editArchiveTaskCreators(
+      { taskId: nextTask.id, artistIds: [artistId], action: 'ADD', requestId: randomUUID() },
+      prefix,
+      db!
+    )
+    await db!.archiveImport.update({
+      where: { id: nextTask.id },
+      data: { status: 'COMPLETED', publishedArtworkId: newArtwork }
+    })
+    expect((await summary(nextTask.id)).effectiveCreators.map((row) => row.id)).toEqual([artistId])
+    expect((await summary()).effectiveCreators).toEqual([])
+    expect((await edit('REMOVE'))?.counts.conflict).toBe(1)
+    expect((await summary(nextTask.id)).effectiveCreators.map((row) => row.id)).toEqual([artistId])
+  })
+
   it('filters binding by identity before pagination and keeps direct detail lookup independent', async () => {
     const older1 = await seedTask('older-1', new Date('2026-01-01'))
     const older2 = await seedTask('older-2', new Date('2026-01-02'))

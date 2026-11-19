@@ -1,3 +1,11 @@
+import { ACTIVE_INTAKE_STATUSES, findActiveIntakeDuplicates } from './archive-intake-duplicates'
+import {
+  createDuplicateAuditItem,
+  createCapacityRejectedAuditItem,
+  replacementFieldsSelect,
+  type ReplacementFields
+} from './archive-intake-audit'
+import { captureIntakeCreators, intakeArtistIdsSchema } from './archive-intake-creators'
 import { intakeItemWireSelect, type IntakeItemWire } from './archive-intake-wire'
 import { readIntakeSourceFacts, type IntakeSourceFacts } from './archive-intake-source-facts'
 import { hashSubmittedUrl, validateSubmittedUrl, safeThumbnailUrl } from './archive-intake-url'
@@ -33,7 +41,6 @@ import {
 } from './archive-intake-source-proof'
 import { INTAKE_SUBMISSION_TRANSACTION_OPTIONS, IntakeSubmissionTrace } from './intake-submission-transaction'
 
-const ACTIVE_INTAKE_STATUSES = ['QUEUED', 'RESOLVING', 'RETRY_WAIT', 'READY', 'STALE'] as const
 const INTAKE_CAPACITY = 1_000
 const INTAKE_CREATE_LIMIT = 100
 const BULK_TARGET_LIMIT = 100
@@ -41,15 +48,18 @@ const INTAKE_CAPACITY_LOCK_NAMESPACE = 20_260_820
 const INTAKE_IDEMPOTENCY_LOCK_NAMESPACE = 20_260_821
 const RESOLVE_QUEUE_ID = 'archive-resolve'
 
-export const createArchiveIntakeSchema = z
+const intakeSubmissionSchema = z
   .object({
     idempotencyKey: z.string().trim().min(1).max(180),
+    artistIds: intakeArtistIdsSchema.optional(),
     urls: z.array(z.string().max(2_048)).min(1).max(INTAKE_CREATE_LIMIT),
     downloadMode: z.enum(['AUTO', 'MANUAL']).default('MANUAL'),
     quality: z.enum(['ORIGINAL', 'DISPLAY']).default('DISPLAY'),
     downloadScope: archiveDownloadScopeSchema.default('ALL')
   })
   .strict()
+
+export const createArchiveIntakeSchema = intakeSubmissionSchema.extend({ artistIds: intakeArtistIdsSchema })
 
 export const replaceArchiveIntakeSchema = z
   .object({
@@ -112,20 +122,23 @@ export async function createArchiveIntakeSubmission(
 }
 
 export async function createArchiveIntakeSubmissionInTransaction(
-  input: z.input<typeof createArchiveIntakeSchema>,
+  input: z.input<typeof intakeSubmissionSchema>,
   requestedByUserId: string,
   transaction: Prisma.TransactionClient,
   dependencies: Pick<ArchiveIntakeServiceDependencies, 'now' | 'uuid' | 'validateUrl'> & {
+    creatorSource?: { id: string | null; displayName?: string }
+    preserveArtworkCreators?: true
     trace?: IntakeSubmissionTrace
   } = {}
 ) {
-  const parsed = createArchiveIntakeSchema.parse(input)
+  const parsed = intakeSubmissionSchema.parse(input)
   const now = dependencies.now ?? (() => new Date())
   const uuid = dependencies.uuid ?? randomUUID
   const rawUrls = parsed.urls.map((url) => url.trim()).filter(Boolean)
   if (rawUrls.length === 0) throw new ArchiveError('INVALID_URL', '至少需要一个非空归档链接')
   const requestHash = archiveRequestFingerprint({
     urls: rawUrls,
+    ...(parsed.artistIds ? { artistIds: parsed.artistIds } : {}),
     downloadMode: parsed.downloadMode,
     quality: parsed.quality,
     downloadScope: parsed.downloadScope
@@ -186,18 +199,13 @@ export async function createArchiveIntakeSubmissionInTransaction(
     // hidden by another identity's completed deletion for the same URL.
     if (!deletedByUrl.has(item.canonicalUrl) || !item.purgedAt) deletedByUrl.set(item.canonicalUrl, item)
   }
-  const activeItems = await transaction.archiveIntakeItem.findMany({
-    where: {
-      normalizedUrlHash: { in: [...new Set(rawUrls.map(hashSubmittedUrl))] },
-      status: { in: [...ACTIVE_INTAKE_STATUSES] }
-    },
-    orderBy: { queueOrder: 'asc' },
-    select: { id: true, submittedUrl: true, normalizedUrlHash: true }
-  })
-  // Preserve findFirst's earliest-by-hash selection and exact URL comparison.
-  const activeByHash = new Map<string, (typeof activeItems)[number]>()
-  for (const item of activeItems) {
-    if (!activeByHash.has(item.normalizedUrlHash)) activeByHash.set(item.normalizedUrlHash, item)
+  const activeItems = await findActiveIntakeDuplicates(transaction, identities)
+  if (dependencies.creatorSource && activeItems.size) {
+    const previous = activeItems.values().next().value!
+    throw new ArchiveError(
+      'STATE_CONFLICT',
+      previous.creatorSourceName ? `已从「${previous.creatorSourceName}」加入收件箱` : '该画廊已加入收件箱'
+    )
   }
   dependencies.trace?.phase('intakeWrite')
   const submission = await transaction.archiveIntakeSubmission.create({
@@ -243,8 +251,8 @@ export async function createArchiveIntakeSubmissionInTransaction(
       continue
     }
     const normalizedUrlHash = hashSubmittedUrl(submittedUrl)
-    const duplicate = activeByHash.get(normalizedUrlHash)
-    if (duplicate?.submittedUrl === submittedUrl) {
+    const duplicate = activeItems.get(submittedUrl)
+    if (duplicate) {
       const duplicateId = uuid()
       intakeItems.push({
         id: duplicateId,
@@ -314,6 +322,10 @@ export async function createArchiveIntakeSubmissionInTransaction(
       dependencies.trace?.phase('creatorCatalogLock')
       await lockCreatorCatalog(transaction)
       const queuedItems = intakeItems.filter((item) => item.status === 'QUEUED')
+      const assignment = dependencies.preserveArtworkCreators
+        ? { localCreatorsOnly: true }
+        : await captureIntakeCreators(transaction, dependencies.creatorSource, parsed.artistIds)
+      for (const item of queuedItems) Object.assign(item, assignment)
       const proofs = await captureArchiveIntakeSourceProofs(
         transaction,
         queuedItems.map((item) => item.submittedUrl)
@@ -379,6 +391,7 @@ export async function replaceArchiveIntakeItem(
         id: true,
         status: true,
         submittedUrl: true,
+        ...replacementFieldsSelect,
         downloadMode: true,
         selectedQuality: true,
         downloadScope: true
@@ -391,10 +404,33 @@ export async function replaceArchiveIntakeItem(
     if (original.submittedUrl === submittedUrl) {
       throw new ArchiveError('INVALID_URL', '请修改失败链接后再重试；原链接不能再次入列')
     }
+    if (original.completionBaseRevisionId || original.upgradeBaseRevisionId) {
+      const previousIdentity = validateSubmittedUrl(original.submittedUrl, dependencies.validateUrl)
+      if (
+        previousIdentity.providerKey !== replacementIdentity.providerKey ||
+        previousIdentity.externalId !== replacementIdentity.externalId
+      ) {
+        throw new ArchiveError(
+          'STATE_CONFLICT',
+          '补全或升级只能修改为同一画廊的链接。归档其他画廊时，请重新指定本站艺术家并加入收件箱。'
+        )
+      }
+    }
+    const replacementFields: ReplacementFields = {
+      localCreatorsOnly: original.localCreatorsOnly,
+      assignedArtistIds: original.assignedArtistIds,
+      creatorSourceName: original.creatorSourceName,
+      creatorSourceId: original.creatorSourceId,
+      completionBaseRevisionId: original.completionBaseRevisionId,
+      completionSnapshot: original.completionSnapshot ?? undefined,
+      upgradeBaseRevisionId: original.upgradeBaseRevisionId,
+      upgradeSnapshot: original.upgradeSnapshot ?? undefined
+    }
     await lockKey(transaction, INTAKE_CAPACITY_LOCK_NAMESPACE, RESOLVE_QUEUE_ID)
     const timestamp = now()
     const normalizedUrlHash = hashSubmittedUrl(submittedUrl)
-    const duplicate = await findActiveUrlDuplicate(transaction, submittedUrl, normalizedUrlHash)
+    const activeItems = await findActiveIntakeDuplicates(transaction, new Map([[submittedUrl, replacementIdentity]]))
+    const duplicate = activeItems.get(submittedUrl)
     const activeCount = await transaction.archiveIntakeItem.count({
       where: { status: { in: [...ACTIVE_INTAKE_STATUSES] } }
     })
@@ -406,14 +442,14 @@ export async function replaceArchiveIntakeItem(
         requestHash,
         requestedByUserId,
         rawCount: 1,
-        acceptedCount: duplicate?.submittedUrl === submittedUrl || !hasCapacity ? 0 : 1,
-        duplicateCount: duplicate?.submittedUrl === submittedUrl ? 1 : 0,
-        rejectedCount: duplicate?.submittedUrl === submittedUrl || hasCapacity ? 0 : 1,
+        acceptedCount: duplicate || !hasCapacity ? 0 : 1,
+        duplicateCount: duplicate ? 1 : 0,
+        rejectedCount: duplicate || hasCapacity ? 0 : 1,
         createdAt: timestamp
       }
     })
 
-    if (duplicate?.submittedUrl === submittedUrl) {
+    if (duplicate) {
       // 重复分支保留 lineage：duplicateOf 追踪当前系统已在排队/处理中相同链接，supersedes 指向被替换失败项。
       await createDuplicateAuditItem(transaction, {
         id: uuid(),
@@ -430,6 +466,7 @@ export async function replaceArchiveIntakeItem(
     } else if (hasCapacity) {
       // 容量可用时以 RETRY 触发新解析条目，并用 supersedesItemId 串起“原失败项 -> 替代项”链路。
       await createQueuedIntakeItem(transaction, {
+        replacementFields,
         itemId: uuid(),
         jobId: uuid(),
         submissionId: submission.id,
@@ -449,6 +486,7 @@ export async function replaceArchiveIntakeItem(
     } else {
       // 容量失败只保留审计；没有可执行来源证明，后续须明确新提交。
       await createCapacityRejectedAuditItem(transaction, {
+        replacementFields,
         id: uuid(),
         submissionId: submission.id,
         submittedUrl,
@@ -465,88 +503,6 @@ export async function replaceArchiveIntakeItem(
   })
 }
 
-function findActiveUrlDuplicate(
-  transaction: Prisma.TransactionClient,
-  submittedUrl: string,
-  normalizedUrlHash: string
-) {
-  return transaction.archiveIntakeItem.findFirst({
-    where: { normalizedUrlHash, status: { in: [...ACTIVE_INTAKE_STATUSES] } },
-    orderBy: { queueOrder: 'asc' },
-    select: { id: true, submittedUrl: true }
-  })
-}
-
-async function createDuplicateAuditItem(
-  transaction: Prisma.TransactionClient,
-  input: {
-    id: string
-    submissionId: string
-    submittedUrl: string
-    normalizedUrlHash: string
-    duplicateOfItemId: string
-    supersedesItemId?: string
-    downloadMode: 'AUTO' | 'MANUAL'
-    quality: 'ORIGINAL' | 'DISPLAY'
-    downloadScope: 'ALL' | 'FIRST_20'
-    timestamp: Date
-  }
-) {
-  return transaction.archiveIntakeItem.create({
-    data: {
-      id: input.id,
-      submissionId: input.submissionId,
-      submittedUrl: input.submittedUrl,
-      normalizedUrlHash: input.normalizedUrlHash,
-      downloadMode: input.downloadMode,
-      selectedQuality: input.quality,
-      downloadScope: input.downloadScope,
-      status: 'DUPLICATE',
-      duplicateOfItemId: input.duplicateOfItemId,
-      supersedesItemId: input.supersedesItemId,
-      finishedAt: input.timestamp,
-      retryable: false,
-      createdAt: input.timestamp,
-      updatedAt: input.timestamp
-    }
-  })
-}
-
-async function createCapacityRejectedAuditItem(
-  transaction: Prisma.TransactionClient,
-  input: {
-    id: string
-    submissionId: string
-    submittedUrl: string
-    normalizedUrlHash: string
-    supersedesItemId: string
-    downloadMode: 'AUTO' | 'MANUAL'
-    quality: 'ORIGINAL' | 'DISPLAY'
-    downloadScope: 'ALL' | 'FIRST_20'
-    timestamp: Date
-  }
-) {
-  return transaction.archiveIntakeItem.create({
-    data: {
-      id: input.id,
-      submissionId: input.submissionId,
-      submittedUrl: input.submittedUrl,
-      normalizedUrlHash: input.normalizedUrlHash,
-      downloadMode: input.downloadMode,
-      selectedQuality: input.quality,
-      downloadScope: input.downloadScope,
-      status: 'FAILED',
-      supersedesItemId: input.supersedesItemId,
-      finishedAt: input.timestamp,
-      errorCode: 'CAPACITY_EXCEEDED',
-      errorMessage: '归档收件箱活动项目已达上限；释放容量后可重试',
-      retryable: false,
-      createdAt: input.timestamp,
-      updatedAt: input.timestamp
-    }
-  })
-}
-
 function prepareQueuedIntakeItem(input: {
   itemId: string
   jobId: string
@@ -560,12 +516,15 @@ function prepareQueuedIntakeItem(input: {
   downloadScope: 'ALL' | 'FIRST_20'
   timestamp: Date
   triggerSource: 'MANUAL' | 'RETRY'
+  replacementFields?: ReplacementFields
 }) {
   const job: Prisma.SystemJobCreateManyInput = {
     id: input.jobId,
     type: 'ARCHIVE_RESOLVE_ITEM',
     executionLane: 'ARCHIVE_RESOLVE',
-    definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
+    definitionVersion: input.replacementFields?.upgradeBaseRevisionId
+      ? ARCHIVE_ORIGINAL_UPGRADE_DEFINITION_VERSION
+      : ARCHIVE_COVERAGE_DEFINITION_VERSION,
     status: 'PENDING',
     triggerSource: input.triggerSource,
     requestedByUserId: input.requestedByUserId,
@@ -579,6 +538,7 @@ function prepareQueuedIntakeItem(input: {
     message: input.triggerSource === 'RETRY' ? '等待解析修正后的归档链接...' : '等待归档解析后台任务进程...'
   }
   const item: Prisma.ArchiveIntakeItemCreateManyInput = {
+    ...input.replacementFields,
     id: input.itemId,
     submissionId: input.submissionId,
     submittedUrl: input.submittedUrl,
@@ -1047,27 +1007,16 @@ async function recoverRetryRace(
     : null
 }
 
-function findActiveRetryDuplicate(
+async function findActiveRetryDuplicate(
   transaction: Prisma.TransactionClient,
-  item: {
-    id: string
-    normalizedUrlHash: string
-    submittedUrl: string
-    providerKey: string | null
-    externalId: string | null
-  }
+  item: { id: string; submittedUrl: string; providerKey: string | null; externalId: string | null }
 ) {
-  return transaction.archiveIntakeItem.findFirst({
-    where: {
-      id: { not: item.id },
-      status: { in: [...ACTIVE_INTAKE_STATUSES] },
-      OR: [
-        { normalizedUrlHash: item.normalizedUrlHash, submittedUrl: item.submittedUrl },
-        ...(item.providerKey && item.externalId ? [{ providerKey: item.providerKey, externalId: item.externalId }] : [])
-      ]
-    },
-    select: { id: true }
-  })
+  const identity =
+    item.providerKey && item.externalId
+      ? { providerKey: item.providerKey, externalId: item.externalId }
+      : archiveProviderRegistry.getForUrl(item.submittedUrl).identifySource(item.submittedUrl)
+  const matches = await findActiveIntakeDuplicates(transaction, new Map([[item.submittedUrl, identity]]), item.id)
+  return matches.get(item.submittedUrl)
 }
 
 function serializeIntakeItem(item: IntakeItemWire, now: Date, sourceFacts?: IntakeSourceFacts) {

@@ -5,6 +5,7 @@ import {
   discoveryCreatorSummaries,
   editArtworkCreators,
   lockDiscoveryCreators,
+  type Prisma,
   type PrismaClient,
   type DiscoveryIdentity
 } from '@pixishelf/db'
@@ -24,26 +25,45 @@ export const editTaskCreatorsSchema = z
   })
   .strict()
 
-export async function archiveTaskCreatorSummaries(database: PrismaClient, identities: DiscoveryIdentity[]) {
-  if (!identities.length) return []
-  const [summaries, refs] = await Promise.all([
-    discoveryCreatorSummaries(database, identities),
-    database.artworkExternalRef.findMany({
-      where: { OR: identities.map(({ providerKey, externalId }) => ({ providerKey, externalId })) },
-      select: {
-        providerKey: true,
-        externalId: true,
-        artwork: { select: { deletedAt: true, archiveLifecycleState: true } }
-      }
-    })
+type TaskPublication = Pick<
+  Prisma.ArchiveImportGetPayload<object>,
+  'status' | 'publishedArtworkId' | 'publishedArtworkPurgedAt'
+>
+
+function publishedArtworkIsGone(task: TaskPublication) {
+  return Boolean(task.publishedArtworkPurgedAt) || (task.status === 'COMPLETED' && task.publishedArtworkId === null)
+}
+
+const purgedArtworkMessage = '此任务发布的作品已彻底删除，无法修改艺术家。'
+
+export async function archiveTaskCreatorSummaries(
+  database: PrismaClient,
+  tasks: (DiscoveryIdentity & TaskPublication & { localCreatorsOnly: boolean; assignedArtistIds: number[] })[]
+) {
+  if (!tasks.length) return []
+  const ids = [...new Set(tasks.filter((task) => task.localCreatorsOnly).flatMap((task) => task.assignedArtistIds))]
+  const [artists, summaries] = await Promise.all([
+    ids.length
+      ? database.artist.findMany({
+          where: { id: { in: ids } },
+          select: { id: true, name: true, kind: true },
+          orderBy: { id: 'asc' }
+        })
+      : [],
+    discoveryCreatorSummaries(database, tasks)
   ])
-  return summaries.map((summary, index) => {
-    const identity = identities[index]!
-    const ref = refs.find((row) => row.providerKey === identity.providerKey && row.externalId === identity.externalId)
+  return summaries.map(({ artwork, effectiveCreators, pendingCreators }, index) => {
+    const task = tasks[index]!
+    if (publishedArtworkIsGone(task)) {
+      return { effectiveCreators: [], pendingCreators: [], creatorEditBlockedReason: purgedArtworkMessage }
+    }
+    const assigned =
+      task.localCreatorsOnly && !artwork ? artists.filter((artist) => task.assignedArtistIds.includes(artist.id)) : []
     return {
-      ...summary,
+      effectiveCreators,
+      pendingCreators: task.localCreatorsOnly ? assigned : pendingCreators,
       creatorEditBlockedReason:
-        ref && (ref.artwork.deletedAt || ref.artwork.archiveLifecycleState !== 'ACTIVE')
+        artwork && (artwork.deletedAt || artwork.archiveLifecycleState !== 'ACTIVE')
           ? '作品已在回收站或正在清理，请恢复作品后再修改艺术家。'
           : null
     }
@@ -78,6 +98,7 @@ export async function editArchiveTaskCreators(
       if (!task || task.cleanupRequestedAt) {
         return { result: 'CONFLICT', message: '归档任务不存在或正在清理，请稍后重试' }
       }
+      if (publishedArtworkIsGone(task)) return { result: 'CONFLICT', message: purgedArtworkMessage }
       const ref = await tx.artworkExternalRef.findUnique({
         where: { providerKey_externalId: identity },
         include: { artwork: true }
@@ -85,8 +106,22 @@ export async function editArchiveTaskCreators(
       if (ref && (ref.artwork.deletedAt || ref.artwork.archiveLifecycleState !== 'ACTIVE')) {
         return { result: 'CONFLICT', message: '作品已在回收站或正在清理，请恢复作品后再修改艺术家。' }
       }
-      if ((await tx.artist.count({ where: { id: { in: parsed.artistIds } } })) !== parsed.artistIds.length) {
+      if (
+        (await tx.artist.count({ where: { id: { in: parsed.artistIds }, mergedIntoId: null } })) !==
+        parsed.artistIds.length
+      ) {
         return { result: 'CONFLICT', message: '所选艺术家或社团已不存在' }
+      }
+      if (task.localCreatorsOnly) {
+        if (ref) await editArtworkCreators(tx, ref.artworkId, parsed.artistIds, parsed.action)
+        else {
+          const assignedArtistIds =
+            parsed.action === 'ADD'
+              ? [...new Set([...task.assignedArtistIds, ...parsed.artistIds])]
+              : task.assignedArtistIds.filter((id) => !parsed.artistIds.includes(id))
+          await tx.archiveImport.update({ where: { id: task.id }, data: { assignedArtistIds } })
+        }
+        return { result: 'APPLIED' }
       }
       if (parsed.action === 'ADD') {
         const metadata = task.normalizedMetadata as { titles?: { display?: string } } | null

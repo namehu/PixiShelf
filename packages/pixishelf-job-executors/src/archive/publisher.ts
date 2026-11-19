@@ -10,6 +10,7 @@ import {
   readSourceCreatorTags,
   syncSourceCreators,
   consumeDiscoveryCreators,
+  appendAutomaticCreator,
   assertArtworkDedupWritable,
   invalidateAnimationDurationSource,
   readArtworkReadingLayout,
@@ -147,6 +148,7 @@ export async function publishArchiveImportInTransaction(
       })
     : await transaction.artwork.create({
         data: {
+          archiveLocalCreatorsOnly: archiveImport.localCreatorsOnly,
           title,
           description,
           sourceDate: postedAt,
@@ -202,7 +204,8 @@ export async function publishArchiveImportInTransaction(
   })
 
   await replaceSourceTags(transaction, artwork.id, externalRef.id, metadata)
-  if (archiveImport.providerKey === 'e-hentai') {
+  const useLegacyCreators = !preserved && !archiveImport.localCreatorsOnly && !artwork.archiveLocalCreatorsOnly
+  if (useLegacyCreators && archiveImport.providerKey === 'e-hentai') {
     await syncSourceCreators(
       transaction,
       artwork.id,
@@ -212,11 +215,17 @@ export async function publishArchiveImportInTransaction(
     )
   }
   await appendArchiveDefaultTags(transaction, artwork.id, defaultTagIds)
-  await consumeDiscoveryCreators(
-    transaction,
-    { providerKey: archiveImport.providerKey, externalId: archiveImport.externalId },
-    artwork.id
-  )
+  if (!existingRef && archiveImport.localCreatorsOnly) {
+    for (const artistId of archiveImport.assignedArtistIds) {
+      await appendAutomaticCreator(transaction, artwork.id, artistId, 'archive:' + archiveImport.id)
+    }
+  } else if (useLegacyCreators) {
+    await consumeDiscoveryCreators(
+      transaction,
+      { providerKey: archiveImport.providerKey, externalId: archiveImport.externalId },
+      artwork.id
+    )
+  }
   await syncArtworkRelationships(transaction, artwork.id, archiveImport.providerKey, metadata.relationships)
   if (preserved) {
     for (const media of preserved.media) {

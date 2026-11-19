@@ -65,7 +65,12 @@ export async function bindDiscoveryCreators(
   return 'CREATED' as const
 }
 
-async function appendAutomaticCreator(tx: Prisma.TransactionClient, artworkId: number, artistId: number) {
+export async function appendAutomaticCreator(
+  tx: Prisma.TransactionClient,
+  artworkId: number,
+  artistId: number,
+  evidenceKey = 'manual'
+) {
   const relation = await tx.artworkArtist.upsert({
     where: { artworkId_artistId: { artworkId, artistId } },
     create: { artworkId, artistId },
@@ -73,8 +78,8 @@ async function appendAutomaticCreator(tx: Prisma.TransactionClient, artworkId: n
   })
   // Automatic defaults never clear a curator's excluded evidence.
   await tx.artworkArtistEvidence.upsert({
-    where: { membershipId_evidenceKey: { membershipId: relation.id, evidenceKey: 'manual' } },
-    create: { membershipId: relation.id, evidenceKey: 'manual', provenance: 'MANUAL' },
+    where: { membershipId_evidenceKey: { membershipId: relation.id, evidenceKey } },
+    create: { membershipId: relation.id, evidenceKey, provenance: 'MANUAL' },
     update: { present: true }
   })
 }
@@ -106,17 +111,25 @@ export async function cancelDiscoveryCreator(tx: Prisma.TransactionClient, id: s
   return true
 }
 
-export async function discoveryCreatorSummaries(tx: Prisma.TransactionClient, identities: DiscoveryIdentity[]) {
+export async function discoveryCreatorSummaries(
+  tx: Prisma.TransactionClient,
+  identities: (DiscoveryIdentity & { localCreatorsOnly?: boolean })[]
+) {
+  const legacy = identities
+    .filter((item) => !item.localCreatorsOnly)
+    .map(({ providerKey, externalId }) => ({ providerKey, externalId }))
   const [refs, pending] = await Promise.all([
     tx.artworkExternalRef.findMany({
       where: { OR: identities.map(({ providerKey, externalId }) => ({ providerKey, externalId })) },
       include: { artwork: { include: { creators: { where: activeCreatorMembership, include: { artist: true } } } } }
     }),
-    tx.discoveryPendingCreator.findMany({
-      where: { OR: identities.map(({ providerKey, externalId }) => ({ providerKey, externalId })) },
-      include: { artist: true },
-      orderBy: { artistId: 'asc' }
-    })
+    legacy.length
+      ? tx.discoveryPendingCreator.findMany({
+          where: { OR: legacy },
+          include: { artist: true },
+          orderBy: { artistId: 'asc' }
+        })
+      : []
   ])
   const option = (artist: { id: number; name: string; kind: 'PERSON' | 'GROUP' }) => ({
     id: artist.id,
@@ -126,6 +139,9 @@ export async function discoveryCreatorSummaries(tx: Prisma.TransactionClient, id
   return identities.map((identity) => {
     const ref = refs.find((row) => row.providerKey === identity.providerKey && row.externalId === identity.externalId)
     return {
+      artwork: ref
+        ? { deletedAt: ref.artwork.deletedAt, archiveLifecycleState: ref.artwork.archiveLifecycleState }
+        : null,
       effectiveCreators:
         ref && !ref.artwork.deletedAt && ref.artwork.archiveLifecycleState === 'ACTIVE'
           ? ref.artwork.creators.map((row) => option(row.artist))

@@ -76,6 +76,7 @@ describePostgres('archive resolver PostgreSQL integration', () => {
     await prisma.archiveIntakeSubmission.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await prisma.jobResourceLease.deleteMany({ where: { ownerJobId: { startsWith: testPrefix } } })
     await prisma.systemJob.deleteMany({ where: { id: { startsWith: testPrefix } } })
+    await prisma.artist.deleteMany({ where: { name: { startsWith: testPrefix } } })
     await prisma.$disconnect()
   })
 
@@ -473,21 +474,29 @@ describePostgres('archive resolver PostgreSQL integration', () => {
     ).toBe(1)
   })
 
-  it('catalog barrier: manual intake enqueue holds no archive/source at first catalog lock', async () => {
+  it('catalog barrier: manual enqueue reads the artist assignment committed by the preceding catalog writer', async () => {
     const now = new Date()
     const { jobId, itemId } = await seedResolverItem(now)
+    const original = await db().artist.create({ data: { name: testPrefix + '-original' } })
+    const retained = await db().artist.create({ data: { name: testPrefix + '-retained' } })
     await db().systemJob.update({ where: { id: jobId }, data: { status: 'COMPLETED' } })
     const item = await db().archiveIntakeItem.update({ where: { id: itemId }, data: {
       status: 'READY', providerKey: resolved.providerKey, externalId: resolved.externalId,
+      localCreatorsOnly: true, assignedArtistIds: [original.id],
       canonicalUrl: resolved.canonicalUrl, resolvedSnapshot: JSON.parse(JSON.stringify(resolved)),
       metadataHash: 'a'.repeat(64), expiresAt: new Date(now.getTime() + 60_000)
     } })
-    const probe = archiveCatalogProbe(db(), parseArtworkDedupSourceSnapshot(item.dedupSourceSnapshot).sources[0]!.sourceId)
+    const sourceId = parseArtworkDedupSourceSnapshot(item.dedupSourceSnapshot).sources[0]!.sourceId
+    const probe = archiveCatalogProbe(db(), sourceId, (tx) =>
+      tx.archiveIntakeItem.update({ where: { id: itemId }, data: { assignedArtistIds: [retained.id] } })
+    )
     const result = await db().$transaction((tx) => enqueueArchiveIntakeItemInTransaction(probe.wrap(tx), itemId, {
       quality: 'ORIGINAL', requestedByUserId: null, timestamp: now, uuid: () => `${testPrefix}-${randomUUID()}`, defaultTagIds: []
     }))
     expect(probe.hits()).toBe(1)
     expect(result.result).toBe('CREATED')
+    const task = await db().archiveImport.findUniqueOrThrow({ where: { id: result.relatedId! } })
+    expect(task.assignedArtistIds).toEqual([retained.id])
   })
 
   it('serializes an AUTO handoff racing a manual enqueue into one download with the winning quality', async () => {

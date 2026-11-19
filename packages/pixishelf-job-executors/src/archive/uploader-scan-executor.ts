@@ -17,7 +17,7 @@ import {
   type ArchiveUploaderScanPayload,
   type JobErrorCode
 } from '@pixishelf/job-contracts'
-import { Prisma, type PrismaClient, lockCreatorCatalog, bindDiscoveryCreators } from '@pixishelf/db'
+import { Prisma, type PrismaClient, lockCreatorCatalog } from '@pixishelf/db'
 import type {
   EnqueuedChildJob,
   ExecutionContext,
@@ -108,7 +108,6 @@ interface CatalogDurableWorkflow {
 }
 
 interface ClaimedScanRun {
-  defaultCreatorIds: number[]
   id: string
   mode: 'LATEST' | 'HISTORY'
   searchIdentityKind: 'NAME' | 'UID' | null
@@ -228,7 +227,6 @@ export async function executeArchiveUploaderScan(
     })
     return {
       id: current.id,
-      defaultCreatorIds: current.defaultCreatorIds,
       mode: current.mode,
       searchIdentityKind: current.searchIdentityKind,
       searchIdentityValue: current.searchIdentityValue,
@@ -462,18 +460,11 @@ async function finalizeScan(
         })
       }
       if (matchData.matchesQuery ?? catalogData.matchesQuery) {
-        const firstMatch = await scope.transaction.archiveUploaderCatalogItem.updateMany({
+        await scope.transaction.archiveUploaderCatalogItem.updateMany({
           where: { id: catalog.id, firstMatchedAt: null },
           data: { firstMatchedAt: completedAt }
         })
-        if (firstMatch.count && run.defaultCreatorIds.length) {
-          await bindDiscoveryCreators(
-            scope.transaction,
-            { providerKey: item.providerKey, externalId: item.externalId },
-            run.defaultCreatorIds,
-            { automatic: true, title: item.title }
-          )
-        }
+
       }
     }
   }

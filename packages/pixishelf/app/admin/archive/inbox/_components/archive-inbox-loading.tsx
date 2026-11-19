@@ -19,3 +19,22 @@ export function InboxLoading() {
     </div>
   )
 }
+
+export function UploaderSourcesLoading() {
+  return (
+    <div className="flex flex-col gap-3" aria-label="正在加载来源">
+      <Skeleton className="h-20 w-full" />
+      <Skeleton className="h-20 w-full" />
+      <Skeleton className="h-20 w-full" />
+    </div>
+  )
+}
+
+export function UploaderDetailLoading() {
+  return (
+    <div className="flex flex-col gap-4">
+      <Skeleton className="h-36 w-full" />
+      <Skeleton className="h-72 w-full" />
+    </div>
+  )
+}

@@ -427,7 +427,7 @@ suite('title rule preview, review and intake on isolated PostgreSQL', () => {
     ).rejects.toThrow('忽略')
   })
 
-  it('preserves scanned creators on intake instead of adding changed defaults, including replay and suppression', async () => {
+  it('captures the current source artists on intake independently of stale pending creators, including replay and suppression', async () => {
     const s = await source({ rules })
     const [item, filtered] = await candidates(s.id, 2)
     const artist = await db!.artist.create({ data: { name: prefix } })
@@ -452,7 +452,12 @@ suite('title rule preview, review and intake on isolated PostgreSQL', () => {
       submissionAttemptId: randomUUID(),
       downloadMode: 'MANUAL' as const
     }
-    await addArchiveUploaderScanItems(request, prefix, deps())
+    const created = await addArchiveUploaderScanItems(request, prefix, deps())
+    expect(await db!.archiveIntakeItem.findFirstOrThrow({ where: { submissionId: created.id } })).toMatchObject({
+      localCreatorsOnly: true,
+      creatorSourceId: s.id,
+      assignedArtistIds: [changedArtist.id]
+    })
     await addArchiveUploaderScanItems(request, prefix, deps())
     expect(await db!.discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(1)
     expect(await db!.discoveryPendingCreator.count({ where: { artistId: changedArtist.id } })).toBe(0)
@@ -544,7 +549,7 @@ suite('title rule preview, review and intake on isolated PostgreSQL', () => {
       { version, decision: 'AUTO' as const, matched: true }
     ])
   )(
-    'scans v$version with decision=$decision and rule match=$matched, binding only accepted candidates',
+    'scans v$version with decision=$decision and rule match=$matched, recording acceptance without assigning artists',
     async ({ version, decision, matched }) => {
       const scanRules: ArchiveTitleRules =
         version === 5
@@ -637,7 +642,7 @@ suite('title rule preview, review and intake on isolated PostgreSQL', () => {
         firstMatchedAt: accepted ? expect.any(Date) : null,
         matchTitles: result.items[0]!.matchTitles
       })
-      expect(await db!.discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(Number(accepted))
+      expect(await db!.discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(0)
     }
   )
 })

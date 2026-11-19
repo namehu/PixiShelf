@@ -34,7 +34,7 @@ function show(value = state) {
     </QueryClientProvider>
   )
 }
-const success = { counts: { created: 1, applied: 1, skipped: 0, failed: 0, conflict: 0 }, items: [] }
+const success = { counts: { created: 0, applied: 2, skipped: 0, failed: 0, conflict: 0 }, items: [] }
 describe('discovery creator confirmation and retries', () => {
   beforeEach(() => {
     mocks.bind.mockReset()
@@ -42,19 +42,23 @@ describe('discovery creator confirmation and retries', () => {
     sessionStorage.clear()
   })
   afterEach(cleanup)
-  it('shows immediate and pending counts, requires creators and only submits on confirmation', async () => {
+  it('shows the number of archived works, requires creators and only submits on confirmation', async () => {
     mocks.bind.mockResolvedValue(success)
     show()
-    expect(screen.getByText(/预计 1 个立即生效，1 个归档后生效/)).toBeTruthy()
+    expect(screen.getByText(/为所选 2 部已归档作品补绑艺术家/)).toBeTruthy()
     expect((screen.getByRole('button', { name: '确认保存' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(screen.getByText('选择 Alice'))
     expect(mocks.bind).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '确认保存' }))
     await waitFor(() => expect(mocks.bind).toHaveBeenCalledOnce())
     expect(mocks.bind.mock.calls[0]![0]).toMatchObject({ artistIds: [7], itemIds: ['a', 'b'], cancel: false })
+    expect(await screen.findByText('已补绑 2', { exact: true })).toBeTruthy()
   })
   it('reuses the exact request after a lost response and remount', async () => {
-    mocks.bind.mockRejectedValueOnce(new Error('network')).mockResolvedValue(success)
+    mocks.bind.mockRejectedValueOnce(new Error('network')).mockResolvedValue({
+      ...success,
+      counts: { ...success.counts, applied: 1, created: 1 }
+    })
     const first = show()
     fireEvent.click(screen.getByText('选择 Alice'))
     fireEvent.click(screen.getByRole('button', { name: '确认保存' }))
@@ -65,12 +69,13 @@ describe('discovery creator confirmation and retries', () => {
     fireEvent.click(await screen.findByRole('button', { name: '确认原操作结果' }))
     await waitFor(() => expect(mocks.bind).toHaveBeenCalledTimes(2))
     expect(mocks.bind.mock.calls[1]![0]).toEqual(request)
+    expect(await screen.findByText('已补绑 1 · 待生效 1', { exact: true })).toBeTruthy()
   })
   it('retries only known failed targets using a new request id', async () => {
     mocks.bind
       .mockResolvedValueOnce({
         ...success,
-        counts: { ...success.counts, failed: 1 },
+        counts: { ...success.counts, applied: 1, failed: 1 },
         items: [{ targetId: 'b', result: 'FAILED', message: '失败' }]
       })
       .mockResolvedValue(success)
@@ -103,7 +108,7 @@ describe('discovery creator confirmation and retries', () => {
     mocks.bind
       .mockResolvedValueOnce({
         ...success,
-        counts: { ...success.counts, failed: 1 },
+        counts: { ...success.counts, applied: 1, failed: 1 },
         items: [{ targetId: 'b', result: 'FAILED' }]
       })
       .mockResolvedValue(success)

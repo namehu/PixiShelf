@@ -51,6 +51,11 @@ export function ArchiveTaskCreators({ task, compact = false }: { task: ArchiveCr
   }
   return (
     <div className="flex flex-col items-start gap-1">
+      {current.creatorSourceName && (
+        <span className="text-sm">
+          入箱来源 · <PrivacySensitiveText>{current.creatorSourceName}</PrivacySensitiveText>
+        </span>
+      )}
       <DiscoveryCreatorStatus
         effectiveCreators={current.effectiveCreators}
         pendingCreators={current.pendingCreators}

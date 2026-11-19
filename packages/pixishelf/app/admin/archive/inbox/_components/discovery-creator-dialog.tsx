@@ -122,10 +122,10 @@ export function DiscoveryCreatorDialog({
           </DialogTitle>
           <DialogDescription>
             {state.mode === 'defaults'
-              ? '仅对下一次扫描起首次命中该来源的作品生效。历史结果请批量补绑；清空可停止后续自动绑定。'
+              ? '从本来源加入收件箱时使用这份名单。清空后，下次入箱时需指定本站艺术家。'
               : state.mode === 'cancel'
                 ? `已选 ${state.itemIds.length} 个作品。仅取消所选艺术家的待生效绑定；已生效关系请在作品管理中修改。`
-                : `已选 ${state.itemIds.length} 个作品：预计 ${state.immediateCount} 个立即生效，${state.itemIds.length - state.immediateCount} 个归档后生效。追加所选艺术家，保留已有关系，不会启动下载。`}
+                : `为所选 ${state.itemIds.length} 部已归档作品补绑艺术家。已有人补绑的作品会自动跳过。`}
           </DialogDescription>
         </DialogHeader>
         {!result && !request ? (
@@ -151,8 +151,15 @@ export function DiscoveryCreatorDialog({
         {result ? (
           <div className="flex max-h-72 flex-col gap-2 overflow-auto" aria-live="polite">
             <p>
-              立即执行 {result.counts.applied} · 待生效 {result.counts.created} · 跳过 {result.counts.skipped} · 未完成{' '}
-              {failed.length}
+              {Object.entries({
+                [state.mode === 'cancel' ? '已取消' : '已补绑']: result.counts.applied,
+                待生效: result.counts.created,
+                已跳过: result.counts.skipped,
+                未完成: failed.length
+              })
+                .filter(([, count]) => count > 0)
+                .map(([label, count]) => `${label} ${count}`)
+                .join(' · ')}
             </p>
             {result.items
               .filter((row) => row.result === 'FAILED' || row.result === 'CONFLICT' || row.result === 'SKIPPED')

@@ -18,6 +18,7 @@ import { useMediaQuery } from '@/hooks/use-media-query'
 import { AdminSection, AdminSectionHeader } from '@/app/admin/_components/admin-workbench'
 import { archiveClientErrorMessage } from '@/app/admin/archive/_components/archive-client-error'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { ArchiveIntakeCreatorsDialog } from './archive-intake-creators-dialog'
 import { ArchiveDiscoveryIgnoreDialog, type DiscoveryIgnoreSelection } from './archive-discovery-ignore-dialog'
 import { Button } from '@/components/ui/button'
 import {
@@ -29,6 +30,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { UploaderSourcesLoading, UploaderDetailLoading } from './archive-inbox-loading'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ArchiveDiscoverySourceFilters } from './archive-discovery-source-filters'
 import { ArchiveDiscoveryContentFilters } from './archive-discovery-content-filters'
@@ -116,6 +118,7 @@ export function ArchiveUploaderSources({
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
   const [ignoreSelection, setIgnoreSelection] = useState<DiscoveryIgnoreSelection | null>(null)
   const ignoreSubmitting = useRef(false)
+  const [artistPrompt, setArtistPrompt] = useState<{ sourceId: string; itemIds: string[] } | null>(null)
   const [creatorDialog, setCreatorDialog] = useState<DiscoveryCreatorDialogState | null>(null)
   const unboundOnly = contentFilters.unboundOnly
   const queryFilters = useMemo(() => discoveryQueryFilters(contentFilters), [contentFilters])
@@ -235,6 +238,7 @@ export function ArchiveUploaderSources({
       setIntakeOptions(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
       setResultFeed('ACTIONABLE')
       setContentFilters(DEFAULT_DISCOVERY_FILTERS)
+      setArtistPrompt(null)
       setCreatorDialog(null)
       setTitleSettings(null)
       setEvidenceItem(null)
@@ -427,8 +431,21 @@ export function ArchiveUploaderSources({
         }
         await refresh()
       },
-      onError: (error) =>
+      onError: (error, input) => {
+        if (error.data?.code === 'PRECONDITION_FAILED' && error.message === '请选择或创建本站艺术家后加入收件箱') {
+          setArtistPrompt({ sourceId: input.sourceId, itemIds: input.itemIds })
+          return
+        }
+        if (
+          error.data?.code === 'PRECONDITION_FAILED' &&
+          (error.message === '该画廊已加入收件箱' ||
+            (error.message.startsWith('已从「') && error.message.endsWith('」加入收件箱')))
+        ) {
+          toast.info(<PrivacySensitiveText>{error.message}</PrivacySensitiveText>)
+          return
+        }
         toast.error('加入收件箱失败', { description: archiveClientErrorMessage(error, '所选结果暂时无法加入收件箱。') })
+      }
     })
   )
   const submissionAttemptMutation = useMutation(
@@ -555,19 +572,6 @@ export function ArchiveUploaderSources({
   const singleSelectedItem = selectedItems.length === 1 ? selectedItems[0] : undefined
   const selectedSubmittable = submittableItems.filter((item) => selectedItemIds.has(item.id))
   const selectedIgnorable = selectedItems.filter((item) => item.actionable)
-  const openCreators = (mode: 'bind' | 'cancel') => {
-    if (!selectedSourceId) return
-    const pending = [
-      ...new Map(selectedItems.flatMap((item) => item.pendingCreators ?? []).map((row) => [row.id, row])).values()
-    ]
-    setCreatorDialog({
-      mode,
-      sourceId: selectedSourceId,
-      itemIds: [...selectedItemIds],
-      immediateCount: selectedItems.filter((item) => item.artworkId !== null).length,
-      initialCreators: mode === 'cancel' ? pending : []
-    })
-  }
   const allActionableSelected =
     bulkSelectableItems.length > 0 && bulkSelectableItems.every((item) => selectedItemIds.has(item.id))
   const bulkSelectableIgnoredItems = ignoredItems.slice(0, MAX_SELECTED_ITEMS)
@@ -591,6 +595,7 @@ export function ArchiveUploaderSources({
   const applyContentFilters = (next: DiscoveryFilterDraft) => {
     clearResultSelection()
     resultPositionsRef.current.clear()
+    if (next.unboundOnly && !contentFilters.unboundOnly) setResultFeed('ALL')
     setContentFilters(next)
   }
 
@@ -687,6 +692,11 @@ export function ArchiveUploaderSources({
   )
 
   const source = detail ? { ...detail.source, catalogCounts: selectedCounts ?? null } : undefined
+  const submitItems = (itemIds: string[]) => {
+    if (!source) return
+    if (!source.defaultCreators?.length) setArtistPrompt({ sourceId: source.id, itemIds })
+    else submissionAttemptMutation.mutate({ sourceId: source.id, itemIds, ...intakeOptions })
+  }
   const resultPositionKey = selectedSourceId
     ? `${selectedSourceId}:${resultFeed}:${JSON.stringify(contentFilters)}`
     : 'unselected'
@@ -903,14 +913,7 @@ export function ArchiveUploaderSources({
                       : undefined
                   }
                   onRearchive={
-                    singleSelectedItem?.canRearchive
-                      ? () =>
-                          submissionAttemptMutation.mutate({
-                            sourceId: source.id,
-                            itemIds: [singleSelectedItem.id],
-                            ...intakeOptions
-                          })
-                      : undefined
+                    singleSelectedItem?.canRearchive ? () => submitItems([singleSelectedItem.id]) : undefined
                   }
                   ignoreDisabled={selectedIgnorable.length === 0}
                   onDefer={
@@ -923,10 +926,16 @@ export function ArchiveUploaderSources({
                       : undefined
                   }
                   addCount={selectedSubmittable.length}
-                  onBind={() => openCreators('bind')}
-                  onCancelPending={
-                    selectedItems.some((item) => item.pendingCreators?.length)
-                      ? () => openCreators('cancel')
+                  onBind={
+                    unboundOnly && selectedItems.length > 0
+                      ? () =>
+                          setCreatorDialog({
+                            mode: 'bind',
+                            sourceId: source.id,
+                            itemIds: selectedItems.map((item) => item.id),
+                            immediateCount: selectedItems.length,
+                            initialCreators: []
+                          })
                       : undefined
                   }
                   addLabel={resultFeed === 'ATTENTION' ? '重新加入收件箱' : '加入收件箱'}
@@ -937,13 +946,7 @@ export function ArchiveUploaderSources({
                       items: selectedIgnorable.map(({ id, title }) => ({ id, title }))
                     })
                   }
-                  onAdd={() =>
-                    submissionAttemptMutation.mutate({
-                      sourceId: source.id,
-                      itemIds: selectedSubmittable.map((item) => item.id),
-                      ...intakeOptions
-                    })
-                  }
+                  onAdd={() => submitItems(selectedSubmittable.map((item) => item.id))}
                 />
               </>
             )}
@@ -956,7 +959,7 @@ export function ArchiveUploaderSources({
   return (
     <div className="flex min-w-0 flex-col gap-4">
       {globalHeader}
-      {deferredView ? <ArchiveDiscoveryDeferred {...deferredView} onClose={() => setDeferredView(null)} /> : null}
+      {deferredView && <ArchiveDiscoveryDeferred {...deferredView} onClose={() => setDeferredView(null)} />}
       {countsQuery.isError || (contentFiltered && filteredCountsQuery.isError) ? (
         <Alert variant="destructive">
           <AlertTitle>统计刷新失败</AlertTitle>
@@ -990,6 +993,22 @@ export function ArchiveUploaderSources({
           })
         }}
       />
+      {artistPrompt && source?.id === artistPrompt.sourceId && (
+        <ArchiveIntakeCreatorsDialog
+          description={
+            <>
+              为「<PrivacySensitiveText>{source.displayName}</PrivacySensitiveText>」选择或创建艺术家，本批{' '}
+              {artistPrompt.itemIds.length} 项将使用该名单。
+            </>
+          }
+          saveToSource
+          onClose={() => setArtistPrompt(null)}
+          onConfirm={(artistIds) => {
+            submissionAttemptMutation.mutate({ ...artistPrompt, artistIds, ...intakeOptions })
+            setArtistPrompt(null)
+          }}
+        />
+      )}
       {creatorDialog ? (
         <DiscoveryCreatorDialog
           key={`${creatorDialog.sourceId}:${creatorDialog.mode}`}
@@ -1178,23 +1197,4 @@ function removeInfiniteItems<TPage extends { items: Array<{ id: string }> }>(
     ...current,
     pages: current.pages.map((page) => ({ ...page, items: page.items.filter((item) => !removed.has(item.id)) }))
   }
-}
-
-function UploaderSourcesLoading() {
-  return (
-    <div className="flex flex-col gap-3" aria-label="正在加载来源">
-      <Skeleton className="h-20 w-full" />
-      <Skeleton className="h-20 w-full" />
-      <Skeleton className="h-20 w-full" />
-    </div>
-  )
-}
-
-function UploaderDetailLoading() {
-  return (
-    <div className="flex flex-col gap-4">
-      <Skeleton className="h-36 w-full" />
-      <Skeleton className="h-72 w-full" />
-    </div>
-  )
 }

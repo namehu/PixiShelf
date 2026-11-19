@@ -13,7 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import type { ArchiveUploaderResultView } from '@/store/admin/use-admin-preferences-store'
-import { CatalogStatusBadge, DiscoveryCreatorStatus } from './discovery-creator-status'
+import { CatalogStatusBadge } from './discovery-creator-status'
 import { ArchiveDiscoveryResultList, type ArchiveDiscoveryListPosition } from './archive-discovery-result-list'
 import { type ArchiveDiscoveryCatalogView, resultFeedLabel } from './archive-discovery-results-toolbar'
 import { ArchiveUploaderGalleryThumbnail } from './archive-uploader-result-visuals'
@@ -191,10 +191,6 @@ export function ScanResults({
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
                   <CatalogStatusBadge item={item} />
                   {item.localQuality ? <ArchiveQualityBadge quality={item.localQuality} /> : null}
-                  <DiscoveryCreatorStatus
-                    effectiveCreators={item.effectiveCreators}
-                    pendingCreators={item.pendingCreators}
-                  />
                 </div>
                 {titleReview ? (
                   <ArchiveTitleMatchEvidence

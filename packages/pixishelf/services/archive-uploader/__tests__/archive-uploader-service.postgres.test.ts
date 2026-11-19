@@ -1,3 +1,4 @@
+import { seedSharedGallery } from './archive-uploader-gallery-fixture'
 import { randomUUID } from 'node:crypto'
 import { Prisma, PrismaClient } from '@pixishelf/db'
 import {
@@ -5,7 +6,7 @@ import {
   executeArchiveUploaderScan,
   hashArchiveUploaderDiscoveryMetadata
 } from '@pixishelf/job-executors'
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 
@@ -27,12 +28,17 @@ const prefix = `archive-uploader-ignore-${randomUUID()}`
 const sharedExternalId = Number.parseInt(randomUUID().replaceAll('-', '').slice(0, 12), 16).toString()
 const secondExternalId = (BigInt(sharedExternalId) + 1n).toString()
 
+let intakeArtistId: number
 describePostgres('archive uploader ignored gallery PostgreSQL integration', () => {
+  beforeAll(async () => {
+    intakeArtistId = (await db().artist.create({ data: { name: prefix } })).id
+  })
   beforeEach(cleanupDatabase)
 
   afterAll(async () => {
     if (!prisma) return
     await cleanupDatabase()
+    await prisma.artist.delete({ where: { id: intakeArtistId } })
     await prisma.$disconnect()
   })
 
@@ -167,6 +173,32 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
     expect(linkedCatalogItems[0]?.lastIntakeItemId).toEqual(expect.any(String))
     expect(new Set(linkedCatalogItems.map((item) => item.lastIntakeItemId)).size).toBe(1)
     expect(linkedCatalogItems.every((item) => item.lastOutcome === 'SUBMITTED')).toBe(true)
+  })
+
+  it('requires a choice for an empty source and freezes only the selected source for overlapping galleries', async () => {
+    const chosen = await seedCompletedScan('chosen', '3501', false)
+    const other = await seedCompletedScan('overlap', '3502', false)
+    const input = { sourceId: chosen.sourceId, itemIds: [chosen.catalogItemId], submissionAttemptId: randomUUID() }
+    await expect(addArchiveUploaderScanItems(input, prefix, { database: db() })).rejects.toThrow('请选择或创建')
+    const submission = await addArchiveUploaderScanItems({ ...input, artistIds: [intakeArtistId] }, prefix, {
+      database: db()
+    })
+    expect(await db().discoverySourceCreator.findMany({ where: { sourceId: chosen.sourceId } })).toMatchObject([
+      { artistId: intakeArtistId }
+    ])
+    await db().discoverySourceCreator.deleteMany({ where: { sourceId: chosen.sourceId } })
+    await expect(
+      addArchiveUploaderScanItems(
+        { sourceId: other.sourceId, itemIds: [other.catalogItemId], submissionAttemptId: randomUUID() },
+        prefix,
+        { database: db() }
+      )
+    ).rejects.toThrow('加入收件箱')
+    expect(await db().archiveIntakeItem.findFirstOrThrow({ where: { submissionId: submission.id } })).toMatchObject({
+      creatorSourceId: chosen.sourceId,
+      assignedArtistIds: [intakeArtistId]
+    })
+    expect(await db().discoverySourceCreator.count({ where: { sourceId: other.sourceId } })).toBe(0)
   })
 
   it('returns the original server submission when the same successful request is replayed', async () => {
@@ -324,7 +356,7 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
       {
         database: databaseWithAfterIgnoredCheckHook(async () => {
           competingSubmission = createArchiveIntakeSubmission(
-            { idempotencyKey: `${prefix}-duplicate-competing`, urls: [canonicalUrl] },
+            { artistIds: [intakeArtistId], idempotencyKey: `${prefix}-duplicate-competing`, urls: [canonicalUrl] },
             `${prefix}-duplicate-competing`,
             { database: db(), uuid: prefixedUuidFactory('duplicate-competing') }
           )
@@ -985,89 +1017,8 @@ function transactionWithArchiveImportHook(
   })
 }
 
-async function seedCompletedScan(suffix: string, uploaderUid: string) {
-  const sourceId = `${prefix}-source-${suffix}`
-  const runId = `${prefix}-run-${suffix}`
-  const jobId = `${prefix}-job-${suffix}`
-  const scanItemId = `${prefix}-scan-item-${suffix}`
-  const catalogItemId = `${prefix}-catalog-item-${suffix}`
-  await db().archiveUploaderSource.create({
-    data: {
-      id: sourceId,
-      providerKey: 'e-hentai',
-      identityKind: 'UID',
-      identityValue: uploaderUid,
-      normalizedIdentity: uploaderUid,
-      displayName: `Uploader ${suffix}`
-    }
-  })
-  await db().systemJob.create({
-    data: {
-      id: jobId,
-      type: 'ARCHIVE_UPLOADER_SCAN',
-      executionLane: 'ARCHIVE_RESOLVE',
-      definitionVersion: 1,
-      status: 'COMPLETED',
-      triggerSource: 'MANUAL',
-      payload: { scanRunId: runId },
-      queuePriority: 20,
-      effectivePriority: 20,
-      availableAt: new Date('2026-09-02T00:00:00.000Z'),
-      finishedAt: new Date('2026-09-02T00:01:00.000Z'),
-      progress: 100
-    }
-  })
-  await db().archiveUploaderScanRun.create({
-    data: {
-      id: runId,
-      sourceId,
-      systemJobId: jobId,
-      mode: 'LATEST',
-      searchIdentityKind: 'UID',
-      searchIdentityValue: uploaderUid,
-      status: 'COMPLETED',
-      itemCount: 1,
-      newCount: 1,
-      finishedAt: new Date('2026-09-02T00:01:00.000Z')
-    }
-  })
-  await db().archiveUploaderScanItem.create({
-    data: {
-      id: scanItemId,
-      runId,
-      providerKey: 'e-hentai',
-      externalId: sharedExternalId,
-      canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/privatetoken/`,
-      title: 'Shared gallery',
-      thumbnailUrl: 'https://ehgt.org/thumb.jpg?secret=1',
-      uploaderName: `Uploader ${suffix}`,
-      postedAt: new Date('2026-09-01T00:00:00.000Z'),
-      metadataFingerprint: 'a'.repeat(64),
-      relationships: {},
-      classification: 'NEW'
-    }
-  })
-  await db().archiveUploaderCatalogItem.create({
-    data: {
-      id: catalogItemId,
-      sourceId,
-      providerKey: 'e-hentai',
-      externalId: sharedExternalId,
-      canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/privatetoken/`,
-      title: 'Shared gallery',
-      thumbnailUrl: 'https://ehgt.org/thumb.jpg?secret=1',
-      uploaderName: `Uploader ${suffix}`,
-      postedAt: new Date('2026-09-01T00:00:00.000Z'),
-      relationships: {},
-      classification: 'NEW',
-      comparisonKnown: true,
-      comparisonFingerprint: 'a'.repeat(64),
-      firstSeenAt: new Date('2026-09-02T00:01:00.000Z'),
-      lastSeenAt: new Date('2026-09-02T00:01:00.000Z'),
-      lastScanRunId: runId
-    }
-  })
-  return { sourceId, runId, jobId, scanItemId, catalogItemId }
+function seedCompletedScan(suffix: string, uploaderUid: string, configured = true) {
+  return seedSharedGallery(db(), { prefix, sharedExternalId, suffix, uploaderUid, artistId: configured ? intakeArtistId : undefined })
 }
 
 async function cleanupDatabase() {

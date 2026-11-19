@@ -77,6 +77,7 @@ describe('archive inbox authorization boundary', () => {
       invoke: () =>
         archiveInboxRouter.createCaller(unauthorized).create({
           idempotencyKey: 'request-1',
+          artistIds: [7],
           urls: ['https://e-hentai.org/g/1/token/']
         }),
       service: mocks.create
@@ -158,11 +159,13 @@ describe('archive inbox authorization boundary', () => {
   it('passes the authenticated user only to the admin write service', async () => {
     await archiveInboxRouter.createCaller(authorized).create({
       idempotencyKey: 'request-1',
+      artistIds: [7],
       urls: ['https://e-hentai.org/g/1/token/']
     })
     expect(mocks.create).toHaveBeenCalledWith(
       {
         idempotencyKey: 'request-1',
+        artistIds: [7],
         urls: ['https://e-hentai.org/g/1/token/'],
         downloadMode: 'MANUAL',
         quality: 'DISPLAY',

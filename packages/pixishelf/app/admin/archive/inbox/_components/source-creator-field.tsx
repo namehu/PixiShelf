@@ -19,7 +19,7 @@ export function SourceCreatorField({
         <FieldLabel>绑定艺术家（可选）</FieldLabel>
         <CreatorPicker value={value} onChange={onChange} presentation="dialog" disabled={disabled} />
         <FieldDescription>
-          可在来源详情调整。标题来源在人工入箱时追加，上传者来源在首次扫描匹配时追加。
+          从本来源加入收件箱时使用所选艺术家。
           {confirmExisting ? '相同条件已存在时，会先确认再追加绑定，保留原有艺术家。' : '已有来源保留原绑定。'}
         </FieldDescription>
       </Field>

@@ -539,6 +539,9 @@ function buildArchiveTaskWireSelect(attributionWhere: Prisma.ArchiveIntakeItemWh
   return {
     id: true,
     phase: true,
+    creatorSourceName: true,
+    assignedArtistIds: true,
+    localCreatorsOnly: true,
     origin: true,
     executions: {
       orderBy: { createdAt: 'asc' as const },
@@ -580,6 +583,7 @@ function buildArchiveTaskWireSelect(attributionWhere: Prisma.ArchiveIntakeItemWh
     finishedAt: true,
     retainUntil: true,
     cleanupRequestedAt: true,
+    publishedArtworkId: true,
     publishedArtworkDeletedAt: true,
     publishedArtworkPurgedAt: true,
     publishedArtwork: { select: { id: true, title: true, deletedAt: true, archiveLifecycleState: true } },
@@ -640,6 +644,7 @@ function serializeTask(task: ArchiveTaskWire) {
     phase: task.phase,
     stage: task.systemJob.stage,
     origin: task.origin,
+    creatorSourceName: task.creatorSourceName,
     executions: task.executions?.map((execution) => ({ phase: execution.phase, ...execution.job })) ?? [],
     providerKey: task.providerKey,
     externalId: task.externalId,

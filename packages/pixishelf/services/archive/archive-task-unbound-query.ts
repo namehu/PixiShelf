@@ -10,8 +10,17 @@ export async function unboundArchiveTaskIds(
 ) {
   const clauses: Prisma.Sql[] = [
     Prisma.sql`
-    NOT EXISTS (SELECT 1 FROM discovery_pending_creators p
-      WHERE p."providerKey" = t."providerKey" AND p."externalId" = t."externalId")
+    t."publishedArtworkDeletedAt" IS NULL
+    AND (t.status <> 'COMPLETED' OR t."publishedArtworkId" IS NOT NULL)
+    AND (CASE WHEN t."localCreatorsOnly" THEN
+      cardinality(t."assignedArtistIds") = 0 OR EXISTS (
+        SELECT 1 FROM artwork_external_refs r
+        WHERE r."providerKey" = t."providerKey" AND r."externalId" = t."externalId"
+      )
+    ELSE NOT EXISTS (
+      SELECT 1 FROM discovery_pending_creators p
+      WHERE p."providerKey" = t."providerKey" AND p."externalId" = t."externalId"
+    ) END)
     AND NOT EXISTS (SELECT 1 FROM artwork_external_refs r
       JOIN "Artwork" a ON a.id = r."artworkId"
       JOIN effective_artwork_creators e ON e."artworkId" = a.id

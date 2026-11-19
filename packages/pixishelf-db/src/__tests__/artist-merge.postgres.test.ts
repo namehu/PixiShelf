@@ -206,6 +206,35 @@ describe.skipIf(!url)('artist merge PostgreSQL invariants', () => {
       expect(await active(tx, work.id)).toEqual([])
     }))
 
+  it('keeps unpublished intake assignments usable after a merge and preserves submitted history', () =>
+    fixture(async (tx) => {
+      const { source, target } = await pair(tx)
+      const submission = await tx.archiveIntakeSubmission.create({
+        data: { idempotencyKey: 'artist-merge-test', requestHash: 'a'.repeat(64), rawCount: 2, acceptedCount: 2 }
+      })
+      const data = {
+        submissionId: submission.id,
+        submittedUrl: 'https://example.test/gallery',
+        normalizedUrlHash: 'a'.repeat(64),
+        localCreatorsOnly: true,
+        assignedArtistIds: [source.id, target.id]
+      }
+      const retryable = await tx.archiveIntakeItem.create({ data: { ...data, status: 'FAILED' } })
+      const historical = await tx.archiveIntakeItem.create({ data: { ...data, status: 'ENQUEUED' } })
+      const skipped = await tx.archiveIntakeItem.create({ data: { ...data, status: 'SKIPPED' } })
+      await applyArtistMerge(tx, (await prepare(tx, source.id, target.id)).id)
+      expect((await tx.archiveIntakeItem.findUniqueOrThrow({ where: { id: retryable.id } })).assignedArtistIds).toEqual(
+        [target.id]
+      )
+      expect(
+        (await tx.archiveIntakeItem.findUniqueOrThrow({ where: { id: historical.id } })).assignedArtistIds
+      ).toEqual([source.id, target.id])
+      expect((await tx.archiveIntakeItem.findUniqueOrThrow({ where: { id: skipped.id } })).assignedArtistIds).toEqual([
+        source.id,
+        target.id
+      ])
+    }))
+
   it('moves every archive binding and consumes pending bindings on future publication', () =>
     fixture(async (tx) => {
       const { source, target } = await pair(tx)

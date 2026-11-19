@@ -40,12 +40,12 @@ export async function enqueueArchiveIntakeItemInTransaction(
   }
 ): Promise<ArchiveIntakeEnqueueResult> {
   const { quality, requestedByUserId, timestamp, uuid, defaultTagIds } = options
+  await lockCreatorCatalog(transaction)
   const item = await transaction.archiveIntakeItem.findUnique({ where: { id: itemId } })
   if (!item) return { result: 'SKIPPED', code: 'NOT_FOUND', message: '收件项目不存在' }
   if (!['READY', 'ENQUEUED'].includes(item.status) || item.cancelRequestedAt) {
     return { result: 'SKIPPED', code: 'INVALID_STATE' }
   }
-  await lockCreatorCatalog(transaction)
   await lockIntakeSource(transaction, item)
   const dedupSourceSnapshot = await assertArchiveSourceSnapshot(transaction, {
     providerKey: item.providerKey ?? '',
@@ -239,6 +239,10 @@ export async function enqueueArchiveIntakeItemInTransaction(
       id: importId,
       systemJobId: jobId,
       phase: 'DOWNLOAD',
+      localCreatorsOnly: item.localCreatorsOnly,
+      creatorSourceId: item.creatorSourceId,
+      creatorSourceName: item.creatorSourceName,
+      assignedArtistIds: item.assignedArtistIds,
       origin,
       executions: { create: { jobId, phase: 'DOWNLOAD' } },
       providerKey: resolved.providerKey,

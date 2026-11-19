@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createDatabaseClient, disconnectDatabase, Prisma, captureArtworkDedupSources } from '@pixishelf/db'
-import { parseArtworkDedupSourceSnapshot } from '@pixishelf/job-contracts'
+import { JOB_DEFINITION_VERSION, parseArtworkDedupSourceSnapshot } from '@pixishelf/job-contracts'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { retryJobCommand } from '@/services/background-task/job-command-service'
 import {
@@ -40,9 +40,11 @@ async function markFailed(id: string) {
   return item
 }
 
+let intakeArtistId: number
 describePostgres('Intake durable dedup source proof production transaction', () => {
   beforeAll(async () => {
     await database.$connect()
+    intakeArtistId = (await database.artist.create({ data: { name: 'Intake test ' + randomUUID() } })).id
   })
   afterAll(async () => {
     await database.archiveBulkOperation.deleteMany({ where: { requestedByUserId: userId } })
@@ -51,6 +53,8 @@ describePostgres('Intake durable dedup source proof production transaction', () 
     await database.artworkDedupSourceIdentity.deleteMany({
       where: { providerKey: 'e-hentai', externalId: { in: externalIds } }
     })
+
+    await database.artist.delete({ where: { id: intakeArtistId } })
     await disconnectDatabase(database)
   })
 
@@ -61,7 +65,9 @@ describePostgres('Intake durable dedup source proof production transaction', () 
       urls: [gallery(id), `https://e-hentai.org/s/pagekey/${id}-2`],
       downloadMode: 'AUTO' as const
     }
-    const submission = await createArchiveIntakeSubmission(request, userId, { database })
+    const submission = await createArchiveIntakeSubmission({ ...request, artistIds: [intakeArtistId] }, userId, {
+      database
+    })
     expect(submission.acceptedCount).toBe(2)
     expect(submission.items.every((item) => item.sourceIntentValid)).toBe(true)
     expect(submission.items[0]).not.toHaveProperty('dedupSourceSnapshot')
@@ -73,7 +79,9 @@ describePostgres('Intake durable dedup source proof production transaction', () 
     expect(proofs[0]).toEqual(proofs[1])
     expect(proofs[0]!.sources[0]!.identity).toEqual({ kind: 'PROVIDER', providerKey: 'e-hentai', externalId: id })
     expect(rows.every((row) => row.currentSystemJobId)).toBe(true)
-    const replay = await createArchiveIntakeSubmission(request, userId, { database })
+    const replay = await createArchiveIntakeSubmission({ ...request, artistIds: [intakeArtistId] }, userId, {
+      database
+    })
     expect(replay.id).toBe(submission.id)
     expect(
       await database.systemJob.count({
@@ -95,7 +103,11 @@ describePostgres('Intake durable dedup source proof production transaction', () 
     const idempotencyKey = key('held')
     const before = await database.systemJob.count({ where: { requestedByUserId: userId } })
     await expect(
-      createArchiveIntakeSubmission({ idempotencyKey, urls: [gallery(open), gallery(held)] }, userId, { database })
+      createArchiveIntakeSubmission(
+        { artistIds: [intakeArtistId], idempotencyKey, urls: [gallery(open), gallery(held)] },
+        userId,
+        { database }
+      )
     ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
     expect(await database.archiveIntakeSubmission.findUnique({ where: { idempotencyKey } })).toBeNull()
     expect(await database.systemJob.count({ where: { requestedByUserId: userId } })).toBe(before)
@@ -109,7 +121,7 @@ describePostgres('Intake durable dedup source proof production transaction', () 
     async (mode) => {
       const id = nextId()
       const submission = await createArchiveIntakeSubmission(
-        { idempotencyKey: key(mode), urls: [gallery(id)] },
+        { artistIds: [intakeArtistId], idempotencyKey: key(mode), urls: [gallery(id)] },
         userId,
         { database }
       )
@@ -147,9 +159,15 @@ describePostgres('Intake durable dedup source proof production transaction', () 
         status: original.status,
         dedupSourceSnapshot: original.dedupSourceSnapshot
       })
-      await expect(
+      const retrySystemJob = () =>
         retryJobCommand({ jobId: item.currentSystemJobId!, requestedByUserId: userId }, database)
-      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+      // Current archive jobs use the domain retry. The generic retry accepts only legacy v1 jobs.
+      await expect(retrySystemJob()).rejects.toMatchObject({ code: 'INVALID_STATE_TRANSITION' })
+      await database.systemJob.update({
+        where: { id: item.currentSystemJobId! },
+        data: { definitionVersion: JOB_DEFINITION_VERSION }
+      })
+      await expect(retrySystemJob()).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
       expect(await database.systemJob.count({ where: { parentJobId: item.currentSystemJobId } })).toBe(0)
     }
   )
@@ -158,7 +176,7 @@ describePostgres('Intake durable dedup source proof production transaction', () 
     const originalId = nextId(),
       replacementId = nextId()
     const submission = await createArchiveIntakeSubmission(
-      { idempotencyKey: key('valid'), urls: [gallery(originalId)] },
+      { artistIds: [intakeArtistId], idempotencyKey: key('valid'), urls: [gallery(originalId)] },
       userId,
       { database }
     )
@@ -177,7 +195,11 @@ describePostgres('Intake durable dedup source proof production transaction', () 
       { database }
     )
     const fresh = await database.archiveIntakeItem.findUniqueOrThrow({ where: { id: replacement.items[0]!.id } })
-    expect(fresh.supersedesItemId).toBe(original.id)
+    expect(fresh).toMatchObject({
+      supersedesItemId: original.id,
+      assignedArtistIds: [intakeArtistId],
+      localCreatorsOnly: true
+    })
     expect(parseArtworkDedupSourceSnapshot(fresh.dedupSourceSnapshot).sources[0]!.identity).toEqual({
       kind: 'PROVIDER',
       providerKey: 'e-hentai',

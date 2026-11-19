@@ -25,7 +25,7 @@ import {
   archiveTitleEvaluationSchema,
   archiveTitleEvidenceFromCatalog
 } from '@pixishelf/job-contracts'
-import { Prisma, type PrismaClient, discoveryCreatorSummaries, lockCreatorCatalog } from '@pixishelf/db'
+import { Prisma, type PrismaClient, lockCreatorCatalog } from '@pixishelf/db'
 import { type ArchiveUploaderProviderRegistry } from '@pixishelf/job-executors'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
@@ -33,6 +33,7 @@ import { ArchiveError } from '@/services/archive/errors'
 import { archiveTaskSourceUrl } from '@/services/archive/archive-task-source-service'
 import { resolveArchiveUploaderIdentity } from './archive-uploader-identity'
 import { archiveWireErrorMessage, redactArchiveUrl } from '@/services/archive/archive-redaction'
+import { intakeArtistIdsSchema } from '@/services/archive-intake/archive-intake-creators'
 import { createArchiveIntakeSubmissionInTransaction } from '@/services/archive-intake/archive-intake-service'
 import {
   INTAKE_SUBMISSION_TRANSACTION_OPTIONS,
@@ -138,6 +139,7 @@ export const createArchiveUploaderSubmissionAttemptSchema = z
   .object({
     sourceId: sourceIdSchema,
     itemIds: scanItemIdsSchema,
+    artistIds: intakeArtistIdsSchema.optional(),
     downloadMode: z.enum(['AUTO', 'MANUAL']).default('MANUAL'),
     quality: z.enum(['ORIGINAL', 'DISPLAY']).default('DISPLAY'),
     downloadScope: archiveDownloadScopeSchema.default('ALL')
@@ -327,13 +329,8 @@ export async function listArchiveUploaderScanItems(
   })
   if (!source) throw new ArchiveError('STATE_CONFLICT', '上传者来源不存在')
   const result = await listArchiveUploaderCatalogState(database, parsed)
-  const summaries = await discoveryCreatorSummaries(database, result.items)
   return {
-    items: result.items.map((item, index) => ({
-      ...serializeCatalogItem(item),
-      effectiveCreators: summaries[index]!.effectiveCreators,
-      pendingCreators: summaries[index]!.pendingCreators
-    })),
+    items: result.items.map(serializeCatalogItem),
     counts:
       dependencies.includeCounts === false
         ? null
@@ -833,6 +830,7 @@ export async function addArchiveUploaderScanItems(
         const submission = await createArchiveIntakeSubmissionInTransaction(
           {
             idempotencyKey,
+            artistIds: parsed.artistIds,
             urls: items.map(({ canonicalUrl }) => canonicalUrl),
             downloadMode: deletions.length ? 'MANUAL' : parsed.downloadMode,
             quality: parsed.quality,
@@ -840,7 +838,7 @@ export async function addArchiveUploaderScanItems(
           },
           requestedByUserId,
           transaction,
-          { now: dependencies.now, uuid: dependencies.uuid, trace }
+          { now: dependencies.now, uuid: dependencies.uuid, trace, creatorSource: { id: parsed.sourceId } }
         )
         // The original submission may already have been resolved or published.
         if (existingAttempt) return submission
