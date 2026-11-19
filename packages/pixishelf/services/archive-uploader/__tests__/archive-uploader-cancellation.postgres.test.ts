@@ -166,6 +166,7 @@ describePostgres('archived discovery cancellation PostgreSQL regression', () => 
 
   it('allows a cancelled archived update to be submitted again before its intake history is cleaned', async () => {
     const seeded = await seedCatalog()
+    const artist = await db().artist.create({ data: { name: `${prefix}-artist` } })
     const artwork = await db().artwork.create({ data: { title: `${prefix}-cancel-retry-artwork` } })
     await db().artworkExternalRef.create({
       data: {
@@ -181,13 +182,13 @@ describePostgres('archived discovery cancellation PostgreSQL regression', () => 
       where: { id: seeded.catalogItemId },
       data: { classification: 'POSSIBLE_UPDATE' }
     })
-    const submit = () =>
+    const submit = (artistIds?: number[]) =>
       addArchiveUploaderScanItems(
-        { sourceId: seeded.sourceId, itemIds: [seeded.catalogItemId], submissionAttemptId: randomUUID() },
+        { sourceId: seeded.sourceId, itemIds: [seeded.catalogItemId], submissionAttemptId: randomUUID(), artistIds },
         `${prefix}-admin`,
         { database: db(), uuid: prefixedUuidFactory(randomUUID()) }
       )
-    const original = await submit()
+    const original = await submit([artist.id])
     const intake = await db().archiveIntakeItem.findFirstOrThrow({ where: { submissionId: original.id } })
     await cancelArchiveIntakeMany(
       { idempotencyKey: `${prefix}-cancel-retry`, itemIds: [intake.id] },
@@ -243,6 +244,7 @@ async function cleanupDatabase() {
   await prisma.archiveBulkOperation.deleteMany({ where: { requestedByUserId: `${prefix}-admin` } })
   await prisma.systemJob.deleteMany({ where: { id: { startsWith: prefix } } })
   await prisma.artwork.deleteMany({ where: { title: { startsWith: prefix } } })
+  await prisma.artist.deleteMany({ where: { name: `${prefix}-artist` } })
 }
 
 function prefixedUuidFactory(suffix: string) {

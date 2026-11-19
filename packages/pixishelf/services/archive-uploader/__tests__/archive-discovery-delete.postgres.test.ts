@@ -338,7 +338,8 @@ async function seedCompletedScan(suffix: string, uploaderUid: string, kind: 'UPL
       ...(kind === 'TITLE_QUERY'
         ? { titleQuery, queryKey: 'd'.repeat(64) }
         : { identityKind: 'UID', identityValue: uploaderUid, normalizedIdentity: uploaderUid }),
-      displayName: `Uploader ${suffix}`
+      displayName: `Uploader ${suffix}`,
+      defaultCreators: { create: { artist: { create: { name: `${prefix}-artist-${suffix}` } } } }
     }
   })
   await db().systemJob.create({
@@ -438,6 +439,7 @@ async function cleanupDatabase() {
     where: { OR: [{ id: { startsWith: prefix } }, { requestedByUserId: { startsWith: prefix } }] }
   })
   await prisma.artwork.deleteMany({ where: { title: { startsWith: prefix } } })
+  await prisma.artist.deleteMany({ where: { name: { startsWith: `${prefix}-artist-` } } })
 }
 
 function databaseWithFirstLockHooks(

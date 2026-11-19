@@ -88,6 +88,7 @@ describe.skipIf(!database).sequential('title discovery PostgreSQL workflow', () 
     await database.archiveUploaderSource.deleteMany({ where: { id: { in: sourceIds } } })
     await database.archiveIntakeSubmission.deleteMany({ where: { requestedByUserId: prefix } })
     await database.systemJob.deleteMany({ where: { requestedByUserId: prefix } })
+    await database.artist.deleteMany({ where: { name: `${prefix}-artist` } })
     await database.$disconnect()
   })
 
@@ -166,7 +167,7 @@ describe.skipIf(!database).sequential('title discovery PostgreSQL workflow', () 
         prefix,
         deps
       )
-    ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT', message: '部分扫描结果不存在或不属于该上传者来源' })
     expect(await database!.archiveUploaderIgnoredItem.count({ where: { externalId: item.externalId } })).toBe(0)
   })
 
@@ -175,17 +176,18 @@ describe.skipIf(!database).sequential('title discovery PostgreSQL workflow', () 
     const b = await source('cross-b')
     const itemA = await catalog(a.id, true)
     const itemB = await catalog(b.id, true, itemA.externalId)
+    const artist = await database!.artist.create({ data: { name: `${prefix}-artist` } })
     const ignored = await ignoreArchiveUploaderScanItems({ sourceId: a.id, itemIds: [itemA.id] }, prefix, deps)
     await expect(listArchiveUploaderScanItems({ sourceId: b.id }, deps)).resolves.toMatchObject({ items: [] })
     await restoreArchiveUploaderIgnoredItems({ ignoredItemIds: ignored.ignoredItemIds }, deps)
     const results = await Promise.allSettled([
       addArchiveUploaderScanItems(
-        { sourceId: a.id, itemIds: [itemA.id], submissionAttemptId: randomUUID() },
+        { sourceId: a.id, itemIds: [itemA.id], submissionAttemptId: randomUUID(), artistIds: [artist.id] },
         prefix,
         deps
       ),
       addArchiveUploaderScanItems(
-        { sourceId: b.id, itemIds: [itemB.id], submissionAttemptId: randomUUID() },
+        { sourceId: b.id, itemIds: [itemB.id], submissionAttemptId: randomUUID(), artistIds: [artist.id] },
         prefix,
         deps
       )
